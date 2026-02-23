@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { DEPTS, CHAT_EMOJIS, isStaff } from '../../lib/constants'
 import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel } from '../../lib/supabase'
 import Av from '../ui/Av'
@@ -18,33 +18,84 @@ export default function ChatPanel({ user, open, onToggle }) {
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
   const endRef = useRef(null)
+  const openRef = useRef(open)
+  const channelRef = useRef(channel)
 
+  // Keep refs in sync
+  useEffect(() => { openRef.current = open }, [open])
+  useEffect(() => { channelRef.current = channel }, [channel])
+
+  // Fetch messages helper
+  const fetchMessages = useCallback((ch) => {
+    return getChatMessages(ch || channelRef.current).then(data => {
+      setMessages(data)
+      return data
+    })
+  }, [])
+
+  // Load messages when channel changes or panel opens
   useEffect(() => {
-    if (open) getChatMessages(channel).then(setMessages)
-  }, [channel, open])
+    if (open) fetchMessages(channel)
+  }, [channel, open, fetchMessages])
 
-  // #9 Fix: realtime — subscribe properly, append new msg directly
+  // Realtime subscription — always active, re-subscribes on channel change
   useEffect(() => {
     const sub = subscribeToChatChannel(channel, (payload) => {
       if (payload.eventType === 'INSERT' && payload.new) {
-        // Refetch to get full author data
-        getChatMessages(channel).then(setMessages)
+        // Refetch to get full author data (join)
+        fetchMessages(channel)
       }
     })
     return () => supabase.removeChannel(sub)
-  }, [channel])
+  }, [channel, fetchMessages])
 
+  // Polling fallback — every 5 seconds when panel is open
+  // This ensures messages appear even if Realtime has issues
+  useEffect(() => {
+    if (!open) return
+    const interval = setInterval(() => {
+      fetchMessages(channelRef.current)
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [open, fetchMessages])
+
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   const handleSend = async () => {
     if (!input.trim() || sending) return
-    setSending(true)
-    await sendChatMessage(channel, user.id, input.trim())
+    const body = input.trim()
     setInput('')
-    setSending(false)
+    setSending(true)
     setShowEmoji(false)
+
+    // Optimistic: add message immediately so sender sees it right away
+    const optimisticMsg = {
+      id: `temp-${Date.now()}`,
+      channel,
+      author_id: user.id,
+      body,
+      created_at: new Date().toISOString(),
+      author: {
+        id: user.id,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url,
+        role: user.role,
+        mood_emoji: user.mood_emoji,
+      },
+    }
+    setMessages(prev => [...prev, optimisticMsg])
+
+    const { error } = await sendChatMessage(channel, user.id, body)
+    setSending(false)
+
+    if (error) {
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
+    }
+    // On success, the realtime subscription or polling will refetch with real data
   }
 
   const deptLabel = (ch) => {
@@ -55,7 +106,7 @@ export default function ChatPanel({ user, open, onToggle }) {
 
   return (
     <>
-      {/* Tab handle on right edge — #4 */}
+      {/* Tab handle on right edge */}
       {!open && (
         <button className="chat-tab-handle" onClick={onToggle}>
           Chat
@@ -73,7 +124,10 @@ export default function ChatPanel({ user, open, onToggle }) {
         }}>
           {/* Header */}
           <div style={{ padding: '18px 20px', borderBottom: '1px solid #E8ECF1', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#6C5CE7' }}>Chat</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#6C5CE7' }}>Chat</span>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', animation: 'pulse 2s ease infinite' }} title="Live" />
+            </div>
             <button onClick={onToggle} style={{ background: '#F1F5F9', border: 'none', color: '#64748B', fontSize: 20, cursor: 'pointer', padding: 4, borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           </div>
 
@@ -98,10 +152,13 @@ export default function ChatPanel({ user, open, onToggle }) {
               <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: 12, padding: 48 }}>Nessun messaggio</div>
             ) : messages.map(m => {
               const isMine = m.author_id === user.id
+              const isOptimistic = typeof m.id === 'string' && m.id.startsWith('temp-')
               return (
                 <div key={m.id} style={{
                   display: 'flex', gap: 8, alignItems: 'flex-start',
                   flexDirection: isMine ? 'row-reverse' : 'row',
+                  opacity: isOptimistic ? 0.6 : 1,
+                  transition: 'opacity 0.2s ease',
                 }}>
                   <Av name={m.author?.full_name} size={26} url={m.author?.avatar_url} mood={m.author?.mood_emoji} />
                   <div style={{
@@ -126,7 +183,7 @@ export default function ChatPanel({ user, open, onToggle }) {
             <div ref={endRef} />
           </div>
 
-          {/* Emoji picker — #10 */}
+          {/* Emoji picker */}
           {showEmoji && (
             <div style={{
               padding: '10px 18px', borderTop: '1px solid #E8ECF1', background: '#F8FAFC',
