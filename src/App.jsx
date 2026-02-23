@@ -988,22 +988,41 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) loadUser(session.user.id)
+      if (session) loadUser(session.user)
       else setLoading(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) loadUser(session.user.id)
+      if (session) loadUser(session.user)
       else { setUser(null); setLoading(false) }
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  const loadUser = async (userId) => {
-    const profile = await getProfile(userId)
+  const loadUser = async (authUser) => {
+    let profile = await getProfile(authUser.id)
+    
+    if (!profile) {
+      const fullName = authUser.user_metadata?.full_name
+        || authUser.user_metadata?.name
+        || authUser.email?.split('@')[0]?.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+        || 'Unknown'
+
+      const { data, error } = await supabase.from('profiles').upsert({
+        id: authUser.id,
+        email: authUser.email || '',
+        full_name: fullName,
+        avatar_url: authUser.user_metadata?.avatar_url || null,
+        role: 'studente'
+      }).select().single()
+
+      if (!error) profile = data
+      else console.error('Profile creation failed:', error)
+    }
+
     setUser(profile)
     setLoading(false)
-    loadData(userId)
+    if (profile) loadData(authUser.id)
   }
 
   // ── Load all data ──
