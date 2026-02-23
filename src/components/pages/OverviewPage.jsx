@@ -11,28 +11,32 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
   const myTasks = tasks.filter(t => t.assigned_to === user.id)
   const reviewTasks = tasks.filter(t => t.status === 'review')
 
-  // Colored stat cards with themed pastel backgrounds
+  // Dept color map for stat cards
   const statCards = [
-    { l: 'Shots', v: shots.length, e: '🎬', c: '#9DC4E8', bg: 'rgba(157,196,232,0.10)', border: 'rgba(157,196,232,0.18)' },
-    { l: 'Completati', v: done, e: '✅', c: '#A8E6CF', bg: 'rgba(168,230,207,0.10)', border: 'rgba(168,230,207,0.18)' },
-    { l: 'In Corso', v: wip, e: '🔧', c: '#FFEAA7', bg: 'rgba(255,234,167,0.10)', border: 'rgba(255,234,167,0.18)' },
-    { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, e: '📋', c: '#C5B3E6', bg: 'rgba(197,179,230,0.10)', border: 'rgba(197,179,230,0.18)' },
+    { l: 'Shots', v: shots.length, c: '#60A5FA' },
+    { l: 'Completati', v: done, c: '#10B981' },
+    { l: 'In Corso', v: wip, c: '#F59E0B' },
+    { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, c: '#6C5CE7' },
   ]
 
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 30, fontWeight: 700, margin: '0 0 6px', color: '#EEEEF5' }}>Ciao {user.full_name.split(' ')[0]} {user.mood_emoji || '👋'}</h1>
-        <p style={{ fontSize: 14, color: '#9090B0', marginBottom: 32 }}>Production Pipeline Overview</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Ciao {user.full_name.split(' ')[0]} {user.mood_emoji || ''}</h1>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Production Pipeline Overview</p>
       </Fade>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 32 }}>
         {statCards.map((s, i) => (
           <Fade key={s.l} delay={i * 50}>
-            <Card style={{ background: s.bg, border: `1px solid ${s.border}`, padding: 28 }} accent={s.c}>
-              <div style={{ fontSize: 13, color: '#9090B0', marginBottom: 12 }}>{s.e} {s.l}</div>
+            <div style={{
+              background: '#fff', border: '1px solid #E8ECF1', borderRadius: 16,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', padding: 24,
+              borderLeft: `4px solid ${s.c}`,
+            }}>
+              <div style={{ fontSize: 13, color: '#64748B', marginBottom: 12 }}>{s.l}</div>
               <div style={{ fontSize: 32, fontWeight: 700, color: s.c }}>{s.v}</div>
-            </Card>
+            </div>
           </Fade>
         ))}
       </div>
@@ -40,8 +44,8 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
       <Fade delay={200}>
         <Card style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: '#EEEEF5' }}>📊 Progresso Pipeline</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: '#C5B3E6' }}>{pct}%</span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>Progresso Pipeline</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: '#6C5CE7' }}>{pct}%</span>
           </div>
           <Bar value={pct} h={8} />
           <div style={{ display: 'flex', gap: 20, marginTop: 20, flexWrap: 'wrap' }}>
@@ -50,7 +54,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
               return (
                 <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.color }} />
-                  <span style={{ fontSize: 13, color: '#9090B0' }}>{st.label}</span>
+                  <span style={{ fontSize: 13, color: '#64748B' }}>{st.label}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: st.color }}>{c}</span>
                 </div>
               )
@@ -61,7 +65,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
 
       <Fade delay={300}>
         <Card>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#EEEEF5' }}>🏗 Dipartimenti</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#1a1a2e' }}>Dipartimenti</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {DEPTS.map(dept => {
               const t = shots.length
@@ -72,8 +76,11 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
               return (
                 <div key={dept.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, color: '#EEEEF5' }}>{dept.icon} {dept.label}</span>
-                    <span style={{ fontSize: 12, color: '#9090B0', fontWeight: 600 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#1a1a2e' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: dept.color, display: 'inline-block' }} />
+                      {dept.label}
+                    </span>
+                    <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>
                       {d}/{t} shots · {deptDone}/{deptTasks.length} tasks
                     </span>
                   </div>

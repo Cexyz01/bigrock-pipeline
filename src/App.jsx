@@ -11,16 +11,11 @@ import {
   subscribeToTable, subscribeToNotifications,
 } from './lib/supabase'
 
-// Layout
 import Sidebar from './components/layout/Sidebar'
-import TopBar from './components/layout/TopBar'
 import ChatPanel from './components/layout/ChatPanel'
-
-// UI
 import ToastContainer, { useToast } from './components/ui/Toast'
 import ConfirmDialog, { useConfirm } from './components/ui/ConfirmDialog'
 
-// Pages
 import LoginPage from './components/pages/LoginPage'
 import OverviewPage from './components/pages/OverviewPage'
 import ShotTrackerPage from './components/pages/ShotTrackerPage'
@@ -31,45 +26,22 @@ import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
 import NotificationsPanel from './components/notifications/NotificationsPanel'
 
-// =============================================
-// MAIN APP
-// =============================================
-
 export default function App() {
-  // Auth state
   const [session, setSession] = useState(null)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-
-  // Data
   const [profiles, setProfiles] = useState([])
   const [shots, setShots] = useState([])
   const [tasks, setTasks] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
-
-  // UI
   const [view, setView] = useState('overview')
   const [chatOpen, setChatOpen] = useState(false)
   const [deepLink, setDeepLink] = useState(null)
-
-  // Hooks
   const { toasts, addToast, removeToast } = useToast()
   const { pending, requestConfirm, confirm, cancel } = useConfirm()
 
-  // -- Nav config --
-  const navLabels = {
-    overview: { icon: '🏠', label: 'Overview' },
-    shots: { icon: '🎬', label: 'Shots' },
-    tasks: { icon: '📋', label: 'Tasks' },
-    storyboard: { icon: '🗂', label: 'Storyboard' },
-    profile: { icon: '👤', label: 'Profilo' },
-    activity: { icon: '📊', label: 'Attività' },
-    crew: { icon: '👥', label: 'Crew' },
-    notifications: { icon: '🔔', label: 'Notifiche' },
-  }
-
-  // -- Auth --
+  // Auth
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -86,31 +58,22 @@ export default function App() {
 
   const loadUser = async (authUser) => {
     let profile = await getProfile(authUser.id)
-
     if (!profile) {
       const fullName = authUser.user_metadata?.full_name
         || authUser.user_metadata?.name
         || authUser.email?.split('@')[0]?.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
         || 'Unknown'
-
       const { data, error } = await supabase.from('profiles').upsert({
-        id: authUser.id,
-        email: authUser.email || '',
-        full_name: fullName,
-        avatar_url: authUser.user_metadata?.avatar_url || null,
-        role: 'studente',
+        id: authUser.id, email: authUser.email || '', full_name: fullName,
+        avatar_url: authUser.user_metadata?.avatar_url || null, role: 'studente',
       }).select().single()
-
       if (!error) profile = data
-      else console.error('Profile creation failed:', error)
     }
-
     setUser(profile)
     setLoading(false)
     if (profile) loadData(authUser.id)
   }
 
-  // -- Load all data --
   const loadData = async (userId) => {
     const [p, sh, t, ev, n] = await Promise.all([
       getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId),
@@ -118,7 +81,7 @@ export default function App() {
     setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n)
   }
 
-  // -- Realtime --
+  // Realtime
   useEffect(() => {
     if (!user) return
     const channels = [
@@ -142,14 +105,13 @@ export default function App() {
     return () => channels.forEach(ch => supabase.removeChannel(ch))
   }, [user])
 
-  // -- Navigation with deep link --
   const handleNavigate = (targetView, targetId) => {
     setView(targetView)
     if (targetId) setDeepLink({ type: targetView, id: targetId })
   }
   const clearDeepLink = () => setDeepLink(null)
 
-  // -- Handlers --
+  // Handlers
   const handleCreateShot = async (shot) => { await createShot(shot); setShots(await getShots()) }
   const handleUpdateShot = async (id, updates) => { await updateShot(id, updates); setShots(await getShots()) }
   const handleDeleteShot = async (id) => { await deleteShot(id); setShots(await getShots()) }
@@ -172,7 +134,7 @@ export default function App() {
       }
     }
     if (updates.status === 'approved' && task?.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_approved', 'Task approvato! ✓', task.title, 'task', id)
+      await sendNotification(task.assigned_to, 'task_approved', 'Task approvato!', task.title, 'task', id)
     }
     if (updates.status === 'wip' && task?.status === 'review' && task?.assigned_to) {
       await sendNotification(task.assigned_to, 'task_revision', 'Modifiche richieste', task.title, 'task', id)
@@ -201,56 +163,45 @@ export default function App() {
 
   const handleCreateEvent = async (ev) => { await createCalendarEvent(ev); setEvents(await getCalendarEvents()) }
   const handleDeleteEvent = async (id) => { await deleteCalendarEvent(id); setEvents(await getCalendarEvents()) }
-
   const handleMarkRead = async (id) => { await markNotificationRead(id); setNotifications(await getNotifications(user.id)) }
   const handleMarkAllRead = async () => { await markAllNotificationsRead(user.id); setNotifications(await getNotifications(user.id)) }
-
   const handleProfileUpdate = (updatedProfile) => {
     setUser(updatedProfile)
     setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? { ...p, ...updatedProfile } : p))
   }
 
-  // -- Loading / Login --
+  // Loading screen
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f1a' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F0F2F5' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: 52, height: 52, borderRadius: 18, margin: '0 auto 20px',
-          background: 'linear-gradient(135deg, #C5B3E6, #A8E6CF)',
+          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+          background: 'linear-gradient(135deg, #6C5CE7, #A29BFE)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, fontWeight: 800, color: '#0f0f1a', animation: 'pulse 1.5s ease infinite',
+          fontSize: 16, fontWeight: 800, color: '#fff', animation: 'pulse 1.5s ease infinite',
         }}>BR</div>
-        <div style={{ color: '#606080', fontSize: 14 }}>Caricamento...</div>
+        <div style={{ color: '#94A3B8', fontSize: 13 }}>Caricamento...</div>
       </div>
     </div>
   )
   if (!session || !user) return <LoginPage />
 
   const unreadCount = notifications.filter(n => !n.read).length
-  const currentNav = navLabels[view] || navLabels.overview
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Toast notifications */}
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#F0F2F5' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
-
-      {/* Delete confirmation */}
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
 
-      {/* Sidebar — #5: unreadCount passed for notification badge */}
       <Sidebar
         user={user} view={view} setView={setView} onSignOut={signOut}
         events={events} onCreateEvent={handleCreateEvent} onDeleteEvent={handleDeleteEvent}
         requestConfirm={requestConfirm} unreadCount={unreadCount}
       />
 
-      {/* Main */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Top bar — simplified, no chat/notif buttons */}
-        <TopBar viewLabel={currentNav.label} viewIcon={currentNav.icon} />
-
-        {/* Content */}
-        <div style={{ flex: 1, padding: '32px 40px', overflowY: 'auto', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+      {/* Main content — full width, no TopBar */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, padding: '36px 44px', overflowY: 'auto', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
           {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
           {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} requestConfirm={requestConfirm} />}
           {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
@@ -258,19 +209,12 @@ export default function App() {
           {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
           {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
           {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} onNavigate={handleNavigate} />}
-          {/* #5: Notifications as full page view */}
           {view === 'notifications' && (
-            <NotificationsPanel
-              notifications={notifications}
-              onMarkRead={handleMarkRead}
-              onMarkAllRead={handleMarkAllRead}
-              onNavigate={handleNavigate}
-            />
+            <NotificationsPanel notifications={notifications} onMarkRead={handleMarkRead} onMarkAllRead={handleMarkAllRead} onNavigate={handleNavigate} />
           )}
         </div>
       </div>
 
-      {/* #4: Chat as slide-out tab from right edge */}
       <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} />
     </div>
   )

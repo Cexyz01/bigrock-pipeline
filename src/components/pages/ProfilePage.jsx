@@ -52,8 +52,8 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   return (
     <div style={{ maxWidth: 640 }}>
       <Fade>
-        <h1 style={{ fontSize: 30, fontWeight: 700, margin: '0 0 6px', color: '#EEEEF5' }}>👤 Profilo</h1>
-        <p style={{ fontSize: 14, color: '#9090B0', marginBottom: 32 }}>Personalizza il tuo profilo</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Profilo</h1>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Personalizza il tuo profilo</p>
       </Fade>
 
       <Fade delay={100}>
@@ -64,8 +64,8 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
               <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
             </div>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, color: '#EEEEF5' }}>{user.full_name}</div>
-              <div style={{ fontSize: 13, color: '#9090B0' }}>{user.email}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, color: '#1a1a2e' }}>{user.full_name}</div>
+              <div style={{ fontSize: 13, color: '#64748B' }}>{user.email}</div>
               <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                 <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
                   style={{ padding: '7px 16px', fontSize: 12 }}>
@@ -79,14 +79,14 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
                   </Btn>
                 )}
               </div>
-              <div style={{ fontSize: 10, color: '#606080', marginTop: 6 }}>Max 1MB</div>
+              <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 6 }}>Max 1MB</div>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <InfoField label="Ruolo" value={user.role} />
             {/* #7: Staff don't show department */}
-            {!staff && <InfoField label="Dipartimento" value={dept ? `${dept.icon} ${dept.label}` : 'Non assegnato'} />}
+            {!staff && <InfoField label="Dipartimento" value={dept ? dept.label : 'Non assegnato'} />}
             <InfoField label="Email" value={user.email} />
             <InfoField label="Membro dal" value={user.created_at ? new Date(user.created_at).toLocaleDateString('it') : '-'} />
           </div>
@@ -95,15 +95,15 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
       <Fade delay={200}>
         <Card>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#EEEEF5' }}>Mood del Giorno</div>
-          <div style={{ fontSize: 13, color: '#9090B0', marginBottom: 20 }}>Scegli un emoji che rappresenta come ti senti oggi</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#1a1a2e' }}>Mood del Giorno</div>
+          <div style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>Scegli un emoji che rappresenta come ti senti oggi</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {MOOD_EMOJIS.map(e => (
               <button key={e} onClick={() => handleMood(e)}
                 style={{
                   width: 48, height: 48, borderRadius: 16, fontSize: 22,
-                  background: user.mood_emoji === e ? 'rgba(197,179,230,0.15)' : '#1a1a32',
-                  border: user.mood_emoji === e ? '2px solid #C5B3E6' : '1px solid rgba(255,255,255,0.06)',
+                  background: user.mood_emoji === e ? 'rgba(108,92,231,0.08)' : '#F8FAFC',
+                  border: user.mood_emoji === e ? '2px solid #6C5CE7' : '1px solid #E2E8F0',
                   cursor: 'pointer', transition: 'all 0.12s ease',
                   transform: user.mood_emoji === e ? 'scale(1.1)' : 'none',
                 }}>{e}</button>
@@ -117,9 +117,9 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
 function InfoField({ label, value }) {
   return (
-    <div style={{ padding: '12px 16px', background: '#232345', borderRadius: 16 }}>
-      <div style={{ fontSize: 10, color: '#606080', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#EEEEF5' }}>{value}</div>
+    <div style={{ padding: '12px 16px', background: '#F8FAFC', borderRadius: 16, border: '1px solid #E2E8F0' }}>
+      <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{value}</div>
     </div>
   )
 }

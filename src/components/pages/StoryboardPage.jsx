@@ -21,14 +21,14 @@ export default function StoryboardPage() {
             <div onClick={() => setActivated(true)}
               style={{
                 position: 'absolute', inset: 0, zIndex: 2,
-                background: 'rgba(15,15,26,0.5)', cursor: 'pointer',
+                background: 'rgba(240,242,245,0.8)', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 backdropFilter: 'blur(4px)',
               }}>
               <div style={{
-                background: '#1c1c35', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 24,
-                padding: '22px 36px', fontSize: 16, fontWeight: 600, color: '#EEEEF5',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                background: '#fff', border: '1px solid #E8ECF1', borderRadius: 24,
+                padding: '22px 36px', fontSize: 16, fontWeight: 600, color: '#1a1a2e',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
               }}>
                 Clicca per attivare la board Miro
               </div>
@@ -37,7 +37,7 @@ export default function StoryboardPage() {
         </div>
       ) : (
         <div style={{ padding: '32px 40px' }}>
-          <EmptyState icon="🗂" title="Miro non configurato" sub="Aggiungi VITE_MIRO_BOARD_ID al file .env" />
+          <EmptyState title="Miro non configurato" sub="Aggiungi VITE_MIRO_BOARD_ID al file .env" />
         </div>
       )}
     </div>

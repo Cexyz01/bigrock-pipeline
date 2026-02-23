@@ -3,10 +3,10 @@ import { useState } from 'react'
 export default function Btn({ children, onClick, variant = 'default', style = {}, disabled, loading }) {
   const [h, setH] = useState(false)
   const styles = {
-    default: { bg: '#1c1c35', hbg: '#232345', color: '#9090B0', border: 'rgba(255,255,255,0.06)' },
-    primary: { bg: 'rgba(197,179,230,0.10)', hbg: 'rgba(197,179,230,0.20)', color: '#C5B3E6', border: 'rgba(197,179,230,0.25)' },
-    danger: { bg: 'rgba(255,183,178,0.10)', hbg: 'rgba(255,183,178,0.20)', color: '#FFB7B2', border: 'rgba(255,183,178,0.25)' },
-    success: { bg: 'rgba(168,230,207,0.10)', hbg: 'rgba(168,230,207,0.20)', color: '#A8E6CF', border: 'rgba(168,230,207,0.25)' },
+    default: { bg: '#F1F5F9', hbg: '#E2E8F0', color: '#475569', border: '#E2E8F0' },
+    primary: { bg: '#6C5CE7', hbg: '#5A4BD1', color: '#fff', border: '#6C5CE7' },
+    danger: { bg: '#FEF2F2', hbg: '#FEE2E2', color: '#EF4444', border: '#FECACA' },
+    success: { bg: '#ECFDF5', hbg: '#D1FAE5', color: '#059669', border: '#A7F3D0' },
   }[variant]
   const isDisabled = disabled || loading
   return (
@@ -18,12 +18,12 @@ export default function Btn({ children, onClick, variant = 'default', style = {}
       style={{
         background: h && !isDisabled ? styles.hbg : styles.bg,
         color: styles.color,
-        border: `1px solid ${styles.border}`, borderRadius: 16,
-        padding: '11px 22px', fontSize: 13, fontWeight: 700,
+        border: `1px solid ${styles.border}`, borderRadius: 10,
+        padding: '9px 18px', fontSize: 13, fontWeight: 600,
         transition: 'all 0.15s ease',
-        opacity: isDisabled ? 0.4 : 1,
+        opacity: isDisabled ? 0.5 : 1,
         cursor: isDisabled ? 'not-allowed' : 'pointer',
-        display: 'inline-flex', alignItems: 'center', gap: 8,
+        display: 'inline-flex', alignItems: 'center', gap: 6,
         ...style,
       }}
     >

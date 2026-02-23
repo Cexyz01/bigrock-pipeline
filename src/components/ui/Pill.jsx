@@ -8,11 +8,11 @@ export default function Pill({ label, active, onClick }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        padding: '7px 16px', borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 400,
+        padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: active ? 600 : 500,
         cursor: 'pointer', userSelect: 'none',
-        background: active ? 'rgba(197,179,230,0.12)' : h ? 'rgba(255,255,255,0.04)' : 'transparent',
-        color: active ? '#C5B3E6' : h ? '#9090B0' : '#606080',
-        border: `1px solid ${active ? 'rgba(197,179,230,0.3)' : 'transparent'}`,
+        background: active ? '#6C5CE7' : h ? '#E8ECF1' : '#F1F5F9',
+        color: active ? '#fff' : h ? '#334155' : '#64748B',
+        border: 'none',
         transition: 'all 0.15s ease', whiteSpace: 'nowrap',
       }}
     >{label}</span>

@@ -26,7 +26,7 @@ export default function CreateTaskModal({ open, onClose, shots, students, user, 
         <Input value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Titolo del task" />
         <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Descrizione (opzionale)" multiline />
         <Select value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))}
-          options={DEPTS.map(d => ({ value: d.id, label: `${d.icon} ${d.label}` }))} placeholder="Seleziona dipartimento" />
+          options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Seleziona dipartimento" />
         <Select value={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
           options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assegna a studente (opzionale)" />
         <Select value={form.shot_id} onChange={v => setForm(f => ({ ...f, shot_id: v || null }))}

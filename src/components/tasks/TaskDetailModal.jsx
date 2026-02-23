@@ -48,19 +48,19 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
   const students = profiles ? profiles.filter(p => p.role === 'studente') : []
 
   return (
-    <Modal open={true} onClose={onClose} title={`${dept?.icon} ${task.title}`}>
+    <Modal open={true} onClose={onClose} title={`${dept?.label || ''} — ${task.title}`}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Info */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <StatusBadge status={task.status} type="task" />
-          {task.shot && <span style={{ fontSize: 12, color: '#888', background: '#1e1e2a', padding: '4px 10px', borderRadius: 6 }}>{task.shot.code}</span>}
+          {task.shot && <span style={{ fontSize: 12, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 6, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>}
           {task.assigned_user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Av name={task.assigned_user.full_name} size={22} url={task.assigned_user.avatar_url} />
-              <span style={{ fontSize: 12, color: '#888' }}>{task.assigned_user.full_name}</span>
+              <span style={{ fontSize: 12, color: '#64748B' }}>{task.assigned_user.full_name}</span>
             </div>
           ) : (
-            <span style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>Non assegnato</span>
+            <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Non assegnato</span>
           )}
         </div>
 
@@ -75,48 +75,48 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
           />
         )}
 
-        {task.description && <p style={{ fontSize: 13, color: '#aaa', lineHeight: 1.6, padding: '10px 14px', background: '#1a1a24', borderRadius: 10 }}>{task.description}</p>}
+        {task.description && <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.6, padding: '10px 14px', background: '#F8FAFC', borderRadius: 12 }}>{task.description}</p>}
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {isOwner && task.status === 'todo' && (
             <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task avviato!')}>
-              ▶ Inizia
+              Inizia
             </Btn>
           )}
           {isOwner && task.status === 'wip' && (
             <Btn variant="primary" loading={actionLoading === 'submit'} onClick={() => handleAction('submit', { status: 'review' }, 'Task inviato per review!')}>
-              📤 Invia per Review
+              Invia per Review
             </Btn>
           )}
           {staff && task.status === 'review' && (
-            <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approvato! ✓')}>
-              ✓ Approva
+            <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approvato!')}>
+              Approva
             </Btn>
           )}
           {staff && task.status === 'review' && (
             <Btn variant="danger" loading={actionLoading === 'reject'} onClick={() => handleAction('reject', { status: 'wip' }, 'Revisione richiesta')}>
-              ↺ Richiedi Modifiche
+              Richiedi Modifiche
             </Btn>
           )}
-          {staff && <Btn variant="danger" onClick={handleDelete}>🗑 Elimina</Btn>}
+          {staff && <Btn variant="danger" onClick={handleDelete}>Elimina</Btn>}
         </div>
 
         {/* Comments */}
-        <div style={{ borderTop: '1px solid #1e1e2a', paddingTop: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>💬 Commenti</h3>
+        <div style={{ borderTop: '1px solid #E8ECF1', paddingTop: 16 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#1a1a2e' }}>Commenti</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
-            {loading ? <span style={{ color: '#555', fontSize: 13 }}>Caricamento...</span> :
-              comments.length === 0 ? <span style={{ color: '#555', fontSize: 13 }}>Nessun commento</span> :
+            {loading ? <span style={{ color: '#94A3B8', fontSize: 13 }}>Caricamento...</span> :
+              comments.length === 0 ? <span style={{ color: '#94A3B8', fontSize: 13 }}>Nessun commento</span> :
               comments.map(c => (
-                <div key={c.id} style={{ padding: '12px 14px', borderRadius: 10, background: '#1a1a24' }}>
+                <div key={c.id} style={{ padding: '12px 14px', borderRadius: 10, background: '#F8FAFC' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                     <Av name={c.author?.full_name} size={20} url={c.author?.avatar_url} />
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>{c.author?.full_name}</span>
-                    {c.author?.role !== 'studente' && <span style={{ fontSize: 10, color: '#6ea8fe', background: '#6ea8fe18', padding: '1px 6px', borderRadius: 4 }}>{c.author?.role}</span>}
-                    <span style={{ fontSize: 11, color: '#444', marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleDateString('it')}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{c.author?.full_name}</span>
+                    {c.author?.role !== 'studente' && <span style={{ fontSize: 10, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '1px 6px', borderRadius: 4 }}>{c.author?.role}</span>}
+                    <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleDateString('it')}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.5 }}>{c.body}</div>
+                  <div style={{ fontSize: 13, color: '#64748B', lineHeight: 1.5 }}>{c.body}</div>
                 </div>
               ))
             }
@@ -128,7 +128,7 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
               <Btn variant="primary" onClick={handleComment}>Invia</Btn>
             </div>
           )}
-          {!canComment && <p style={{ fontSize: 12, color: '#555' }}>Solo lo studente assegnato e lo staff possono commentare.</p>}
+          {!canComment && <p style={{ fontSize: 12, color: '#94A3B8' }}>Solo lo studente assegnato e lo staff possono commentare.</p>}
         </div>
       </div>
     </Modal>

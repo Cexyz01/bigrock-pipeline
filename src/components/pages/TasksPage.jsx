@@ -41,8 +41,8 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontSize: 30, fontWeight: 700, margin: '0 0 6px', color: '#EEEEF5' }}>📋 Tasks</h1>
-            <p style={{ fontSize: 14, color: '#9090B0' }}>{staff ? 'Gestisci tutti i task' : 'I tuoi task'}</p>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Tasks</h1>
+            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Gestisci tutti i task' : 'I tuoi task'}</p>
           </div>
           {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nuovo Task</Btn>}
         </div>
@@ -53,12 +53,12 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
         <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
           <Pill label="Tutti" active={viewMode === 'all'} onClick={() => setViewMode('all')} />
           <Pill label="I Miei" active={viewMode === 'mine'} onClick={() => setViewMode('mine')} />
-          <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.06)', margin: '0 6px' }} />
+          <div style={{ width: 1, height: 22, background: '#E2E8F0', margin: '0 6px' }} />
           <Pill label="Tutti i Reparti" active={!filter.dept} onClick={() => setFilter(f => ({ ...f, dept: '' }))} />
-          {DEPTS.map(d => <Pill key={d.id} label={`${d.icon} ${d.label}`} active={filter.dept === d.id} onClick={() => setFilter(f => ({ ...f, dept: d.id }))} />)}
+          {DEPTS.map(d => <Pill key={d.id} label={d.label} active={filter.dept === d.id} onClick={() => setFilter(f => ({ ...f, dept: d.id }))} />)}
           {staff && (
             <>
-              <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.06)', margin: '0 6px' }} />
+              <div style={{ width: 1, height: 22, background: '#E2E8F0', margin: '0 6px' }} />
               <Select value={filter.user} onChange={v => setFilter(f => ({ ...f, user: v }))}
                 options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Tutti gli studenti"
                 style={{ padding: '7px 14px', fontSize: 12, borderRadius: 12 }} />

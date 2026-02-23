@@ -32,25 +32,25 @@ export default function CrewPage({ profiles, user }) {
   }
 
   const sections = [
-    { key: 'staff', label: '👨‍🏫 Staff', items: grouped.staff },
-    ...DEPTS.map(d => ({ key: d.id, label: `${d.icon} ${d.label}`, items: grouped[d.id] })),
-    { key: 'unassigned', label: '❓ Non Assegnati', items: grouped.unassigned },
+    { key: 'staff', label: 'Staff', items: grouped.staff },
+    ...DEPTS.map(d => ({ key: d.id, label: d.label, items: grouped[d.id] })),
+    { key: 'unassigned', label: 'Non Assegnati', items: grouped.unassigned },
   ].filter(s => s.items.length > 0)
 
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 30, fontWeight: 700, margin: '0 0 6px', color: '#EEEEF5' }}>👥 Crew</h1>
-        <p style={{ fontSize: 14, color: '#9090B0', marginBottom: 32 }}>{profiles.length} membri</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Crew</h1>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>{profiles.length} membri</p>
       </Fade>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
         {sections.map((sec, si) => (
           <Fade key={sec.key} delay={si * 40}>
             <Card>
-              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', justifyContent: 'space-between', color: '#EEEEF5' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', justifyContent: 'space-between', color: '#1a1a2e' }}>
                 <span>{sec.label}</span>
-                <span style={{ fontSize: 12, color: '#606080' }}>{sec.items.length}</span>
+                <span style={{ fontSize: 12, color: '#94A3B8' }}>{sec.items.length}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {sec.items.map(member => (
@@ -74,7 +74,7 @@ export default function CrewPage({ profiles, user }) {
             ]} placeholder="Seleziona ruolo" />
           {editRole === 'studente' && (
             <Select value={editDept} onChange={setEditDept}
-              options={DEPTS.map(d => ({ value: d.id, label: `${d.icon} ${d.label}` }))} placeholder="Dipartimento" />
+              options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Dipartimento" />
           )}
           <Btn variant="primary" onClick={handleSaveRole}>Salva</Btn>
         </div>
@@ -90,22 +90,22 @@ function MemberRow({ member, admin, onEdit }) {
     <div onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 16,
-        background: h ? 'rgba(255,255,255,0.04)' : 'transparent', transition: 'all 0.12s ease',
+        background: h ? '#F8FAFC' : 'transparent', transition: 'all 0.12s ease',
       }}>
       <Av name={member.full_name} size={36} url={member.avatar_url} mood={member.mood_emoji} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#EEEEF5' }}>{member.full_name}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{member.full_name}</div>
         {/* #7: Staff don't show department */}
-        <div style={{ fontSize: 11, color: '#606080' }}>
+        <div style={{ fontSize: 11, color: '#94A3B8' }}>
           {member.role}
           {!staff && member.department && (() => {
             const d = DEPTS.find(dep => dep.id === member.department)
-            return d ? ` · ${d.icon} ${d.label}` : ''
+            return d ? ` · ${d.label}` : ''
           })()}
         </div>
       </div>
       {admin && h && (
-        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#C5B3E6', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Modifica</button>
+        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#6C5CE7', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Modifica</button>
       )}
     </div>
   )

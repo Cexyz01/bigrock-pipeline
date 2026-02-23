@@ -16,18 +16,18 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, re
       style={{
         display: 'grid', gridTemplateColumns: '200px repeat(6, 80px)', gap: 3,
         padding: '10px 0', borderRadius: 8,
-        background: h ? '#13131c' : 'transparent',
+        background: h ? '#F8FAFC' : 'transparent',
         transition: 'background 0.12s ease',
       }}
     >
       <div style={{ paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>{shot.code}</span>
-          <div style={{ fontSize: 11, color: '#555', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shot.description}</div>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{shot.code}</span>
+          <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shot.description}</div>
         </div>
         {staff && h && (
           <button onClick={handleDelete}
-            style={{ background: 'none', border: 'none', color: '#f07070', fontSize: 12, cursor: 'pointer', opacity: 0.5, padding: 4 }}>🗑</button>
+            style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 12, cursor: 'pointer', opacity: 0.5, padding: 4 }}>🗑</button>
         )}
       </div>
       {DEPTS.map(dept => (

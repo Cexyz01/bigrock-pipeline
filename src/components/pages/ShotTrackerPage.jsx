@@ -35,8 +35,8 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>🎬 Shot Tracker</h1>
-            <p style={{ fontSize: 14, color: '#666' }}>{staff ? 'Clicca le celle per cambiare stato' : 'Vista in sola lettura'}</p>
+            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Shot Tracker</h1>
+            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Clicca le celle per cambiare stato' : 'Vista in sola lettura'}</p>
           </div>
           {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Aggiungi Shot</Btn>}
         </div>
@@ -45,25 +45,24 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       {/* Header */}
       <div style={{
         display: 'grid', gridTemplateColumns: '200px repeat(6, 80px)', gap: 3,
-        padding: '10px 0 12px', borderBottom: '1px solid #1e1e2a', marginBottom: 6,
-        position: 'sticky', top: 60, background: '#0e0e14', zIndex: 5,
+        padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
+        position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
       }}>
-        <div style={{ fontSize: 11, color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 8 }}>Shot</div>
+        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 8 }}>Shot</div>
         {DEPTS.map(d => (
-          <div key={d.id} style={{ fontSize: 11, textAlign: 'center', color: '#666' }}>
-            <span style={{ fontSize: 14 }}>{d.icon}</span>
+          <div key={d.id} style={{ fontSize: 11, textAlign: 'center', color: '#64748B' }}>
             <div style={{ fontSize: 10, marginTop: 2, fontWeight: 500 }}>{d.label}</div>
           </div>
         ))}
       </div>
 
       {shots.length === 0 ? (
-        <EmptyState icon="🎬" title="Nessuno shot" sub={staff ? 'Aggiungi il primo shot per iniziare' : 'Gli shot appariranno qui'} />
+        <EmptyState title="Nessuno shot" sub={staff ? 'Aggiungi il primo shot per iniziare' : 'Gli shot appariranno qui'} />
       ) : (
         seqs.map((seq, si) => (
           <Fade key={seq} delay={si * 60}>
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#444', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
               {shots.filter(sh => sh.sequence === seq).map(shot => (
                 <ShotRow key={shot.id} shot={shot} staff={staff} onCycle={cycleShotStatus} onDelete={onDeleteShot} requestConfirm={requestConfirm} />
               ))}
@@ -73,11 +72,11 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       )}
 
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #1e1e2a' }}>
+      <div style={{ display: 'flex', gap: 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1' }}>
         {SHOT_STATUSES.map(st => (
           <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1px solid ${st.color}30` }} />
-            <span style={{ fontSize: 11, color: '#666' }}>{st.label}</span>
+            <span style={{ fontSize: 11, color: '#64748B' }}>{st.label}</span>
           </div>
         ))}
       </div>

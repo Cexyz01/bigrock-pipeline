@@ -1,24 +1,39 @@
 import { useState } from 'react'
 
-export default function NavBtn({ icon, label, active, onClick, badge }) {
+export default function NavBtn({ icon, label, active, onClick, badge, collapsed }) {
   const [h, setH] = useState(false)
   return (
     <div
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       onClick={onClick}
+      title={collapsed ? label : undefined}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '12px 18px', margin: '3px 12px', borderRadius: 16,
+        display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start',
+        gap: collapsed ? 0 : 12,
+        padding: collapsed ? '12px 0' : '10px 16px',
+        margin: collapsed ? '2px 8px' : '2px 10px',
+        borderRadius: 12,
         cursor: 'pointer', userSelect: 'none', position: 'relative',
-        background: active ? 'rgba(197,179,230,0.10)' : h ? 'rgba(255,255,255,0.04)' : 'transparent',
+        background: active ? 'rgba(108,92,231,0.08)' : h ? '#F1F5F9' : 'transparent',
+        color: active ? '#6C5CE7' : h ? '#334155' : '#64748B',
         transition: 'all 0.15s ease',
       }}
     >
-      {active && <div style={{ position: 'absolute', left: 0, width: 3, height: 20, borderRadius: 2, background: '#C5B3E6' }} />}
-      <span style={{ fontSize: 18, width: 26, textAlign: 'center' }}>{icon}</span>
-      <span style={{ flex: 1, fontSize: 14, fontWeight: active ? 600 : 400, color: active ? '#EEEEF5' : h ? '#9090B0' : '#606080' }}>{label}</span>
-      {badge > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(255,183,178,0.15)', color: '#FFB7B2', padding: '2px 8px', borderRadius: 20 }}>{badge}</span>}
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22 }}>
+        {icon}
+      </span>
+      {!collapsed && <span style={{ flex: 1, fontSize: 13, fontWeight: active ? 600 : 500 }}>{label}</span>}
+      {badge > 0 && (
+        <span style={{
+          fontSize: 10, fontWeight: 700,
+          background: '#EF4444', color: '#fff',
+          padding: '1px 6px', borderRadius: 10,
+          position: collapsed ? 'absolute' : 'static',
+          top: collapsed ? 4 : undefined, right: collapsed ? 4 : undefined,
+          minWidth: 16, textAlign: 'center',
+        }}>{badge}</span>
+      )}
     </div>
   )
 }

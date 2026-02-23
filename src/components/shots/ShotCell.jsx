@@ -11,7 +11,7 @@ const ShotCell = React.memo(function ShotCell({ status, onClick, clickable }) {
         style={{
           width: '100%', height: 40, borderRadius: 8,
           background: st.bg,
-          border: `1px solid ${st.color}15`,
+          border: `1px solid ${st.color}25`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           position: 'relative',
         }}
