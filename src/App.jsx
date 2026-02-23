@@ -212,15 +212,15 @@ export default function App() {
 
   // -- Loading / Login --
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#09090f' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f1a' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: 48, height: 48, borderRadius: 16, margin: '0 auto 16px',
-          background: 'linear-gradient(135deg, #CDFF00, #a8d600)',
+          width: 52, height: 52, borderRadius: 18, margin: '0 auto 20px',
+          background: 'linear-gradient(135deg, #C5B3E6, #A8E6CF)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, fontWeight: 800, color: '#09090f', animation: 'pulse 1.5s ease infinite',
+          fontSize: 18, fontWeight: 800, color: '#0f0f1a', animation: 'pulse 1.5s ease infinite',
         }}>BR</div>
-        <div style={{ color: '#555', fontSize: 14 }}>Caricamento...</div>
+        <div style={{ color: '#606080', fontSize: 14 }}>Caricamento...</div>
       </div>
     </div>
   )
@@ -250,7 +250,7 @@ export default function App() {
         <TopBar viewLabel={currentNav.label} viewIcon={currentNav.icon} />
 
         {/* Content */}
-        <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+        <div style={{ flex: 1, padding: '32px 40px', overflowY: 'auto', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
           {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
           {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} requestConfirm={requestConfirm} />}
           {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}

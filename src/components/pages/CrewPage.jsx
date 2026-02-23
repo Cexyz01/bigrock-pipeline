@@ -40,19 +40,19 @@ export default function CrewPage({ profiles, user }) {
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#f0f0f5' }}>👥 Crew</h1>
-        <p style={{ fontSize: 14, color: '#555', marginBottom: 28 }}>{profiles.length} membri</p>
+        <h1 style={{ fontSize: 30, fontWeight: 700, margin: '0 0 6px', color: '#EEEEF5' }}>👥 Crew</h1>
+        <p style={{ fontSize: 14, color: '#9090B0', marginBottom: 32 }}>{profiles.length} membri</p>
       </Fade>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
         {sections.map((sec, si) => (
           <Fade key={sec.key} delay={si * 40}>
             <Card>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: 'flex', justifyContent: 'space-between', color: '#f0f0f5' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', justifyContent: 'space-between', color: '#EEEEF5' }}>
                 <span>{sec.label}</span>
-                <span style={{ fontSize: 12, color: '#555' }}>{sec.items.length}</span>
+                <span style={{ fontSize: 12, color: '#606080' }}>{sec.items.length}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {sec.items.map(member => (
                   <MemberRow key={member.id} member={member} admin={admin}
                     onEdit={() => { setEditUser(member); setEditRole(member.role); setEditDept(member.department || '') }} />
@@ -64,7 +64,7 @@ export default function CrewPage({ profiles, user }) {
       </div>
 
       <Modal open={!!editUser} onClose={() => setEditUser(null)} title={`Modifica Ruolo — ${editUser?.full_name}`}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Select value={editRole} onChange={setEditRole}
             options={[
               { value: 'admin', label: 'Admin' },
@@ -89,14 +89,14 @@ function MemberRow({ member, admin, onEdit }) {
   return (
     <div onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14,
-        background: h ? '#1a1a2a' : 'transparent', transition: 'all 0.12s ease',
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 16,
+        background: h ? 'rgba(255,255,255,0.04)' : 'transparent', transition: 'all 0.12s ease',
       }}>
-      <Av name={member.full_name} size={34} url={member.avatar_url} mood={member.mood_emoji} />
+      <Av name={member.full_name} size={36} url={member.avatar_url} mood={member.mood_emoji} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f0f5' }}>{member.full_name}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#EEEEF5' }}>{member.full_name}</div>
         {/* #7: Staff don't show department */}
-        <div style={{ fontSize: 11, color: '#555' }}>
+        <div style={{ fontSize: 11, color: '#606080' }}>
           {member.role}
           {!staff && member.department && (() => {
             const d = DEPTS.find(dep => dep.id === member.department)
@@ -105,7 +105,7 @@ function MemberRow({ member, admin, onEdit }) {
         </div>
       </div>
       {admin && h && (
-        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#CDFF00', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Modifica</button>
+        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#C5B3E6', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Modifica</button>
       )}
     </div>
   )

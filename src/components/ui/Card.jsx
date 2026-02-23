@@ -8,9 +8,9 @@ export default function Card({ children, style, onClick, accent }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        background: h ? '#1a1a2a' : '#141420',
-        border: `1px solid ${h ? '#2a2a3e' : '#1e1e2e'}`,
-        borderRadius: 22, transition: 'all 0.2s ease', padding: 24,
+        background: h ? '#232345' : '#1c1c35',
+        border: `1px solid ${h ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.06)'}`,
+        borderRadius: 24, transition: 'all 0.2s ease', padding: 28,
         transform: h && onClick ? 'translateY(-2px)' : 'none',
         boxShadow: h ? '0 8px 32px rgba(0,0,0,0.3)' : 'none',
         cursor: onClick ? 'pointer' : 'default',

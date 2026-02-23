@@ -22,40 +22,40 @@ export default function Sidebar({ user, view, setView, onSignOut, events, onCrea
 
   return (
     <div style={{
-      width: 240, background: '#0d0d16', borderRight: '1px solid #1e1e2e',
+      width: 260, background: '#13132a', borderRight: '1px solid rgba(255,255,255,0.06)',
       display: 'flex', flexDirection: 'column', flexShrink: 0,
       position: 'sticky', top: 0, height: '100vh',
     }}>
       {/* Logo */}
-      <div style={{ padding: '22px 18px 20px', borderBottom: '1px solid #1e1e2e' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '26px 22px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
-            width: 36, height: 36, borderRadius: 12,
-            background: 'linear-gradient(135deg, #CDFF00, #a8d600)',
+            width: 40, height: 40, borderRadius: 14,
+            background: 'linear-gradient(135deg, #C5B3E6, #A8E6CF)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 800, color: '#09090f',
+            fontSize: 14, fontWeight: 800, color: '#0f0f1a',
           }}>BR</div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#f0f0f5' }}>BigRock Studios</div>
-            <div style={{ fontSize: 11, color: '#555' }}>Production Pipeline</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#EEEEF5' }}>BigRock Studios</div>
+            <div style={{ fontSize: 11, color: '#606080' }}>Production Pipeline</div>
           </div>
         </div>
       </div>
 
       {/* Notifications link — #5: top-left prominent position */}
-      <div style={{ padding: '10px 10px 0' }}>
+      <div style={{ padding: '12px 12px 0' }}>
         <NavBtn icon="🔔" label="Notifiche" active={view === 'notifications'} onClick={() => setView('notifications')} badge={unreadCount} />
       </div>
 
       {/* Main Nav */}
-      <div style={{ padding: '10px 0', flex: 1 }}>
+      <div style={{ padding: '12px 0', flex: 1 }}>
         {mainNav.map(n => (
           <NavBtn key={n.id} icon={n.icon} label={n.label} active={view === n.id} onClick={() => setView(n.id)} />
         ))}
       </div>
 
       {/* Bottom section: Calendar, Crew, User */}
-      <div style={{ borderTop: '1px solid #1e1e2e' }}>
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         {/* Calendar popup trigger — #3: fixed z-index */}
         <div style={{ position: 'relative' }}>
           <NavBtn icon="📅" label="Calendario" active={showCalendar} onClick={() => setShowCalendar(!showCalendar)} />
@@ -63,10 +63,10 @@ export default function Sidebar({ user, view, setView, onSignOut, events, onCrea
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 900 }} onClick={() => setShowCalendar(false)} />
               <div style={{
-                position: 'fixed', bottom: 80, left: 250, width: 440,
-                background: '#141420', border: '1px solid #1e1e2e', borderRadius: 22,
+                position: 'fixed', bottom: 80, left: 270, width: 440,
+                background: '#1c1c35', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 24,
                 boxShadow: '0 16px 60px rgba(0,0,0,0.7)', zIndex: 1000,
-                maxHeight: '70vh', overflowY: 'auto', padding: 24,
+                maxHeight: '70vh', overflowY: 'auto', padding: 28,
                 animation: 'fadeIn 0.15s ease',
               }}>
                 <CalendarPopup events={events} user={user} onCreate={onCreateEvent} onDelete={onDeleteEvent} requestConfirm={requestConfirm} />
@@ -79,22 +79,22 @@ export default function Sidebar({ user, view, setView, onSignOut, events, onCrea
         <NavBtn icon="👥" label="Crew" active={view === 'crew'} onClick={() => setView('crew')} />
 
         {/* User — #1: clicking name opens profile */}
-        <div style={{ padding: '14px 18px', borderTop: '1px solid #1e1e2e' }}>
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <div
-            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', borderRadius: 12, padding: '6px 8px', margin: '-6px -8px', transition: 'background 0.15s ease' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', borderRadius: 16, padding: '8px 10px', margin: '-8px -10px', transition: 'background 0.15s ease' }}
             onClick={() => setView('profile')}
-            onMouseEnter={e => e.currentTarget.style.background = '#1a1a2a'}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
           >
-            <Av name={user.full_name} size={30} url={user.avatar_url} mood={user.mood_emoji} />
+            <Av name={user.full_name} size={32} url={user.avatar_url} mood={user.mood_emoji} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#f0f0f5' }}>{user.full_name}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#EEEEF5' }}>{user.full_name}</div>
               {/* #2: no mood emoji next to role — #7: no department for staff */}
-              <div style={{ fontSize: 10, color: '#555' }}>{user.role}</div>
+              <div style={{ fontSize: 10, color: '#606080' }}>{user.role}</div>
             </div>
           </div>
           <button onClick={onSignOut}
-            style={{ marginTop: 10, width: '100%', background: '#141420', border: '1px solid #1e1e2e', borderRadius: 12, padding: '7px 0', color: '#888', fontSize: 12, cursor: 'pointer', transition: 'all 0.15s ease' }}>
+            style={{ marginTop: 12, width: '100%', background: '#1c1c35', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '8px 0', color: '#9090B0', fontSize: 12, cursor: 'pointer', transition: 'all 0.15s ease' }}>
             Sign Out
           </button>
         </div>

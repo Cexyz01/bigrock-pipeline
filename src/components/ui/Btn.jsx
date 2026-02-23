@@ -3,10 +3,10 @@ import { useState } from 'react'
 export default function Btn({ children, onClick, variant = 'default', style = {}, disabled, loading }) {
   const [h, setH] = useState(false)
   const styles = {
-    default: { bg: '#1a1a2a', hbg: '#222236', color: '#ccc', border: '#2a2a3e' },
-    primary: { bg: 'rgba(205,255,0,0.10)', hbg: 'rgba(205,255,0,0.20)', color: '#CDFF00', border: 'rgba(205,255,0,0.3)' },
-    danger: { bg: 'rgba(255,107,74,0.10)', hbg: 'rgba(255,107,74,0.20)', color: '#FF6B4A', border: 'rgba(255,107,74,0.25)' },
-    success: { bg: 'rgba(78,205,196,0.10)', hbg: 'rgba(78,205,196,0.20)', color: '#4ECDC4', border: 'rgba(78,205,196,0.25)' },
+    default: { bg: '#1c1c35', hbg: '#232345', color: '#9090B0', border: 'rgba(255,255,255,0.06)' },
+    primary: { bg: 'rgba(197,179,230,0.10)', hbg: 'rgba(197,179,230,0.20)', color: '#C5B3E6', border: 'rgba(197,179,230,0.25)' },
+    danger: { bg: 'rgba(255,183,178,0.10)', hbg: 'rgba(255,183,178,0.20)', color: '#FFB7B2', border: 'rgba(255,183,178,0.25)' },
+    success: { bg: 'rgba(168,230,207,0.10)', hbg: 'rgba(168,230,207,0.20)', color: '#A8E6CF', border: 'rgba(168,230,207,0.25)' },
   }[variant]
   const isDisabled = disabled || loading
   return (
@@ -18,12 +18,12 @@ export default function Btn({ children, onClick, variant = 'default', style = {}
       style={{
         background: h && !isDisabled ? styles.hbg : styles.bg,
         color: styles.color,
-        border: `1px solid ${styles.border}`, borderRadius: 14,
-        padding: '10px 20px', fontSize: 13, fontWeight: 700,
+        border: `1px solid ${styles.border}`, borderRadius: 16,
+        padding: '11px 22px', fontSize: 13, fontWeight: 700,
         transition: 'all 0.15s ease',
         opacity: isDisabled ? 0.4 : 1,
         cursor: isDisabled ? 'not-allowed' : 'pointer',
-        display: 'inline-flex', alignItems: 'center', gap: 6,
+        display: 'inline-flex', alignItems: 'center', gap: 8,
         ...style,
       }}
     >
