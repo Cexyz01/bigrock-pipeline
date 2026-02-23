@@ -5,14 +5,13 @@ export default function StoryboardPage() {
   const boardId = import.meta.env.VITE_MIRO_BOARD_ID
   const [activated, setActivated] = useState(false)
 
-  // #8: Maximum size — use full viewport minus sidebar and topbar
   return (
-    <div style={{ margin: '-32px -40px', height: 'calc(100vh - 70px)' }}>
+    <div style={{ width: '100%', height: '100%' }}>
       {boardId ? (
-        <div style={{ position: 'relative', height: '100%' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
           <iframe
             src={`https://miro.com/app/live-embed/${boardId}/`}
-            style={{ width: '100%', height: '100%', border: 'none' }}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
             allow="fullscreen"
             allowFullScreen
             loading="lazy"

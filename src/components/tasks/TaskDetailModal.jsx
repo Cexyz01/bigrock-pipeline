@@ -79,14 +79,10 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {isOwner && task.status === 'todo' && (
+          {/* Staff: full control — start, approve, reject, delete */}
+          {staff && task.status === 'todo' && (
             <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task avviato!')}>
               Inizia
-            </Btn>
-          )}
-          {isOwner && task.status === 'wip' && (
-            <Btn variant="primary" loading={actionLoading === 'submit'} onClick={() => handleAction('submit', { status: 'review' }, 'Task inviato per review!')}>
-              Invia per Review
             </Btn>
           )}
           {staff && task.status === 'review' && (
@@ -100,6 +96,13 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
             </Btn>
           )}
           {staff && <Btn variant="danger" onClick={handleDelete}>Elimina</Btn>}
+
+          {/* Student: only "Invia per Review" when task is in progress */}
+          {!staff && isOwner && task.status === 'wip' && (
+            <Btn variant="primary" loading={actionLoading === 'submit'} onClick={() => handleAction('submit', { status: 'review' }, 'Task inviato per review!')}>
+              Invia per Review
+            </Btn>
+          )}
         </div>
 
         {/* Comments */}
