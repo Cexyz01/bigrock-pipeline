@@ -11,7 +11,7 @@ export async function signInWithGoogle() {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      queryParams: { hd: 'bigrock.it' }, // restrict to bigrock domain
+      queryParams: { hd: 'bigrock.it' },
       redirectTo: window.location.origin,
     },
   })
@@ -46,6 +46,22 @@ export async function updateProfileRole(userId, role, department) {
   return { data, error }
 }
 
+export async function updateProfile(userId, updates) {
+  const { data, error } = await supabase.from('profiles').update(updates).eq('id', userId).select().single()
+  return { data, error }
+}
+
+// ── Avatar Upload ──
+
+export async function uploadAvatar(userId, file) {
+  const ext = file.name.split('.').pop()
+  const path = `${userId}.${ext}`
+  const { data, error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+  if (error) return { url: null, error }
+  const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+  return { url: urlData.publicUrl, error: null }
+}
+
 // ── Shots ──
 
 export async function getShots() {
@@ -72,7 +88,7 @@ export async function deleteShot(id) {
 export async function getTasks(filters = {}) {
   let query = supabase.from('tasks').select(`
     *,
-    assigned_user:profiles!tasks_assigned_to_fkey(id, full_name, email, department),
+    assigned_user:profiles!tasks_assigned_to_fkey(id, full_name, email, department, mood_emoji, avatar_url),
     creator:profiles!tasks_created_by_fkey(id, full_name),
     shot:shots(id, code, sequence)
   `).order('created_at', { ascending: false })
@@ -104,7 +120,7 @@ export async function deleteTask(id) {
 
 export async function getComments(taskId) {
   const { data } = await supabase.from('comments')
-    .select('*, author:profiles(id, full_name, role)')
+    .select('*, author:profiles(id, full_name, role, avatar_url)')
     .eq('task_id', taskId)
     .order('created_at')
   return data || []
@@ -113,7 +129,7 @@ export async function getComments(taskId) {
 export async function addComment(taskId, authorId, body) {
   const { data, error } = await supabase.from('comments')
     .insert({ task_id: taskId, author_id: authorId, body })
-    .select('*, author:profiles(id, full_name, role)')
+    .select('*, author:profiles(id, full_name, role, avatar_url)')
     .single()
   return { data, error }
 }
@@ -164,6 +180,25 @@ export async function sendNotification(userId, type, title, body, linkType, link
   })
 }
 
+// ── Chat ──
+
+export async function getChatMessages(channel, limit = 100) {
+  const { data } = await supabase.from('chat_messages')
+    .select('*, author:profiles(id, full_name, avatar_url, role, mood_emoji)')
+    .eq('channel', channel)
+    .order('created_at', { ascending: true })
+    .limit(limit)
+  return data || []
+}
+
+export async function sendChatMessage(channel, authorId, body) {
+  const { data, error } = await supabase.from('chat_messages')
+    .insert({ channel, author_id: authorId, body })
+    .select('*, author:profiles(id, full_name, avatar_url, role, mood_emoji)')
+    .single()
+  return { data, error }
+}
+
 // ── Storage ──
 
 export async function uploadConceptImage(shotId, file) {
@@ -181,5 +216,29 @@ export function subscribeToTable(table, callback) {
   return supabase
     .channel(`${table}-changes`)
     .on('postgres_changes', { event: '*', schema: 'public', table }, callback)
+    .subscribe()
+}
+
+export function subscribeToNotifications(userId, callback) {
+  return supabase
+    .channel('notif-toast')
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'notifications',
+      filter: `user_id=eq.${userId}`,
+    }, callback)
+    .subscribe()
+}
+
+export function subscribeToChatChannel(channel, callback) {
+  return supabase
+    .channel(`chat-${channel}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'chat_messages',
+      filter: `channel=eq.${channel}`,
+    }, callback)
     .subscribe()
 }

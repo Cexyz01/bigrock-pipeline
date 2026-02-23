@@ -1,0 +1,104 @@
+import { useState } from 'react'
+import { DEPTS, isStaff } from '../../lib/constants'
+import { updateProfileRole } from '../../lib/supabase'
+import Fade from '../ui/Fade'
+import Card from '../ui/Card'
+import Av from '../ui/Av'
+import Modal from '../ui/Modal'
+import Select from '../ui/Select'
+import Btn from '../ui/Btn'
+
+export default function CrewPage({ profiles, user }) {
+  const admin = user.role === 'admin'
+  const [editUser, setEditUser] = useState(null)
+  const [editRole, setEditRole] = useState('')
+  const [editDept, setEditDept] = useState('')
+
+  const grouped = {}
+  DEPTS.forEach(d => grouped[d.id] = [])
+  grouped['staff'] = []
+  grouped['unassigned'] = []
+  profiles.forEach(p => {
+    if (isStaff(p.role)) grouped['staff'].push(p)
+    else if (p.department && grouped[p.department]) grouped[p.department].push(p)
+    else grouped['unassigned'].push(p)
+  })
+
+  const handleSaveRole = async () => {
+    if (!editUser) return
+    await updateProfileRole(editUser.id, editRole, editDept || null)
+    setEditUser(null)
+    window.location.reload()
+  }
+
+  const sections = [
+    { key: 'staff', label: '👨‍🏫 Staff', items: grouped.staff },
+    ...DEPTS.map(d => ({ key: d.id, label: `${d.icon} ${d.label}`, items: grouped[d.id] })),
+    { key: 'unassigned', label: '❓ Non Assegnati', items: grouped.unassigned },
+  ].filter(s => s.items.length > 0)
+
+  return (
+    <div>
+      <Fade>
+        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>👥 Crew</h1>
+        <p style={{ fontSize: 14, color: '#666', marginBottom: 28 }}>{profiles.length} membri</p>
+      </Fade>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+        {sections.map((sec, si) => (
+          <Fade key={sec.key} delay={si * 40}>
+            <Card>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+                <span>{sec.label}</span>
+                <span style={{ fontSize: 12, color: '#555' }}>{sec.items.length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {sec.items.map(member => (
+                  <MemberRow key={member.id} member={member} admin={admin}
+                    onEdit={() => { setEditUser(member); setEditRole(member.role); setEditDept(member.department || '') }} />
+                ))}
+              </div>
+            </Card>
+          </Fade>
+        ))}
+      </div>
+
+      <Modal open={!!editUser} onClose={() => setEditUser(null)} title={`Modifica Ruolo — ${editUser?.full_name}`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Select value={editRole} onChange={setEditRole}
+            options={[
+              { value: 'admin', label: 'Admin' },
+              { value: 'docente', label: 'Docente' },
+              { value: 'coordinatore', label: 'Coordinatore' },
+              { value: 'studente', label: 'Studente' },
+            ]} placeholder="Seleziona ruolo" />
+          {editRole === 'studente' && (
+            <Select value={editDept} onChange={setEditDept}
+              options={DEPTS.map(d => ({ value: d.id, label: `${d.icon} ${d.label}` }))} placeholder="Dipartimento" />
+          )}
+          <Btn variant="primary" onClick={handleSaveRole}>Salva</Btn>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+function MemberRow({ member, admin, onEdit }) {
+  const [h, setH] = useState(false)
+  return (
+    <div onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10,
+        background: h ? '#1a1a28' : 'transparent', transition: 'all 0.12s ease',
+      }}>
+      <Av name={member.full_name} size={34} url={member.avatar_url} mood={member.mood_emoji} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{member.full_name}</div>
+        <div style={{ fontSize: 11, color: '#666' }}>{member.role}</div>
+      </div>
+      {admin && h && (
+        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#6ea8fe', fontSize: 12, cursor: 'pointer' }}>Modifica</button>
+      )}
+    </div>
+  )
+}
