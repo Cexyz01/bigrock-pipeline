@@ -36,13 +36,13 @@ function ToastItem({ toast, onRemove }) {
   const [visible, setVisible] = useState(false)
   useEffect(() => { requestAnimationFrame(() => setVisible(true)) }, [])
 
-  const borderColor = toast.type === 'success' ? '#6ee7a0' : toast.type === 'error' ? '#f07070' : '#6ea8fe'
+  const borderColor = toast.type === 'success' ? '#4ecdc4' : toast.type === 'error' ? '#ff6b6b' : '#7c5cfc'
 
   return (
     <div
       onClick={() => { if (toast.onClick) toast.onClick(); onRemove() }}
       style={{
-        background: '#1e1e2e', border: '1px solid #2a2a3a', borderRadius: 12,
+        background: '#161622', border: '1px solid #2a2a3e', borderRadius: 14,
         padding: '14px 20px', minWidth: 300, maxWidth: 400,
         borderLeft: `3px solid ${borderColor}`,
         cursor: toast.onClick ? 'pointer' : 'default',
@@ -53,7 +53,7 @@ function ToastItem({ toast, onRemove }) {
         transition: 'all 0.25s ease',
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#e4e4ec' }}>{toast.message}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8f0' }}>{toast.message}</div>
       {toast.body && <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{toast.body}</div>}
     </div>
   )

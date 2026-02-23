@@ -4,13 +4,13 @@ import StatusBadge from '../ui/StatusBadge'
 import Av from '../ui/Av'
 
 const statusBg = {
-  approved: '#6ee7a012', review: '#f0c36d12', wip: '#6ea8fe10', todo: '#15151e',
+  approved: 'rgba(78,205,196,0.06)', review: 'rgba(240,195,109,0.06)', wip: 'rgba(124,92,252,0.06)', todo: '#12121c',
 }
 const statusBorder = {
-  approved: '#6ee7a025', review: '#f0c36d25', wip: '#6ea8fe20', todo: '#1e1e2a',
+  approved: 'rgba(78,205,196,0.2)', review: 'rgba(240,195,109,0.2)', wip: 'rgba(124,92,252,0.2)', todo: '#1e1e2e',
 }
 const statusHoverBg = {
-  approved: '#6ee7a01a', review: '#f0c36d1a', wip: '#6ea8fe18', todo: '#1a1a24',
+  approved: 'rgba(78,205,196,0.1)', review: 'rgba(240,195,109,0.1)', wip: 'rgba(124,92,252,0.1)', todo: '#161622',
 }
 
 export default function TaskCard({ task, user, staff, onClick }) {
@@ -24,11 +24,11 @@ export default function TaskCard({ task, user, staff, onClick }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        padding: 20, borderRadius: 14, cursor: 'pointer', minHeight: 150,
+        padding: 20, borderRadius: 16, cursor: 'pointer', minHeight: 150,
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-        background: h ? (statusHoverBg[task.status] || '#1a1a24') : (statusBg[task.status] || '#15151e'),
-        border: `1px solid ${statusBorder[task.status] || '#1e1e2a'}`,
-        borderLeft: isOwner ? `3px solid #6ea8fe` : `3px solid ${statusBorder[task.status] || '#1e1e2a'}`,
+        background: h ? (statusHoverBg[task.status] || '#161622') : (statusBg[task.status] || '#12121c'),
+        border: `1px solid ${statusBorder[task.status] || '#1e1e2e'}`,
+        borderLeft: isOwner ? `3px solid #7c5cfc` : `3px solid ${statusBorder[task.status] || '#1e1e2e'}`,
         transition: 'all 0.15s ease',
         transform: h ? 'translateY(-2px)' : 'none',
         boxShadow: h ? '0 6px 20px rgba(0,0,0,0.15)' : 'none',
@@ -56,7 +56,7 @@ export default function TaskCard({ task, user, staff, onClick }) {
           ) : (
             <span style={{ fontSize: 11, color: '#555', fontStyle: 'italic' }}>Non assegnato</span>
           )}
-          {task.shot && <span style={{ fontSize: 10, color: '#666', background: '#1e1e2a', padding: '2px 6px', borderRadius: 4 }}>{task.shot.code}</span>}
+          {task.shot && <span style={{ fontSize: 10, color: '#666', background: '#1a1a28', padding: '2px 6px', borderRadius: 6 }}>{task.shot.code}</span>}
         </div>
         <StatusBadge status={task.status} type="task" />
       </div>

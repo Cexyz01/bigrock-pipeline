@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { DEPTS, MOOD_EMOJIS } from '../../lib/constants'
+import { DEPTS, MOOD_EMOJIS, isStaff } from '../../lib/constants'
 import { uploadAvatar, updateProfile } from '../../lib/supabase'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
@@ -8,8 +8,10 @@ import Btn from '../ui/Btn'
 
 export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const fileRef = useRef(null)
 
+  const staff = isStaff(user.role)
   const dept = DEPTS.find(d => d.id === user.department)
 
   const handleAvatarUpload = async (e) => {
@@ -29,6 +31,15 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
       addToast('Errore nel caricamento', 'error')
     }
     setUploading(false)
+  }
+
+  // #6: Delete avatar
+  const handleDeleteAvatar = async () => {
+    setDeleting(true)
+    await updateProfile(user.id, { avatar_url: null })
+    onProfileUpdate({ ...user, avatar_url: null })
+    addToast('Avatar rimosso', 'success')
+    setDeleting(false)
   }
 
   const handleMood = async (emoji) => {
@@ -55,17 +66,27 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
             <div>
               <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{user.full_name}</div>
               <div style={{ fontSize: 13, color: '#888' }}>{user.email}</div>
-              <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
-                style={{ marginTop: 10, padding: '6px 14px', fontSize: 12 }}>
-                Cambia Avatar
-              </Btn>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
+                  style={{ padding: '6px 14px', fontSize: 12 }}>
+                  Cambia Avatar
+                </Btn>
+                {/* #6: Delete avatar button */}
+                {user.avatar_url && (
+                  <Btn variant="danger" onClick={handleDeleteAvatar} loading={deleting}
+                    style={{ padding: '6px 14px', fontSize: 12 }}>
+                    Rimuovi
+                  </Btn>
+                )}
+              </div>
               <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>Max 1MB</div>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <InfoField label="Ruolo" value={user.role} />
-            <InfoField label="Dipartimento" value={dept ? `${dept.icon} ${dept.label}` : 'Non assegnato'} />
+            {/* #7: Staff don't show department */}
+            {!staff && <InfoField label="Dipartimento" value={dept ? `${dept.icon} ${dept.label}` : 'Non assegnato'} />}
             <InfoField label="Email" value={user.email} />
             <InfoField label="Membro dal" value={user.created_at ? new Date(user.created_at).toLocaleDateString('it') : '-'} />
           </div>
@@ -80,9 +101,9 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
             {MOOD_EMOJIS.map(e => (
               <button key={e} onClick={() => handleMood(e)}
                 style={{
-                  width: 44, height: 44, borderRadius: 10, fontSize: 22,
-                  background: user.mood_emoji === e ? '#6ea8fe20' : '#1e1e2a',
-                  border: user.mood_emoji === e ? '2px solid #6ea8fe' : '1px solid #2a2a3a',
+                  width: 44, height: 44, borderRadius: 12, fontSize: 22,
+                  background: user.mood_emoji === e ? 'rgba(124,92,252,0.2)' : '#1a1a28',
+                  border: user.mood_emoji === e ? '2px solid #7c5cfc' : '1px solid #2a2a3a',
                   cursor: 'pointer', transition: 'all 0.12s ease',
                   transform: user.mood_emoji === e ? 'scale(1.1)' : 'none',
                 }}>{e}</button>
@@ -96,7 +117,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
 function InfoField({ label, value }) {
   return (
-    <div style={{ padding: '10px 14px', background: '#1a1a24', borderRadius: 10 }}>
+    <div style={{ padding: '10px 14px', background: '#161622', borderRadius: 12 }}>
       <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
       <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
     </div>

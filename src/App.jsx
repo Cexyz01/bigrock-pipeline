@@ -29,6 +29,7 @@ import StoryboardPage from './components/pages/StoryboardPage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
+import NotificationsPanel from './components/notifications/NotificationsPanel'
 
 // ═══════════════════════════════════════════
 // MAIN APP
@@ -65,6 +66,7 @@ export default function App() {
     profile: { icon: '👤', label: 'Profilo' },
     activity: { icon: '📊', label: 'Attività' },
     crew: { icon: '👥', label: 'Crew' },
+    notifications: { icon: '🔔', label: 'Notifiche' },
   }
 
   // ── Auth ──
@@ -123,7 +125,6 @@ export default function App() {
       subscribeToTable('shots', () => getShots().then(setShots)),
       subscribeToTable('tasks', () => getTasks().then(setTasks)),
       subscribeToTable('notifications', () => getNotifications(user.id).then(setNotifications)),
-      // Realtime toast for new notifications (#16)
       subscribeToNotifications(user.id, (payload) => {
         const n = payload.new
         if (n) {
@@ -141,7 +142,7 @@ export default function App() {
     return () => channels.forEach(ch => supabase.removeChannel(ch))
   }, [user])
 
-  // ── Navigation with deep link (#4) ──
+  // ── Navigation with deep link ──
   const handleNavigate = (targetView, targetId) => {
     setView(targetView)
     if (targetId) setDeepLink({ type: targetView, id: targetId })
@@ -211,11 +212,11 @@ export default function App() {
 
   // ── Loading / Login ──
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0e0e14' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0b12' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: 48, height: 48, borderRadius: 12, margin: '0 auto 16px',
-          background: 'linear-gradient(135deg, #6ea8fe, #b07ce8)',
+          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+          background: 'linear-gradient(135deg, #7c5cfc, #a78bfa)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 18, fontWeight: 700, color: '#fff', animation: 'pulse 1.5s ease infinite',
         }}>BR</div>
@@ -236,40 +237,41 @@ export default function App() {
       {/* Delete confirmation */}
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
 
-      {/* Sidebar */}
+      {/* Sidebar — #5: unreadCount passed for notification badge */}
       <Sidebar
         user={user} view={view} setView={setView} onSignOut={signOut}
         events={events} onCreateEvent={handleCreateEvent} onDeleteEvent={handleDeleteEvent}
-        requestConfirm={requestConfirm}
+        requestConfirm={requestConfirm} unreadCount={unreadCount}
       />
 
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Top bar */}
-        <TopBar
-          viewLabel={currentNav.label} viewIcon={currentNav.icon}
-          notifications={notifications} unreadCount={unreadCount}
-          onMarkRead={handleMarkRead} onMarkAllRead={handleMarkAllRead}
-          onNavigate={handleNavigate}
-          chatOpen={chatOpen} onToggleChat={() => setChatOpen(!chatOpen)}
-        />
+        {/* Top bar — simplified, no chat/notif buttons */}
+        <TopBar viewLabel={currentNav.label} viewIcon={currentNav.icon} />
 
-        {/* Content + Chat */}
-        <div style={{ display: 'flex', flex: 1 }}>
-          <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
-            {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
-            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} requestConfirm={requestConfirm} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
-            {view === 'storyboard' && <StoryboardPage />}
-            {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
-            {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
-            {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} onNavigate={handleNavigate} />}
-          </div>
-
-          {/* Chat Panel */}
-          {chatOpen && <ChatPanel user={user} onClose={() => setChatOpen(false)} />}
+        {/* Content */}
+        <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+          {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
+          {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} requestConfirm={requestConfirm} />}
+          {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+          {view === 'storyboard' && <StoryboardPage />}
+          {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
+          {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
+          {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} onNavigate={handleNavigate} />}
+          {/* #5: Notifications as full page view */}
+          {view === 'notifications' && (
+            <NotificationsPanel
+              notifications={notifications}
+              onMarkRead={handleMarkRead}
+              onMarkAllRead={handleMarkAllRead}
+              onNavigate={handleNavigate}
+            />
+          )}
         </div>
       </div>
+
+      {/* #4: Chat as slide-out tab from right edge */}
+      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} />
     </div>
   )
 }

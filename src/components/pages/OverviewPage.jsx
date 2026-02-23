@@ -20,13 +20,13 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
-          { l: 'Shots', v: shots.length, e: '🎬' },
-          { l: 'Completati', v: done, e: '✅' },
-          { l: 'In Corso', v: wip, e: '🔧' },
-          { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, e: '📋' },
+          { l: 'Shots', v: shots.length, e: '🎬', c: '#7c5cfc' },
+          { l: 'Completati', v: done, e: '✅', c: '#4ecdc4' },
+          { l: 'In Corso', v: wip, e: '🔧', c: '#f0c36d' },
+          { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, e: '📋', c: '#ff8e53' },
         ].map((s, i) => (
           <Fade key={s.l} delay={i * 50}>
-            <Card>
+            <Card accent={s.c}>
               <div style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>{s.e} {s.l}</div>
               <div style={{ fontSize: 28, fontWeight: 700 }}>{s.v}</div>
             </Card>
@@ -38,7 +38,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>📊 Progresso Pipeline</span>
-            <span style={{ fontSize: 22, fontWeight: 700, color: '#6ea8fe' }}>{pct}%</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: '#7c5cfc' }}>{pct}%</span>
           </div>
           <Bar value={pct} h={7} />
           <div style={{ display: 'flex', gap: 18, marginTop: 16, flexWrap: 'wrap' }}>
@@ -63,11 +63,16 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
             {DEPTS.map(dept => {
               const t = shots.length
               const d = shots.filter(sh => sh[`status_${dept.id}`] === 'approved').length
+              // #11: Tasks count only for THIS department
+              const deptTasks = tasks.filter(tk => tk.department === dept.id)
+              const deptDone = deptTasks.filter(tk => tk.status === 'approved').length
               return (
                 <div key={dept.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                     <span style={{ fontSize: 13 }}>{dept.icon} {dept.label}</span>
-                    <span style={{ fontSize: 12, color: '#777', fontWeight: 600 }}>{d}/{t}</span>
+                    <span style={{ fontSize: 12, color: '#777', fontWeight: 600 }}>
+                      {d}/{t} shots · {deptDone}/{deptTasks.length} tasks
+                    </span>
                   </div>
                   <Bar value={t > 0 ? Math.round((d / t) * 100) : 0} h={4} />
                 </div>

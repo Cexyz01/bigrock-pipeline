@@ -10,11 +10,11 @@ export default function LoginPage() {
     setLoading(false)
   }
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0e0e14' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0b12' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
           width: 72, height: 72, borderRadius: 18, margin: '0 auto 24px',
-          background: 'linear-gradient(135deg, #6ea8fe, #b07ce8)',
+          background: 'linear-gradient(135deg, #7c5cfc, #a78bfa)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 26, fontWeight: 700, color: '#fff',
         }}>BR</div>

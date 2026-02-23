@@ -6,8 +6,8 @@
 
 body {
   font-family: 'DM Sans', 'Segoe UI', sans-serif;
-  background: #0e0e14;
-  color: #e4e4ec;
+  background: #0b0b12;
+  color: #e8e8f0;
   font-size: 15px;
   line-height: 1.5;
 }
@@ -47,13 +47,23 @@ button {
   to { opacity: 1; transform: translateX(0); }
 }
 
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
 @keyframes bellPulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(124,92,252,0.15); }
+  50% { box-shadow: 0 0 24px rgba(124,92,252,0.35); }
 }
 
 .fade-in {
@@ -76,4 +86,53 @@ button {
 .shot-cell-clickable:active {
   transform: scale(0.96);
   transition: transform 0.05s ease;
+}
+
+/* Chat slide-in tab */
+.chat-tab-handle {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  writing-mode: vertical-lr;
+  padding: 16px 8px;
+  background: linear-gradient(135deg, #7c5cfc, #a78bfa);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: 12px 0 0 12px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  box-shadow: -4px 0 20px rgba(124,92,252,0.3);
+  transition: all 0.2s ease;
+  border: none;
+}
+.chat-tab-handle:hover {
+  padding-right: 12px;
+  box-shadow: -4px 0 30px rgba(124,92,252,0.5);
+}
+
+/* Emoji picker grid */
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  padding: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.emoji-picker-grid button {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+.emoji-picker-grid button:hover {
+  background: rgba(124,92,252,0.2);
+  transform: scale(1.15);
 }

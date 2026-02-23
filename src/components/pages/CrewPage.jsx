@@ -85,19 +85,27 @@ export default function CrewPage({ profiles, user }) {
 
 function MemberRow({ member, admin, onEdit }) {
   const [h, setH] = useState(false)
+  const staff = isStaff(member.role)
   return (
     <div onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10,
-        background: h ? '#1a1a28' : 'transparent', transition: 'all 0.12s ease',
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12,
+        background: h ? '#161622' : 'transparent', transition: 'all 0.12s ease',
       }}>
       <Av name={member.full_name} size={34} url={member.avatar_url} mood={member.mood_emoji} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{member.full_name}</div>
-        <div style={{ fontSize: 11, color: '#666' }}>{member.role}</div>
+        {/* #7: Staff don't show department */}
+        <div style={{ fontSize: 11, color: '#666' }}>
+          {member.role}
+          {!staff && member.department && (() => {
+            const d = DEPTS.find(dep => dep.id === member.department)
+            return d ? ` · ${d.icon} ${d.label}` : ''
+          })()}
+        </div>
       </div>
       {admin && h && (
-        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#6ea8fe', fontSize: 12, cursor: 'pointer' }}>Modifica</button>
+        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#7c5cfc', fontSize: 12, cursor: 'pointer' }}>Modifica</button>
       )}
     </div>
   )

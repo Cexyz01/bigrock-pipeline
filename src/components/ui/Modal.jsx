@@ -7,7 +7,7 @@ export default function Modal({ open, onClose, title, children, width }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: '#15151e', border: '1px solid #2a2a3a', borderRadius: 16,
+        background: '#12121c', border: '1px solid #2a2a3e', borderRadius: 18,
         padding: 28, width: '90%', maxWidth: width || 560, maxHeight: '80vh', overflowY: 'auto',
         animation: 'fadeIn 0.2s ease',
       }}>
