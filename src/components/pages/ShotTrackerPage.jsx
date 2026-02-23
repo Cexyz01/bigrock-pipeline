@@ -75,7 +75,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       <div style={{ display: 'flex', gap: 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1' }}>
         {SHOT_STATUSES.map(st => (
           <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1px solid ${st.color}30` }} />
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1.5px solid ${st.color}50` }} />
             <span style={{ fontSize: 11, color: '#64748B' }}>{st.label}</span>
           </div>
         ))}

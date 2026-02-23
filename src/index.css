@@ -53,16 +53,10 @@ button { font-family: inherit; cursor: pointer; }
 
 .fade-in { animation: fadeIn 0.35s ease forwards; }
 
-/* Shot tracker cells */
-.shot-cell-inner {
-  transition: all 0.15s ease;
-}
-.shot-cell-inner:hover {
-  filter: brightness(0.96);
-}
+/* Shot tracker cells — no transition on bg/border for instant feedback */
 .shot-cell-clickable { cursor: pointer; }
-.shot-cell-clickable:hover { transform: scale(1.08); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-.shot-cell-clickable:active { transform: scale(0.95); transition: transform 0.05s ease; }
+.shot-cell-clickable:hover { transform: scale(1.06); box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.1s ease; }
+.shot-cell-clickable:active { transform: scale(0.94); transition: transform 0.04s ease; }
 
 /* Chat slide-out tab */
 .chat-tab-handle {

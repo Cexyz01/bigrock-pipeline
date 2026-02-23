@@ -106,12 +106,14 @@ export default function ChatPanel({ user, open, onToggle }) {
 
   return (
     <>
-      {/* Tab handle on right edge */}
-      {!open && (
-        <button className="chat-tab-handle" onClick={onToggle}>
-          Chat
-        </button>
-      )}
+      {/* Tab handle — always visible, moves with panel */}
+      <button
+        className="chat-tab-handle"
+        onClick={onToggle}
+        style={{ right: open ? 380 : 0 }}
+      >
+        Chat
+      </button>
 
       {/* Slide-out panel */}
       {open && (

@@ -12,11 +12,11 @@ export const DEPTS = [
 ]
 
 export const SHOT_STATUSES = [
-  { id: 'not_started', label: 'To Do', color: '#94A3B8', bg: '#F1F5F9' },
-  { id: 'in_progress', label: 'WIP', color: '#3B82F6', bg: '#EFF6FF' },
-  { id: 'review', label: 'Review', color: '#F59E0B', bg: '#FFFBEB' },
-  { id: 'needs_revision', label: 'Fix', color: '#EF4444', bg: '#FEF2F2' },
-  { id: 'approved', label: 'Done', color: '#10B981', bg: '#ECFDF5' },
+  { id: 'not_started', label: 'To Do', color: '#94A3B8', bg: '#E2E8F0' },
+  { id: 'in_progress', label: 'WIP', color: '#2563EB', bg: '#BFDBFE' },
+  { id: 'review', label: 'Review', color: '#D97706', bg: '#FDE68A' },
+  { id: 'needs_revision', label: 'Fix', color: '#DC2626', bg: '#FECACA' },
+  { id: 'approved', label: 'Done', color: '#059669', bg: '#A7F3D0' },
 ]
 
 export const TASK_STATUSES = [

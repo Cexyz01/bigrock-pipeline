@@ -24,7 +24,6 @@ import StoryboardPage from './components/pages/StoryboardPage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
-import NotificationsPanel from './components/notifications/NotificationsPanel'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -113,7 +112,12 @@ export default function App() {
 
   // Handlers
   const handleCreateShot = async (shot) => { await createShot(shot); setShots(await getShots()) }
-  const handleUpdateShot = async (id, updates) => { await updateShot(id, updates); setShots(await getShots()) }
+  const handleUpdateShot = async (id, updates) => {
+    // Optimistic: update UI instantly, then persist in background
+    setShots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+    const { error } = await updateShot(id, updates)
+    if (error) setShots(await getShots()) // revert on failure
+  }
   const handleDeleteShot = async (id) => { await deleteShot(id); setShots(await getShots()) }
 
   const handleCreateTask = async (task) => {
@@ -196,6 +200,7 @@ export default function App() {
       <Sidebar
         user={user} view={view} setView={setView} onSignOut={signOut}
         events={events} onCreateEvent={handleCreateEvent} onDeleteEvent={handleDeleteEvent}
+        notifications={notifications} onMarkRead={handleMarkRead} onMarkAllRead={handleMarkAllRead} onNavigate={handleNavigate}
         requestConfirm={requestConfirm} unreadCount={unreadCount}
       />
 
@@ -214,9 +219,6 @@ export default function App() {
             {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} onNavigate={handleNavigate} />}
-            {view === 'notifications' && (
-              <NotificationsPanel notifications={notifications} onMarkRead={handleMarkRead} onMarkAllRead={handleMarkAllRead} onNavigate={handleNavigate} />
-            )}
           </div>
         )}
       </div>
