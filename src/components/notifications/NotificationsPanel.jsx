@@ -9,8 +9,8 @@ export default function NotificationsPanel({ notifications, onMarkRead, onMarkAl
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>🔔 Notifiche</h1>
-            <p style={{ fontSize: 14, color: '#666' }}>{unread.length > 0 ? `${unread.length} non lette` : 'Tutte lette'}</p>
+            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#f0f0f5' }}>🔔 Notifiche</h1>
+            <p style={{ fontSize: 14, color: '#555' }}>{unread.length > 0 ? `${unread.length} non lette` : 'Tutte lette'}</p>
           </div>
           {unread.length > 0 && (
             <Btn variant="primary" onClick={onMarkAllRead} style={{ fontSize: 12, padding: '8px 16px' }}>Segna tutte lette</Btn>
@@ -32,17 +32,17 @@ export default function NotificationsPanel({ notifications, onMarkRead, onMarkAl
                   }
                 }}
                 style={{
-                  padding: '16px 20px', borderRadius: 14, cursor: 'pointer',
-                  background: n.read ? '#12121c' : 'rgba(124,92,252,0.06)',
-                  border: `1px solid ${n.read ? '#1e1e2e' : 'rgba(124,92,252,0.15)'}`,
+                  padding: '16px 20px', borderRadius: 16, cursor: 'pointer',
+                  background: n.read ? '#141420' : 'rgba(205,255,0,0.04)',
+                  border: `1px solid ${n.read ? '#1e1e2e' : 'rgba(205,255,0,0.12)'}`,
                   transition: 'all 0.15s ease',
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = '#161622'}
-                onMouseLeave={e => e.currentTarget.style.background = n.read ? '#12121c' : 'rgba(124,92,252,0.06)'}
+                onMouseEnter={e => e.currentTarget.style.background = '#1a1a2a'}
+                onMouseLeave={e => e.currentTarget.style.background = n.read ? '#141420' : 'rgba(205,255,0,0.04)'}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  {!n.read && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#7c5cfc', flexShrink: 0 }} />}
-                  <span style={{ fontSize: 14, fontWeight: n.read ? 400 : 600 }}>{n.title}</span>
+                  {!n.read && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#CDFF00', flexShrink: 0 }} />}
+                  <span style={{ fontSize: 14, fontWeight: n.read ? 400 : 600, color: '#f0f0f5' }}>{n.title}</span>
                 </div>
                 {n.body && <div style={{ fontSize: 13, color: '#777', marginTop: 2, lineHeight: 1.4 }}>{n.body}</div>}
                 <div style={{ fontSize: 11, color: '#444', marginTop: 8 }}>{new Date(n.created_at).toLocaleString('it')}</div>

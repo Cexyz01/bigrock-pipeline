@@ -41,8 +41,8 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>📋 Tasks</h1>
-            <p style={{ fontSize: 14, color: '#666' }}>{staff ? 'Gestisci tutti i task' : 'I tuoi task'}</p>
+            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#f0f0f5' }}>📋 Tasks</h1>
+            <p style={{ fontSize: 14, color: '#555' }}>{staff ? 'Gestisci tutti i task' : 'I tuoi task'}</p>
           </div>
           {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nuovo Task</Btn>}
         </div>
@@ -53,15 +53,15 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
           <Pill label="Tutti" active={viewMode === 'all'} onClick={() => setViewMode('all')} />
           <Pill label="I Miei" active={viewMode === 'mine'} onClick={() => setViewMode('mine')} />
-          <div style={{ width: 1, height: 22, background: '#2a2a3a', margin: '0 4px' }} />
+          <div style={{ width: 1, height: 22, background: '#1e1e2e', margin: '0 4px' }} />
           <Pill label="Tutti i Reparti" active={!filter.dept} onClick={() => setFilter(f => ({ ...f, dept: '' }))} />
           {DEPTS.map(d => <Pill key={d.id} label={`${d.icon} ${d.label}`} active={filter.dept === d.id} onClick={() => setFilter(f => ({ ...f, dept: d.id }))} />)}
           {staff && (
             <>
-              <div style={{ width: 1, height: 22, background: '#2a2a3a', margin: '0 4px' }} />
+              <div style={{ width: 1, height: 22, background: '#1e1e2e', margin: '0 4px' }} />
               <Select value={filter.user} onChange={v => setFilter(f => ({ ...f, user: v }))}
                 options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Tutti gli studenti"
-                style={{ padding: '6px 12px', fontSize: 12, borderRadius: 8 }} />
+                style={{ padding: '6px 12px', fontSize: 12, borderRadius: 10 }} />
             </>
           )}
         </div>

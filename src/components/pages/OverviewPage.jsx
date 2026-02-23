@@ -11,24 +11,27 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
   const myTasks = tasks.filter(t => t.assigned_to === user.id)
   const reviewTasks = tasks.filter(t => t.status === 'review')
 
+  // Colored stat cards with themed backgrounds
+  const statCards = [
+    { l: 'Shots', v: shots.length, e: '🎬', c: '#CDFF00', bg: 'rgba(205,255,0,0.06)', border: 'rgba(205,255,0,0.18)' },
+    { l: 'Completati', v: done, e: '✅', c: '#4ECDC4', bg: 'rgba(78,205,196,0.06)', border: 'rgba(78,205,196,0.18)' },
+    { l: 'In Corso', v: wip, e: '🔧', c: '#FF6B4A', bg: 'rgba(255,107,74,0.06)', border: 'rgba(255,107,74,0.18)' },
+    { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, e: '📋', c: '#C4A8FF', bg: 'rgba(196,168,255,0.06)', border: 'rgba(196,168,255,0.18)' },
+  ]
+
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>Ciao {user.full_name.split(' ')[0]} {user.mood_emoji || '👋'}</h1>
-        <p style={{ fontSize: 14, color: '#666', marginBottom: 28 }}>Production Pipeline Overview</p>
+        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#f0f0f5' }}>Ciao {user.full_name.split(' ')[0]} {user.mood_emoji || '👋'}</h1>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 28 }}>Production Pipeline Overview</p>
       </Fade>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
-        {[
-          { l: 'Shots', v: shots.length, e: '🎬', c: '#7c5cfc' },
-          { l: 'Completati', v: done, e: '✅', c: '#4ecdc4' },
-          { l: 'In Corso', v: wip, e: '🔧', c: '#f0c36d' },
-          { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, e: '📋', c: '#ff8e53' },
-        ].map((s, i) => (
+        {statCards.map((s, i) => (
           <Fade key={s.l} delay={i * 50}>
-            <Card accent={s.c}>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>{s.e} {s.l}</div>
-              <div style={{ fontSize: 28, fontWeight: 700 }}>{s.v}</div>
+            <Card style={{ background: s.bg, border: `1px solid ${s.border}` }} accent={s.c}>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>{s.e} {s.l}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: s.c }}>{s.v}</div>
             </Card>
           </Fade>
         ))}
@@ -37,8 +40,8 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
       <Fade delay={200}>
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>📊 Progresso Pipeline</span>
-            <span style={{ fontSize: 22, fontWeight: 700, color: '#7c5cfc' }}>{pct}%</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#f0f0f5' }}>📊 Progresso Pipeline</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: '#CDFF00' }}>{pct}%</span>
           </div>
           <Bar value={pct} h={7} />
           <div style={{ display: 'flex', gap: 18, marginTop: 16, flexWrap: 'wrap' }}>
@@ -58,7 +61,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
 
       <Fade delay={300}>
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>🏗 Dipartimenti</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#f0f0f5' }}>🏗 Dipartimenti</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {DEPTS.map(dept => {
               const t = shots.length
@@ -69,7 +72,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
               return (
                 <div key={dept.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 13 }}>{dept.icon} {dept.label}</span>
+                    <span style={{ fontSize: 13, color: '#f0f0f5' }}>{dept.icon} {dept.label}</span>
                     <span style={{ fontSize: 12, color: '#777', fontWeight: 600 }}>
                       {d}/{t} shots · {deptDone}/{deptTasks.length} tasks
                     </span>

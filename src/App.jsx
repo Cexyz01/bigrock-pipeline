@@ -31,9 +31,9 @@ import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
 import NotificationsPanel from './components/notifications/NotificationsPanel'
 
-// ═══════════════════════════════════════════
+// =============================================
 // MAIN APP
-// ═══════════════════════════════════════════
+// =============================================
 
 export default function App() {
   // Auth state
@@ -57,7 +57,7 @@ export default function App() {
   const { toasts, addToast, removeToast } = useToast()
   const { pending, requestConfirm, confirm, cancel } = useConfirm()
 
-  // ── Nav config ──
+  // -- Nav config --
   const navLabels = {
     overview: { icon: '🏠', label: 'Overview' },
     shots: { icon: '🎬', label: 'Shots' },
@@ -69,7 +69,7 @@ export default function App() {
     notifications: { icon: '🔔', label: 'Notifiche' },
   }
 
-  // ── Auth ──
+  // -- Auth --
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -110,7 +110,7 @@ export default function App() {
     if (profile) loadData(authUser.id)
   }
 
-  // ── Load all data ──
+  // -- Load all data --
   const loadData = async (userId) => {
     const [p, sh, t, ev, n] = await Promise.all([
       getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId),
@@ -118,7 +118,7 @@ export default function App() {
     setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n)
   }
 
-  // ── Realtime ──
+  // -- Realtime --
   useEffect(() => {
     if (!user) return
     const channels = [
@@ -142,14 +142,14 @@ export default function App() {
     return () => channels.forEach(ch => supabase.removeChannel(ch))
   }, [user])
 
-  // ── Navigation with deep link ──
+  // -- Navigation with deep link --
   const handleNavigate = (targetView, targetId) => {
     setView(targetView)
     if (targetId) setDeepLink({ type: targetView, id: targetId })
   }
   const clearDeepLink = () => setDeepLink(null)
 
-  // ── Handlers ──
+  // -- Handlers --
   const handleCreateShot = async (shot) => { await createShot(shot); setShots(await getShots()) }
   const handleUpdateShot = async (id, updates) => { await updateShot(id, updates); setShots(await getShots()) }
   const handleDeleteShot = async (id) => { await deleteShot(id); setShots(await getShots()) }
@@ -210,15 +210,15 @@ export default function App() {
     setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? { ...p, ...updatedProfile } : p))
   }
 
-  // ── Loading / Login ──
+  // -- Loading / Login --
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0b12' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#09090f' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
-          background: 'linear-gradient(135deg, #7c5cfc, #a78bfa)',
+          width: 48, height: 48, borderRadius: 16, margin: '0 auto 16px',
+          background: 'linear-gradient(135deg, #CDFF00, #a8d600)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, fontWeight: 700, color: '#fff', animation: 'pulse 1.5s ease infinite',
+          fontSize: 18, fontWeight: 800, color: '#09090f', animation: 'pulse 1.5s ease infinite',
         }}>BR</div>
         <div style={{ color: '#555', fontSize: 14 }}>Caricamento...</div>
       </div>

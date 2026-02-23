@@ -52,8 +52,8 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   return (
     <div style={{ maxWidth: 600 }}>
       <Fade>
-        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>👤 Profilo</h1>
-        <p style={{ fontSize: 14, color: '#666', marginBottom: 28 }}>Personalizza il tuo profilo</p>
+        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#f0f0f5' }}>👤 Profilo</h1>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 28 }}>Personalizza il tuo profilo</p>
       </Fade>
 
       <Fade delay={100}>
@@ -64,7 +64,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
               <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
             </div>
             <div>
-              <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{user.full_name}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, color: '#f0f0f5' }}>{user.full_name}</div>
               <div style={{ fontSize: 13, color: '#888' }}>{user.email}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
@@ -95,15 +95,15 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
       <Fade delay={200}>
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Mood del Giorno</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, color: '#f0f0f5' }}>Mood del Giorno</div>
           <div style={{ fontSize: 12, color: '#777', marginBottom: 16 }}>Scegli un emoji che rappresenta come ti senti oggi</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {MOOD_EMOJIS.map(e => (
               <button key={e} onClick={() => handleMood(e)}
                 style={{
-                  width: 44, height: 44, borderRadius: 12, fontSize: 22,
-                  background: user.mood_emoji === e ? 'rgba(124,92,252,0.2)' : '#1a1a28',
-                  border: user.mood_emoji === e ? '2px solid #7c5cfc' : '1px solid #2a2a3a',
+                  width: 44, height: 44, borderRadius: 14, fontSize: 22,
+                  background: user.mood_emoji === e ? 'rgba(205,255,0,0.15)' : '#141420',
+                  border: user.mood_emoji === e ? '2px solid #CDFF00' : '1px solid #1e1e2e',
                   cursor: 'pointer', transition: 'all 0.12s ease',
                   transform: user.mood_emoji === e ? 'scale(1.1)' : 'none',
                 }}>{e}</button>
@@ -117,9 +117,9 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
 function InfoField({ label, value }) {
   return (
-    <div style={{ padding: '10px 14px', background: '#161622', borderRadius: 12 }}>
+    <div style={{ padding: '10px 14px', background: '#1a1a2a', borderRadius: 14 }}>
       <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f0f5' }}>{value}</div>
     </div>
   )
 }

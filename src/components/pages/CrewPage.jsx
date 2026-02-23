@@ -40,15 +40,15 @@ export default function CrewPage({ profiles, user }) {
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>👥 Crew</h1>
-        <p style={{ fontSize: 14, color: '#666', marginBottom: 28 }}>{profiles.length} membri</p>
+        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#f0f0f5' }}>👥 Crew</h1>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 28 }}>{profiles.length} membri</p>
       </Fade>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         {sections.map((sec, si) => (
           <Fade key={sec.key} delay={si * 40}>
             <Card>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: 'flex', justifyContent: 'space-between', color: '#f0f0f5' }}>
                 <span>{sec.label}</span>
                 <span style={{ fontSize: 12, color: '#555' }}>{sec.items.length}</span>
               </div>
@@ -89,14 +89,14 @@ function MemberRow({ member, admin, onEdit }) {
   return (
     <div onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12,
-        background: h ? '#161622' : 'transparent', transition: 'all 0.12s ease',
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14,
+        background: h ? '#1a1a2a' : 'transparent', transition: 'all 0.12s ease',
       }}>
       <Av name={member.full_name} size={34} url={member.avatar_url} mood={member.mood_emoji} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{member.full_name}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f0f5' }}>{member.full_name}</div>
         {/* #7: Staff don't show department */}
-        <div style={{ fontSize: 11, color: '#666' }}>
+        <div style={{ fontSize: 11, color: '#555' }}>
           {member.role}
           {!staff && member.department && (() => {
             const d = DEPTS.find(dep => dep.id === member.department)
@@ -105,7 +105,7 @@ function MemberRow({ member, admin, onEdit }) {
         </div>
       </div>
       {admin && h && (
-        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#7c5cfc', fontSize: 12, cursor: 'pointer' }}>Modifica</button>
+        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#CDFF00', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Modifica</button>
       )}
     </div>
   )

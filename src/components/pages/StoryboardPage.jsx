@@ -21,14 +21,14 @@ export default function StoryboardPage() {
             <div onClick={() => setActivated(true)}
               style={{
                 position: 'absolute', inset: 0, zIndex: 2,
-                background: 'rgba(11,11,18,0.4)', cursor: 'pointer',
+                background: 'rgba(9,9,15,0.5)', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 backdropFilter: 'blur(2px)',
               }}>
               <div style={{
-                background: '#12121c', border: '1px solid #2a2a3a', borderRadius: 16,
-                padding: '18px 32px', fontSize: 15, fontWeight: 600, color: '#ccc',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                background: '#141420', border: '1px solid #1e1e2e', borderRadius: 22,
+                padding: '18px 32px', fontSize: 15, fontWeight: 600, color: '#f0f0f5',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
               }}>
                 Clicca per attivare la board Miro
               </div>

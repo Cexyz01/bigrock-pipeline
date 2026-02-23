@@ -1,29 +1,29 @@
-// ═══════════════════════════════════════════
+// =============================================
 // CONSTANTS & HELPERS
-// ═══════════════════════════════════════════
+// =============================================
 
 export const DEPTS = [
-  { id: 'concept', label: 'Concept', icon: '🎨', color: '#ff6b6b' },
-  { id: 'modeling', label: 'Modeling', icon: '🧊', color: '#7c5cfc' },
+  { id: 'concept', label: 'Concept', icon: '🎨', color: '#FF6B4A' },
+  { id: 'modeling', label: 'Modeling', icon: '🧊', color: '#CDFF00' },
   { id: 'texturing', label: 'Texturing', icon: '🖌', color: '#f0c36d' },
-  { id: 'rigging', label: 'Rigging', icon: '🦴', color: '#4ecdc4' },
-  { id: 'animation', label: 'Animation', icon: '🎬', color: '#ff8e53' },
-  { id: 'compositing', label: 'Comp', icon: '✨', color: '#a78bfa' },
+  { id: 'rigging', label: 'Rigging', icon: '🦴', color: '#4ECDC4' },
+  { id: 'animation', label: 'Animation', icon: '🎬', color: '#FF6B4A' },
+  { id: 'compositing', label: 'Comp', icon: '✨', color: '#C4A8FF' },
 ]
 
 export const SHOT_STATUSES = [
-  { id: 'not_started', label: 'To Do', color: '#555', bg: '#1e1e28' },
-  { id: 'in_progress', label: 'WIP', color: '#7c5cfc', bg: '#1c1836' },
+  { id: 'not_started', label: 'To Do', color: '#555', bg: '#141420' },
+  { id: 'in_progress', label: 'WIP', color: '#CDFF00', bg: '#1a1e10' },
   { id: 'review', label: 'Review', color: '#f0c36d', bg: '#2a2518' },
-  { id: 'needs_revision', label: 'Fix', color: '#ff6b6b', bg: '#281818' },
-  { id: 'approved', label: 'Done', color: '#4ecdc4', bg: '#14282a' },
+  { id: 'needs_revision', label: 'Fix', color: '#FF6B4A', bg: '#281818' },
+  { id: 'approved', label: 'Done', color: '#4ECDC4', bg: '#0f2624' },
 ]
 
 export const TASK_STATUSES = [
-  { id: 'todo', label: 'To Do', color: '#555', bg: '#1e1e28' },
-  { id: 'wip', label: 'WIP', color: '#7c5cfc', bg: '#1c1836' },
+  { id: 'todo', label: 'To Do', color: '#555', bg: '#141420' },
+  { id: 'wip', label: 'WIP', color: '#CDFF00', bg: '#1a1e10' },
   { id: 'review', label: 'Review', color: '#f0c36d', bg: '#2a2518' },
-  { id: 'approved', label: 'Done', color: '#4ecdc4', bg: '#14282a' },
+  { id: 'approved', label: 'Done', color: '#4ECDC4', bg: '#0f2624' },
 ]
 
 export const MOOD_EMOJIS = ['😊','😎','🤔','😴','🔥','💪','😤','🎉','😢','🤯','🧠','☕','🎯','💡','😇','🚀','🎮','🖥','📚','🌙']
@@ -35,7 +35,7 @@ export const getTaskStatus = (id) => TASK_STATUSES.find(s => s.id === id) || TAS
 export const isStaff = (role) => role && role !== 'studente'
 
 // Accent colors
-export const ACCENT = '#7c5cfc'
-export const ACCENT_LIGHT = '#a78bfa'
-export const ACCENT_BG = 'rgba(124,92,252,0.12)'
-export const ACCENT_BORDER = 'rgba(124,92,252,0.25)'
+export const ACCENT = '#CDFF00'
+export const ACCENT_LIGHT = '#d8ff4d'
+export const ACCENT_BG = 'rgba(205,255,0,0.10)'
+export const ACCENT_BORDER = 'rgba(205,255,0,0.25)'

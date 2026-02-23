@@ -66,26 +66,26 @@ export default function ChatPanel({ user, open, onToggle }) {
       {open && (
         <div style={{
           position: 'fixed', right: 0, top: 0, bottom: 0, width: 360,
-          background: '#0e0e18', borderLeft: '1px solid #1a1a28',
+          background: '#0d0d16', borderLeft: '1px solid #1e1e2e',
           display: 'flex', flexDirection: 'column', zIndex: 55,
           animation: 'slideInRight 0.25s ease',
-          boxShadow: '-8px 0 40px rgba(0,0,0,0.4)',
+          boxShadow: '-8px 0 40px rgba(0,0,0,0.5)',
         }}>
           {/* Header */}
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid #1a1a28', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#a78bfa' }}>💬 Chat</span>
-            <button onClick={onToggle} style={{ background: 'none', border: 'none', color: '#777', fontSize: 18, cursor: 'pointer' }}>✕</button>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e1e2e', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#CDFF00' }}>💬 Chat</span>
+            <button onClick={onToggle} style={{ background: 'none', border: 'none', color: '#555', fontSize: 18, cursor: 'pointer' }}>✕</button>
           </div>
 
           {/* Channel tabs */}
-          <div style={{ display: 'flex', gap: 4, padding: '10px 12px', overflowX: 'auto', borderBottom: '1px solid #1a1a28' }}>
+          <div style={{ display: 'flex', gap: 4, padding: '10px 12px', overflowX: 'auto', borderBottom: '1px solid #1e1e2e' }}>
             {channels.map(ch => (
               <button key={ch} onClick={() => setChannel(ch)}
                 style={{
-                  padding: '5px 12px', borderRadius: 10, fontSize: 11, fontWeight: channel === ch ? 600 : 400,
-                  background: channel === ch ? 'rgba(124,92,252,0.15)' : 'transparent',
-                  color: channel === ch ? '#a78bfa' : '#777',
-                  border: `1px solid ${channel === ch ? 'rgba(124,92,252,0.3)' : 'transparent'}`,
+                  padding: '5px 12px', borderRadius: 12, fontSize: 11, fontWeight: channel === ch ? 700 : 400,
+                  background: channel === ch ? 'rgba(205,255,0,0.10)' : 'transparent',
+                  color: channel === ch ? '#CDFF00' : '#777',
+                  border: `1px solid ${channel === ch ? 'rgba(205,255,0,0.25)' : 'transparent'}`,
                   cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.12s ease',
                 }}
               >{deptLabel(ch)}</button>
@@ -105,14 +105,14 @@ export default function ChatPanel({ user, open, onToggle }) {
                 }}>
                   <Av name={m.author?.full_name} size={24} url={m.author?.avatar_url} mood={m.author?.mood_emoji} />
                   <div style={{
-                    maxWidth: '70%', padding: '8px 12px', borderRadius: 14,
-                    background: isMine ? 'rgba(124,92,252,0.15)' : '#161622',
-                    border: `1px solid ${isMine ? 'rgba(124,92,252,0.25)' : '#1e1e2e'}`,
+                    maxWidth: '70%', padding: '8px 12px', borderRadius: 16,
+                    background: isMine ? 'rgba(205,255,0,0.08)' : '#141420',
+                    border: `1px solid ${isMine ? 'rgba(205,255,0,0.20)' : '#1e1e2e'}`,
                   }}>
                     {!isMine && (
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#888', marginBottom: 2 }}>
                         {m.author?.full_name}
-                        {m.author?.role !== 'studente' && <span style={{ color: '#a78bfa', marginLeft: 4 }}>{m.author?.role}</span>}
+                        {m.author?.role !== 'studente' && <span style={{ color: '#CDFF00', marginLeft: 4 }}>{m.author?.role}</span>}
                       </div>
                     )}
                     <div style={{ fontSize: 13, color: '#ddd', lineHeight: 1.5, wordBreak: 'break-word' }}>{m.body}</div>
@@ -129,7 +129,7 @@ export default function ChatPanel({ user, open, onToggle }) {
           {/* Emoji picker — #10 */}
           {showEmoji && (
             <div style={{
-              padding: '8px 14px', borderTop: '1px solid #1a1a28', background: '#12121c',
+              padding: '8px 14px', borderTop: '1px solid #1e1e2e', background: '#141420',
             }}>
               <div className="emoji-picker-grid">
                 {CHAT_EMOJIS.map(e => (
@@ -140,10 +140,10 @@ export default function ChatPanel({ user, open, onToggle }) {
           )}
 
           {/* Input */}
-          <div style={{ padding: '12px 14px', borderTop: '1px solid #1a1a28', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ padding: '12px 14px', borderTop: '1px solid #1e1e2e', display: 'flex', gap: 8, alignItems: 'center' }}>
             <button onClick={() => setShowEmoji(!showEmoji)}
               style={{
-                background: showEmoji ? 'rgba(124,92,252,0.15)' : 'transparent',
+                background: showEmoji ? 'rgba(205,255,0,0.10)' : 'transparent',
                 border: 'none', fontSize: 18, cursor: 'pointer', padding: 4, borderRadius: 8,
               }}>😊</button>
             <input
@@ -153,15 +153,15 @@ export default function ChatPanel({ user, open, onToggle }) {
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
               style={{
                 flex: 1, padding: '10px 14px', fontSize: 13,
-                background: '#161622', border: '1px solid #2a2a3a', borderRadius: 12,
-                color: '#e8e8f0', outline: 'none',
+                background: '#141420', border: '1px solid #1e1e2e', borderRadius: 14,
+                color: '#f0f0f5', outline: 'none',
               }}
             />
             <button onClick={handleSend} disabled={sending || !input.trim()}
               style={{
-                background: 'linear-gradient(135deg, #7c5cfc, #a78bfa)',
-                border: 'none', borderRadius: 10, padding: '10px 14px',
-                color: '#fff', fontWeight: 700, fontSize: 14,
+                background: 'linear-gradient(135deg, #CDFF00, #a8d600)',
+                border: 'none', borderRadius: 12, padding: '10px 14px',
+                color: '#09090f', fontWeight: 800, fontSize: 14,
                 opacity: sending || !input.trim() ? 0.4 : 1,
                 cursor: sending || !input.trim() ? 'not-allowed' : 'pointer',
               }}>↑</button>

@@ -6,16 +6,16 @@
 
 body {
   font-family: 'DM Sans', 'Segoe UI', sans-serif;
-  background: #0b0b12;
-  color: #e8e8f0;
+  background: #09090f;
+  color: #f0f0f5;
   font-size: 15px;
   line-height: 1.5;
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3a3a4a; }
+::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2a2a3a; }
 
 input, textarea, select {
   font-family: inherit;
@@ -62,8 +62,13 @@ button {
 }
 
 @keyframes glowPulse {
-  0%, 100% { box-shadow: 0 0 12px rgba(124,92,252,0.15); }
-  50% { box-shadow: 0 0 24px rgba(124,92,252,0.35); }
+  0%, 100% { box-shadow: 0 0 12px rgba(205,255,0,0.15); }
+  50% { box-shadow: 0 0 24px rgba(205,255,0,0.35); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .fade-in {
@@ -97,20 +102,20 @@ button {
   z-index: 60;
   writing-mode: vertical-lr;
   padding: 16px 8px;
-  background: linear-gradient(135deg, #7c5cfc, #a78bfa);
-  color: #fff;
+  background: linear-gradient(135deg, #CDFF00, #a8d600);
+  color: #09090f;
   font-weight: 700;
   font-size: 13px;
   border-radius: 12px 0 0 12px;
   cursor: pointer;
   letter-spacing: 1px;
-  box-shadow: -4px 0 20px rgba(124,92,252,0.3);
+  box-shadow: -4px 0 20px rgba(205,255,0,0.25);
   transition: all 0.2s ease;
   border: none;
 }
 .chat-tab-handle:hover {
   padding-right: 12px;
-  box-shadow: -4px 0 30px rgba(124,92,252,0.5);
+  box-shadow: -4px 0 30px rgba(205,255,0,0.45);
 }
 
 /* Emoji picker grid */
@@ -133,6 +138,6 @@ button {
   transition: all 0.1s ease;
 }
 .emoji-picker-grid button:hover {
-  background: rgba(124,92,252,0.2);
+  background: rgba(205,255,0,0.15);
   transform: scale(1.15);
 }

@@ -4,13 +4,13 @@ import StatusBadge from '../ui/StatusBadge'
 import Av from '../ui/Av'
 
 const statusBg = {
-  approved: 'rgba(78,205,196,0.06)', review: 'rgba(240,195,109,0.06)', wip: 'rgba(124,92,252,0.06)', todo: '#12121c',
+  approved: 'rgba(78,205,196,0.05)', review: 'rgba(240,195,109,0.05)', wip: 'rgba(205,255,0,0.04)', todo: '#141420',
 }
 const statusBorder = {
-  approved: 'rgba(78,205,196,0.2)', review: 'rgba(240,195,109,0.2)', wip: 'rgba(124,92,252,0.2)', todo: '#1e1e2e',
+  approved: 'rgba(78,205,196,0.18)', review: 'rgba(240,195,109,0.18)', wip: 'rgba(205,255,0,0.18)', todo: '#1e1e2e',
 }
 const statusHoverBg = {
-  approved: 'rgba(78,205,196,0.1)', review: 'rgba(240,195,109,0.1)', wip: 'rgba(124,92,252,0.1)', todo: '#161622',
+  approved: 'rgba(78,205,196,0.09)', review: 'rgba(240,195,109,0.09)', wip: 'rgba(205,255,0,0.08)', todo: '#1a1a2a',
 }
 
 export default function TaskCard({ task, user, staff, onClick }) {
@@ -24,20 +24,20 @@ export default function TaskCard({ task, user, staff, onClick }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        padding: 20, borderRadius: 16, cursor: 'pointer', minHeight: 150,
+        padding: 20, borderRadius: 22, cursor: 'pointer', minHeight: 150,
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-        background: h ? (statusHoverBg[task.status] || '#161622') : (statusBg[task.status] || '#12121c'),
+        background: h ? (statusHoverBg[task.status] || '#1a1a2a') : (statusBg[task.status] || '#141420'),
         border: `1px solid ${statusBorder[task.status] || '#1e1e2e'}`,
-        borderLeft: isOwner ? `3px solid #7c5cfc` : `3px solid ${statusBorder[task.status] || '#1e1e2e'}`,
+        borderLeft: isOwner ? `3px solid #CDFF00` : `3px solid ${statusBorder[task.status] || '#1e1e2e'}`,
         transition: 'all 0.15s ease',
         transform: h ? 'translateY(-2px)' : 'none',
-        boxShadow: h ? '0 6px 20px rgba(0,0,0,0.15)' : 'none',
+        boxShadow: h ? '0 6px 20px rgba(0,0,0,0.2)' : 'none',
       }}
     >
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 16 }}>{dept?.icon}</span>
-          <span style={{ fontSize: 14, fontWeight: 700, flex: 1, lineHeight: 1.3 }}>{task.title}</span>
+          <span style={{ fontSize: 14, fontWeight: 700, flex: 1, lineHeight: 1.3, color: '#f0f0f5' }}>{task.title}</span>
         </div>
         {task.description && (
           <div style={{
@@ -56,7 +56,7 @@ export default function TaskCard({ task, user, staff, onClick }) {
           ) : (
             <span style={{ fontSize: 11, color: '#555', fontStyle: 'italic' }}>Non assegnato</span>
           )}
-          {task.shot && <span style={{ fontSize: 10, color: '#666', background: '#1a1a28', padding: '2px 6px', borderRadius: 6 }}>{task.shot.code}</span>}
+          {task.shot && <span style={{ fontSize: 10, color: '#555', background: '#141420', padding: '2px 6px', borderRadius: 8, border: '1px solid #1e1e2e' }}>{task.shot.code}</span>}
         </div>
         <StatusBadge status={task.status} type="task" />
       </div>

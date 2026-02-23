@@ -11,9 +11,9 @@ export default function Av({ name, size = 30, url, mood }) {
     <div style={{ position: 'relative', flexShrink: 0 }}>
       <div style={{
         width: size, height: size, borderRadius: '50%',
-        background: `hsl(${hue},30%,18%)`, border: `1.5px solid hsl(${hue},55%,65%,0.3)`,
+        background: `hsl(${hue},40%,16%)`, border: `1.5px solid hsl(${hue},60%,55%,0.4)`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: size * 0.36, fontWeight: 600, color: `hsl(${hue},55%,65%)`,
+        fontSize: size * 0.36, fontWeight: 700, color: `hsl(${hue},60%,65%)`,
       }}>{ini}</div>
       {mood && <span style={{ position: 'absolute', bottom: -2, right: -2, fontSize: size * 0.4, lineHeight: 1 }}>{mood}</span>}
     </div>
