@@ -96,7 +96,7 @@ export default function Sidebar({
                     {unreadCount > 0 && <span style={{ fontSize: 12, color: '#6C5CE7', marginLeft: 8 }}>{unreadCount} nuove</span>}
                   </h3>
                   {unreadCount > 0 && (
-                    <Btn variant="ghost" onClick={onMarkAllRead} style={{ fontSize: 11, padding: '4px 10px' }}>Segna tutte lette</Btn>
+                    <Btn variant="default" onClick={onMarkAllRead} style={{ fontSize: 11, padding: '4px 10px' }}>Segna tutte lette</Btn>
                   )}
                 </div>
                 {(!notifications || notifications.length === 0) ? (
