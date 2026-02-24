@@ -144,6 +144,36 @@ async function findOurFrame(): Promise<string | null> {
   }
 }
 
+// Delete a frame AND all its children (frame delete does NOT cascade!)
+async function deleteFrameAndChildren(frameId: string): Promise<void> {
+  // 1. Get all children of the frame
+  try {
+    let cursor: string | null = null
+    const childIds: string[] = []
+    do {
+      const url = `/items?parent_item_id=${frameId}&limit=50${cursor ? `&cursor=${cursor}` : ""}`
+      const data = await miroGet(url)
+      for (const item of data.data || []) {
+        childIds.push(item.id)
+      }
+      cursor = data.cursor || null
+    } while (cursor)
+
+    console.log(`[miro] Deleting ${childIds.length} children of frame ${frameId}`)
+
+    // 2. Delete all children
+    for (const id of childIds) {
+      await miroDelete(id)
+    }
+  } catch (err) {
+    console.warn("[miro] Error fetching frame children:", err)
+  }
+
+  // 3. Delete the frame itself
+  await miroDelete(frameId)
+  console.log(`[miro] Frame ${frameId} + children deleted`)
+}
+
 // Create a cell shape inside a frame
 async function createCell(
   frameId: string, x: number, y: number, w: number, h: number,
@@ -238,12 +268,12 @@ function err(msg: string, status = 400) {
 async function handleFullSync(supabase: any) {
   console.log("[full_sync] ═══ Starting full sync ═══")
 
-  // 1. Delete existing frame
+  // 1. Delete existing frame + ALL its children
   const oldFrame = await findOurFrame()
   if (oldFrame) {
-    console.log("[full_sync] Deleting old frame:", oldFrame)
-    await miroDelete(oldFrame)
-    await sleep(1500) // Let Miro cascade-delete children
+    console.log("[full_sync] Deleting old frame + children:", oldFrame)
+    await deleteFrameAndChildren(oldFrame)
+    await sleep(500)
   }
 
   // 2. Get all shots ordered by sequence + sort_order
