@@ -1,59 +1,214 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-// ── Config ──
+// ══════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════
+
 const MIRO_API = "https://api.miro.com/v2"
 const BOARD_ID = Deno.env.get("MIRO_BOARD_ID")!
 const MIRO_TOKEN = Deno.env.get("MIRO_ACCESS_TOKEN")!
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 
-// Cloudinary — for persistent image backup + URL for Miro
-const CLOUDINARY_CLOUD_NAME = Deno.env.get("CLOUDINARY_CLOUD_NAME") || ""
-const CLOUDINARY_API_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
-const CLOUDINARY_API_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
+const CLD_CLOUD = Deno.env.get("CLOUDINARY_CLOUD_NAME") || ""
+const CLD_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
+const CLD_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
 
-// ══════════════════════════════════════════════════
-// MIRO BOARD LAYOUT — 2× Scale
-// Uses shapes (NOT frames) so items stay visible on top
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// TABLE LAYOUT — Frame + Shapes (Excel-like grid)
+//
+// The board has ONE frame titled "BIGROCK PIPELINE".
+// Inside: header row (colored shapes) + data rows (pastel shapes).
+// Images are placed ON TOP of the cell shapes.
+// Positions are RELATIVE to the frame's top-left corner.
+// ══════════════════════════════════════════════════════════════
 
-const BASE_X = 0
-const BASE_Y = 0
-const TITLE_HEIGHT = 200
-const HEADER_HEIGHT = 160
-const ROW_HEIGHT = 600
-const ROW_GAP = 100
-const COL_WIDTH = 600
-const COL_GAP = 80
-const SHOT_COL_WIDTH = 400
+const FRAME_TITLE = "BIGROCK PIPELINE — Shot Tracker"
+const PAD = 20
+const GAP = 4
+const COL_W = [160, 220, 220, 220, 220, 220, 220, 220]
+const HDR_H = 50
+const ROW_H = 200
 
-const COL_X = [
-  0,
-  SHOT_COL_WIDTH + COL_GAP,                              // 480
-  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 1,  // 1160
-  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 2,  // 1840
-  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 3,  // 2520
-  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 4,  // 3200
-  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 5,  // 3880
-  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 6,  // 4560
-]
+const COLS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
+const DEPTS = ["concept", "modeling", "texturing", "rigging", "animation", "compositing"]
 
-const COL_LABELS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
-const DEPT_ORDER = ["concept", "modeling", "texturing", "rigging", "animation", "compositing"]
+// Header fill colors (vibrant)
+const HDR_FILL = ["#6C5CE7", "#636E72", "#FF6B81", "#0984E3", "#FDCB6E", "#00B894", "#E84393", "#74B9FF"]
+// Header text colors
+const HDR_TEXT = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#1a1a2e", "#ffffff", "#ffffff", "#ffffff"]
+// Data cell fill colors (light pastels)
+const CELL_FILL = ["#F8F7FF", "#F5F5F5", "#FFF0F3", "#EBF5FB", "#FFF9E6", "#E8F8F5", "#FDEDEC", "#EBF5FB"]
 
-const DEPT_STICKY_COLORS: Record<string, string> = {
-  concept: "light_pink",
-  modeling: "dark_blue",
-  texturing: "yellow",
-  rigging: "light_green",
-  animation: "pink",
-  compositing: "light_blue",
+// Column center X (relative to frame top-left)
+function colX(i: number): number {
+  let x = PAD
+  for (let c = 0; c < i; c++) x += COL_W[c] + GAP
+  return x + COL_W[i] / 2
 }
 
-const HEADER_STICKY_COLORS = ["gray", "gray", "light_pink", "dark_blue", "yellow", "light_green", "pink", "light_blue"]
+// Header center Y
+function hdrY(): number { return PAD + HDR_H / 2 }
 
-const TOTAL_WIDTH = COL_X[7] + COL_WIDTH
+// Data row center Y (0-indexed)
+function rowY(r: number): number {
+  return PAD + HDR_H + GAP + ROW_H / 2 + r * (ROW_H + GAP)
+}
+
+// Total frame width
+function frameW(): number {
+  return PAD * 2 + COL_W.reduce((a, b) => a + b, 0) + GAP * (COL_W.length - 1)
+}
+
+// Total frame height for N data rows
+function frameH(n: number): number {
+  if (n <= 0) return PAD * 2 + HDR_H
+  return PAD + HDR_H + GAP + n * ROW_H + (n - 1) * GAP + PAD
+}
+
+// Department name → column index (2..7)
+function deptCol(dept: string): number {
+  const i = DEPTS.indexOf(dept)
+  return i >= 0 ? i + 2 : -1
+}
+
+// ══════════════════════════════════════════════════════════════
+// MIRO API HELPERS
+// ══════════════════════════════════════════════════════════════
+
+const boardUrl = `${MIRO_API}/boards/${BOARD_ID}`
+
+async function miroGet(path: string) {
+  const res = await fetch(`${boardUrl}${path}`, {
+    headers: { "Authorization": `Bearer ${MIRO_TOKEN}` },
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`Miro GET ${path}: ${res.status} ${t}`)
+  }
+  return res.json()
+}
+
+async function miroPost(path: string, body: any) {
+  const bodyStr = JSON.stringify(body)
+  console.log(`[miro] POST ${path} — ${bodyStr.substring(0, 150)}`)
+  const res = await fetch(`${boardUrl}${path}`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${MIRO_TOKEN}`, "Content-Type": "application/json" },
+    body: bodyStr,
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    console.error(`[miro] POST ${path} FAILED: ${res.status} ${t}`)
+    throw new Error(`Miro ${res.status}: ${t}`)
+  }
+  return res.json()
+}
+
+async function miroPatch(path: string, body: any) {
+  const res = await fetch(`${boardUrl}${path}`, {
+    method: "PATCH",
+    headers: { "Authorization": `Bearer ${MIRO_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    console.error(`[miro] PATCH ${path} FAILED: ${res.status} ${t}`)
+    throw new Error(`Miro PATCH ${res.status}: ${t}`)
+  }
+  return res.json()
+}
+
+async function miroDelete(itemId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${boardUrl}/items/${itemId}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${MIRO_TOKEN}` },
+    })
+    return res.ok || res.status === 404
+  } catch { return false }
+}
+
+// Find our frame by title on the board
+async function findOurFrame(): Promise<string | null> {
+  try {
+    const data = await miroGet("/items?type=frame&limit=50")
+    const frame = data.data?.find((item: any) =>
+      item.data?.title?.includes("BIGROCK PIPELINE")
+    )
+    return frame?.id || null
+  } catch (err) {
+    console.warn("[miro] Failed to query frames:", err)
+    return null
+  }
+}
+
+// Create a cell shape inside a frame
+async function createCell(
+  frameId: string, x: number, y: number, w: number, h: number,
+  fill: string, text: string, textColor = "#1a1a2e", fontSize = "14",
+): Promise<string> {
+  const item = await miroPost("/shapes", {
+    data: { content: text, shape: "rectangle" },
+    position: { x, y, origin: "center" },
+    geometry: { width: w, height: h },
+    style: {
+      fillColor: fill,
+      color: textColor,
+      fontSize,
+      fontFamily: "open_sans",
+      textAlign: "center",
+      textAlignVertical: "middle",
+      borderWidth: "1.0",
+      borderOpacity: "0.15",
+      borderColor: "#CBD5E1",
+    },
+    parent: { id: frameId },
+  })
+  return item.id
+}
+
+// ══════════════════════════════════════════════════════════════
+// CLOUDINARY
+// ══════════════════════════════════════════════════════════════
+
+async function sha1(msg: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(msg))
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
+async function cloudUpload(base64: string, folder: string): Promise<string | null> {
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return null
+  try {
+    const ts = Math.floor(Date.now() / 1000).toString()
+    const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
+    const fd = new FormData()
+    fd.append("file", base64)
+    fd.append("folder", folder)
+    fd.append("timestamp", ts)
+    fd.append("api_key", CLD_KEY)
+    fd.append("signature", sig)
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: "POST", body: fd })
+    if (!res.ok) { console.error("[cloudinary] upload:", res.status, await res.text()); return null }
+    return (await res.json()).secure_url || null
+  } catch (err) { console.error("[cloudinary] error:", err); return null }
+}
+
+async function cloudDeletePrefix(prefix: string): Promise<void> {
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return
+  try {
+    const auth = btoa(`${CLD_KEY}:${CLD_SECRET}`)
+    await fetch(
+      `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/resources/image/upload?prefix=${encodeURIComponent(prefix)}&type=upload`,
+      { method: "DELETE", headers: { "Authorization": `Basic ${auth}` } },
+    )
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESPONSE HELPERS
+// ══════════════════════════════════════════════════════════════
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,376 +216,346 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-// ── Helpers ──
-
-function getRowY(rowIndex: number): number {
-  return BASE_Y + TITLE_HEIGHT + HEADER_HEIGHT + ROW_GAP + rowIndex * (ROW_HEIGHT + ROW_GAP)
-}
-
-function getDeptColIndex(department: string): number {
-  const idx = DEPT_ORDER.indexOf(department)
-  return idx >= 0 ? idx + 2 : -1
-}
-
-async function miroPost(path: string, body: any) {
-  const res = await fetch(`${MIRO_API}/boards/${BOARD_ID}${path}`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${MIRO_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Miro API ${res.status}: ${text}`)
-  }
-  return res.json()
-}
-
-async function miroDelete(itemId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${MIRO_API}/boards/${BOARD_ID}/items/${itemId}`, {
-      method: "DELETE",
-      headers: { "Authorization": `Bearer ${MIRO_TOKEN}` },
-    })
-    return res.ok || res.status === 404
-  } catch (err) {
-    console.warn(`Failed to delete Miro item ${itemId}:`, err)
-    return false
-  }
-}
-
-function jsonResponse(data: any, status = 200) {
+function ok(data: any) {
   return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  })
+}
+function err(msg: string, status = 400) {
+  return new Response(JSON.stringify({ error: msg }), {
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
   })
 }
 
-// ── Cloudinary Helpers ──
+// ══════════════════════════════════════════════════════════════
+// FULL SYNC — Nuclear rebuild of the entire Miro table
+//
+// 1. Delete existing frame (cascade deletes all children)
+// 2. Query all shots from DB
+// 3. Create frame → header → rows → images
+// ══════════════════════════════════════════════════════════════
 
-async function sha1(message: string): Promise<string> {
-  const msgBuffer = new TextEncoder().encode(message)
-  const hashBuffer = await crypto.subtle.digest("SHA-1", msgBuffer)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
-}
+async function handleFullSync(supabase: any) {
+  console.log("[full_sync] ═══ Starting full sync ═══")
 
-async function uploadToCloudinary(imageBase64: string, folder: string): Promise<string | null> {
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-    console.warn("Cloudinary not configured, skipping upload")
-    return null
+  // 1. Delete existing frame
+  const oldFrame = await findOurFrame()
+  if (oldFrame) {
+    console.log("[full_sync] Deleting old frame:", oldFrame)
+    await miroDelete(oldFrame)
+    await sleep(1500) // Let Miro cascade-delete children
   }
-  try {
-    const timestamp = Math.floor(Date.now() / 1000).toString()
-    const paramsToSign = `folder=${folder}&timestamp=${timestamp}`
-    const signature = await sha1(paramsToSign + CLOUDINARY_API_SECRET)
 
-    const formData = new FormData()
-    formData.append("file", imageBase64)
-    formData.append("folder", folder)
-    formData.append("timestamp", timestamp)
-    formData.append("api_key", CLOUDINARY_API_KEY)
-    formData.append("signature", signature)
+  // 2. Get all shots ordered by sequence + sort_order
+  const { data: shots, error: shotsErr } = await supabase
+    .from("shots").select("id, code, sequence, sort_order, concept_image_url")
+    .order("sequence").order("sort_order").order("code")
 
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-      { method: "POST", body: formData }
-    )
-    if (!res.ok) {
-      const text = await res.text()
-      console.error("Cloudinary upload failed:", res.status, text)
-      return null
+  if (shotsErr) throw new Error(`DB shots query failed: ${shotsErr.message}`)
+  const n = shots?.length || 0
+  console.log(`[full_sync] Found ${n} shots`)
+
+  // 3. Create frame
+  const fw = frameW()
+  const fh = frameH(n)
+  const frame = await miroPost("/frames", {
+    data: { title: FRAME_TITLE, format: "custom", type: "freeform" },
+    position: { x: fw / 2, y: fh / 2, origin: "center" },
+    geometry: { width: fw, height: fh },
+    style: { fillColor: "#ffffff" },
+  })
+  const frameId = frame.id
+  console.log(`[full_sync] Frame created: ${frameId} (${fw}×${fh})`)
+
+  await sleep(500)
+
+  // 4. Create header cells
+  for (let i = 0; i < COLS.length; i++) {
+    await createCell(frameId, colX(i), hdrY(), COL_W[i], HDR_H,
+      HDR_FILL[i], `<strong>${COLS[i]}</strong>`, HDR_TEXT[i], "14")
+  }
+  console.log("[full_sync] Header row created")
+
+  // 5. Clear old miro_shot_rows and rebuild
+  await supabase.from("miro_shot_rows").delete().not("id", "is", null)
+
+  for (let r = 0; r < n; r++) {
+    const shot = shots[r]
+    const y = rowY(r)
+
+    // Shot name cell
+    const cellId = await createCell(frameId, colX(0), y, COL_W[0], ROW_H,
+      CELL_FILL[0], `<strong>${shot.code}</strong>`, "#1a1a2e", "16")
+
+    // Column cells (1..7)
+    for (let c = 1; c < COLS.length; c++) {
+      await createCell(frameId, colX(c), y, COL_W[c], ROW_H,
+        CELL_FILL[c], "", "#94A3B8", "11")
     }
-    const json = await res.json()
-    return json.secure_url || null
-  } catch (err) {
-    console.error("Cloudinary upload error:", err)
-    return null
-  }
-}
 
-async function deleteCloudinaryByPrefix(prefix: string): Promise<boolean> {
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) return false
-  try {
-    const auth = btoa(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`)
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/image/upload?prefix=${encodeURIComponent(prefix)}&type=upload`,
-      { method: "DELETE", headers: { "Authorization": `Basic ${auth}` } }
-    )
-    return res.ok
-  } catch (err) {
-    console.warn("Cloudinary delete error:", err)
-    return false
-  }
-}
-
-// ══════════════════════════════════════════════════
-// ACTION: Init Board
-// ══════════════════════════════════════════════════
-
-async function handleInitBoard() {
-  const centerX = BASE_X + TOTAL_WIDTH / 2
-
-  await miroPost("/texts", {
-    data: { content: `<strong>BIGROCK PIPELINE</strong>` },
-    position: { x: centerX, y: BASE_Y + 50, origin: "center" },
-    geometry: { width: 1600 },
-    style: { fontSize: "64", textAlign: "center", color: "#6C5CE7" },
-  })
-
-  await miroPost("/texts", {
-    data: { content: "Storyboard & WIP Tracker" },
-    position: { x: centerX, y: BASE_Y + 120, origin: "center" },
-    geometry: { width: 1600 },
-    style: { fontSize: "32", textAlign: "center", color: "#94A3B8" },
-  })
-
-  await miroPost("/shapes", {
-    data: { shape: "rectangle" },
-    position: { x: centerX, y: BASE_Y + TITLE_HEIGHT - 20, origin: "center" },
-    geometry: { width: TOTAL_WIDTH - 100, height: 3 },
-    style: { fillColor: "#E2E8F0", borderWidth: "0", borderOpacity: "0" },
-  })
-
-  const headerY = BASE_Y + TITLE_HEIGHT + HEADER_HEIGHT / 2
-  for (let i = 0; i < COL_LABELS.length; i++) {
-    const colWidth = i === 0 ? SHOT_COL_WIDTH : COL_WIDTH
-    const colCenterX = BASE_X + COL_X[i] + colWidth / 2
-    await miroPost("/sticky_notes", {
-      data: { content: `<strong>${COL_LABELS[i]}</strong>`, shape: "square" },
-      position: { x: colCenterX, y: headerY, origin: "center" },
-      geometry: { width: colWidth - 30 },
-      style: { fillColor: HEADER_STICKY_COLORS[i], textAlign: "center", textAlignVertical: "middle" },
+    // Save to DB
+    await supabase.from("miro_shot_rows").insert({
+      shot_id: shot.id,
+      row_index: r,
+      frame_id: frameId,
+      shot_code_item_id: cellId,
     })
+
+    // Reference image
+    if (shot.concept_image_url) {
+      try {
+        await miroPost("/images", {
+          data: { url: shot.concept_image_url },
+          position: { x: colX(1), y, origin: "center" },
+          geometry: { width: COL_W[1] - 20 },
+          parent: { id: frameId },
+        })
+      } catch (e) {
+        console.warn(`[full_sync] Reference img failed for ${shot.code}:`, e)
+      }
+    }
+
+    console.log(`[full_sync] Row ${r}: ${shot.code}`)
   }
 
-  return jsonResponse({ success: true, message: "Board initialized" })
+  // 6. Re-place WIP images from DB (using Cloudinary URLs)
+  const { data: wipImgs } = await supabase
+    .from("miro_wip_images").select("id, shot_id, department, image_url")
+    .not("image_url", "is", null)
+
+  if (wipImgs?.length) {
+    const shotRowMap: Record<string, number> = {}
+    shots.forEach((s: any, i: number) => { shotRowMap[s.id] = i })
+
+    for (const wip of wipImgs) {
+      const ri = shotRowMap[wip.shot_id]
+      if (ri === undefined) continue
+      const ci = deptCol(wip.department)
+      if (ci < 0) continue
+      try {
+        const img = await miroPost("/images", {
+          data: { url: wip.image_url },
+          position: { x: colX(ci), y: rowY(ri), origin: "center" },
+          geometry: { width: COL_W[ci] - 20 },
+          parent: { id: frameId },
+        })
+        await supabase.from("miro_wip_images").update({ miro_item_id: img.id }).eq("id", wip.id)
+      } catch (e) {
+        console.warn(`[full_sync] WIP img failed:`, e)
+      }
+    }
+  }
+
+  console.log("[full_sync] ═══ Done ═══")
+  return ok({ success: true, shots: n, frame_id: frameId })
 }
 
-// ══════════════════════════════════════════════════
-// ACTION: Create Shot Row — items float directly on board (no bg shape)
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// CREATE SHOT ROW — Incremental add (fast, ~10 API calls)
+//
+// If no frame exists yet → creates frame + headers + row.
+// If frame exists → expands frame + adds row.
+// ══════════════════════════════════════════════════════════════
 
 async function handleCreateShotRow(supabase: any, params: any) {
   const { shot_id, shot_code } = params
-  if (!shot_id || !shot_code) return jsonResponse({ error: "shot_id and shot_code required" }, 400)
+  if (!shot_id || !shot_code) return err("shot_id and shot_code required")
 
+  // Already synced?
   const { data: existing } = await supabase
     .from("miro_shot_rows").select("id").eq("shot_id", shot_id).single()
-  if (existing) return jsonResponse({ error: "Shot already synced", row: existing }, 409)
+  if (existing) return err("Shot already synced", 409)
 
-  const { data: rows, error: rowsError } = await supabase
+  // Next row index
+  const { data: rows } = await supabase
     .from("miro_shot_rows").select("row_index")
     .order("row_index", { ascending: false }).limit(1)
+  const rowIndex = rows?.length ? rows[0].row_index + 1 : 0
+  console.log(`[create] Shot ${shot_code} → row ${rowIndex}`)
 
-  console.log("[create_shot_row] Existing rows query:", { rows, rowsError })
-  const rowIndex = rows && rows.length > 0 ? rows[0].row_index + 1 : 0
-  console.log("[create_shot_row] Calculated rowIndex:", rowIndex)
+  // Find or create frame
+  let frameId = await findOurFrame()
 
-  const y = getRowY(rowIndex)
-  console.log("[create_shot_row] Row Y position:", y)
-
-  // Track all created Miro item IDs for cleanup on failure
-  const createdItems: string[] = []
-
-  // ── 1. Shot code as a sticky note (purple, large) ──
-  console.log("[create_shot_row] Creating shot code sticky note...")
-  const shotSticky = await miroPost("/sticky_notes", {
-    data: { content: `<strong>${shot_code}</strong>`, shape: "square" },
-    position: { x: BASE_X + COL_X[0] + SHOT_COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: SHOT_COL_WIDTH - 30 },
-    style: { fillColor: "purple", textAlign: "center", textAlignVertical: "middle" },
-  })
-  createdItems.push(shotSticky.id)
-  console.log("[create_shot_row] Shot sticky created:", shotSticky.id)
-
-  // ── 2. Reference placeholder ──
-  try {
-    const refSticky = await miroPost("/sticky_notes", {
-      data: { content: "Reference", shape: "square" },
-      position: { x: BASE_X + COL_X[1] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-      geometry: { width: COL_WIDTH - 40 },
-      style: { fillColor: "gray", textAlign: "center", textAlignVertical: "middle" },
+  if (!frameId) {
+    // No frame → create frame + headers
+    console.log("[create] No frame found, creating...")
+    const fw = frameW()
+    const fh = frameH(1) // 1 row
+    const frame = await miroPost("/frames", {
+      data: { title: FRAME_TITLE, format: "custom", type: "freeform" },
+      position: { x: fw / 2, y: fh / 2, origin: "center" },
+      geometry: { width: fw, height: fh },
+      style: { fillColor: "#ffffff" },
     })
-    createdItems.push(refSticky.id)
-  } catch (err) {
-    console.warn("[create_shot_row] Reference sticky failed:", err)
-  }
+    frameId = frame.id
+    await sleep(500)
 
-  // ── 3. Department placeholders ──
-  for (let i = 2; i < COL_LABELS.length; i++) {
-    const deptId = DEPT_ORDER[i - 2]
+    // Create headers
+    for (let i = 0; i < COLS.length; i++) {
+      await createCell(frameId, colX(i), hdrY(), COL_W[i], HDR_H,
+        HDR_FILL[i], `<strong>${COLS[i]}</strong>`, HDR_TEXT[i], "14")
+    }
+    console.log("[create] Frame + headers created")
+  } else {
+    // Frame exists → expand height
+    const numRows = rowIndex + 1
+    const newH = frameH(numRows)
+    const fw = frameW()
+    console.log(`[create] Expanding frame to ${fw}×${newH} for ${numRows} rows`)
     try {
-      const deptSticky = await miroPost("/sticky_notes", {
-        data: { content: COL_LABELS[i], shape: "square" },
-        position: { x: BASE_X + COL_X[i] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-        geometry: { width: COL_WIDTH - 40 },
-        style: { fillColor: DEPT_STICKY_COLORS[deptId] || "gray", textAlign: "center", textAlignVertical: "middle" },
+      await miroPatch(`/frames/${frameId}`, {
+        geometry: { width: fw, height: newH },
+        position: { x: fw / 2, y: newH / 2, origin: "center" },
       })
-      createdItems.push(deptSticky.id)
-    } catch (err) {
-      console.warn(`[create_shot_row] Dept sticky ${COL_LABELS[i]} failed:`, err)
+    } catch (e) {
+      console.warn("[create] Frame resize failed, doing full_sync:", e)
+      return await handleFullSync(supabase)
     }
   }
 
-  console.log("[create_shot_row] Created items:", createdItems)
+  // Create cells for this row
+  const y = rowY(rowIndex)
+  const cellId = await createCell(frameId, colX(0), y, COL_W[0], ROW_H,
+    CELL_FILL[0], `<strong>${shot_code}</strong>`, "#1a1a2e", "16")
 
-  // ── 4. Save to DB ──
-  const insertData: any = {
-    shot_id,
-    row_index: rowIndex,
-    frame_id: null,
-  }
-  // Add shot_code_item_id if the column exists
-  insertData.shot_code_item_id = shotSticky.id
-
-  const { data: row, error } = await supabase.from("miro_shot_rows")
-    .insert(insertData).select().single()
-
-  if (error) {
-    console.error("[create_shot_row] DB insert error:", error)
-    // If insert failed (e.g. missing column), try without shot_code_item_id
-    const { data: row2, error: error2 } = await supabase.from("miro_shot_rows")
-      .insert({ shot_id, row_index: rowIndex, frame_id: shotSticky.id })
-      .select().single()
-    if (error2) {
-      console.error("[create_shot_row] DB insert fallback also failed:", error2)
-      return jsonResponse({ error: error2.message, miro_items_created: createdItems }, 500)
-    }
-    return jsonResponse({ success: true, row: row2, miro_items: createdItems })
+  for (let c = 1; c < COLS.length; c++) {
+    await createCell(frameId, colX(c), y, COL_W[c], ROW_H,
+      CELL_FILL[c], "", "#94A3B8", "11")
   }
 
-  return jsonResponse({ success: true, row, miro_items: createdItems })
+  // Save to DB
+  const { error: dbErr } = await supabase.from("miro_shot_rows").insert({
+    shot_id, row_index: rowIndex, frame_id: frameId, shot_code_item_id: cellId,
+  })
+  if (dbErr) {
+    console.error("[create] DB insert error:", dbErr)
+    return err(dbErr.message, 500)
+  }
+
+  console.log(`[create] Row created: ${shot_code} at row ${rowIndex}`)
+  return ok({ success: true, row_index: rowIndex, frame_id: frameId })
 }
 
-// ══════════════════════════════════════════════════
-// ACTION: Delete Shot Row
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// DELETE SHOT ROW — Cleanup + full_sync to re-compact
+// ══════════════════════════════════════════════════════════════
 
 async function handleDeleteShotRow(supabase: any, params: any) {
   const { shot_id } = params
-  if (!shot_id) return jsonResponse({ error: "shot_id required" }, 400)
+  if (!shot_id) return err("shot_id required")
 
-  const { data: shotRow } = await supabase
-    .from("miro_shot_rows").select("id, frame_id, shot_code_item_id")
-    .eq("shot_id", shot_id).single()
+  console.log(`[delete] Deleting shot ${shot_id}`)
 
-  if (!shotRow) return jsonResponse({ success: true, message: "Not synced" })
+  // Cleanup Cloudinary
+  await cloudDeletePrefix(`bigrock-wip/${shot_id}`)
 
-  const { data: wipImages } = await supabase
-    .from("miro_wip_images").select("miro_item_id").eq("shot_id", shot_id)
-
-  const deletes: Promise<boolean>[] = []
-  if (shotRow.frame_id) deletes.push(miroDelete(shotRow.frame_id))
-  if (shotRow.shot_code_item_id) deletes.push(miroDelete(shotRow.shot_code_item_id))
-  if (wipImages) {
-    for (const img of wipImages) {
-      if (img.miro_item_id) deletes.push(miroDelete(img.miro_item_id))
-    }
-  }
-  await Promise.all(deletes)
-
-  await deleteCloudinaryByPrefix(`bigrock-wip/${shot_id}`)
+  // Delete from DB (cascade may have already done this)
   await supabase.from("miro_wip_images").delete().eq("shot_id", shot_id)
   await supabase.from("miro_shot_rows").delete().eq("shot_id", shot_id)
 
-  return jsonResponse({ success: true })
+  // Full sync to rebuild the table compactly
+  return await handleFullSync(supabase)
 }
 
-// ══════════════════════════════════════════════════
-// ACTION: Upload Reference — Cloudinary first, then Miro URL
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// UPLOAD REFERENCE — Cloudinary → Miro (incremental)
+// ══════════════════════════════════════════════════════════════
 
 async function handleUploadReference(supabase: any, params: any) {
   const { shot_id, image_base64 } = params
-  if (!shot_id || !image_base64) {
-    return jsonResponse({ error: "shot_id and image_base64 required" }, 400)
+  if (!shot_id || !image_base64) return err("shot_id and image_base64 required")
+
+  // Upload to Cloudinary
+  const url = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/reference`)
+  if (!url) return err("Cloudinary upload failed", 500)
+
+  // Find frame
+  const frameId = await findOurFrame()
+  if (!frameId) {
+    console.warn("[upload_ref] No frame, triggering full_sync")
+    return await handleFullSync(supabase)
   }
 
+  // Find row
   const { data: shotRow } = await supabase
-    .from("miro_shot_rows").select("row_index")
-    .eq("shot_id", shot_id).single()
-  if (!shotRow) return jsonResponse({ error: "Shot not synced to Miro yet" }, 404)
+    .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
+  if (!shotRow) return err("Shot not synced to Miro", 404)
 
-  // Upload to Cloudinary first to get a proper HTTPS URL
-  const cloudinaryUrl = await uploadToCloudinary(image_base64, `bigrock-wip/${shot_id}/reference`)
-  if (!cloudinaryUrl) {
-    return jsonResponse({ error: "Failed to upload image to Cloudinary" }, 500)
-  }
-
-  const y = getRowY(shotRow.row_index)
-  const x = BASE_X + COL_X[1] + COL_WIDTH / 2
-  const imgY = y + ROW_HEIGHT / 2
-
-  // Use Cloudinary HTTPS URL for Miro (Miro doesn't accept base64)
-  const image = await miroPost("/images", {
-    data: { url: cloudinaryUrl },
-    position: { x, y: imgY, origin: "center" },
-    geometry: { width: COL_WIDTH - 60 },
+  // Place image on top of the Reference cell
+  const img = await miroPost("/images", {
+    data: { url },
+    position: { x: colX(1), y: rowY(shotRow.row_index), origin: "center" },
+    geometry: { width: COL_W[1] - 20 },
+    parent: { id: frameId },
   })
 
-  return jsonResponse({ success: true, miro_item_id: image.id, image_url: cloudinaryUrl })
+  return ok({ success: true, miro_item_id: img.id, image_url: url })
 }
 
-// ══════════════════════════════════════════════════
-// ACTION: Upload WIP Image — Cloudinary first, then Miro URL
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// UPLOAD WIP IMAGE — Cloudinary → Miro (incremental)
+// ══════════════════════════════════════════════════════════════
 
 async function handleUploadWipImage(supabase: any, params: any) {
   const { shot_id, department, task_id, image_base64, uploaded_by } = params
-  if (!shot_id || !department || !image_base64) {
-    return jsonResponse({ error: "shot_id, department, and image_base64 required" }, 400)
-  }
+  if (!shot_id || !department || !image_base64) return err("shot_id, department, image_base64 required")
 
-  const colIndex = getDeptColIndex(department)
-  if (colIndex < 0) return jsonResponse({ error: `Invalid department: ${department}` }, 400)
+  const ci = deptCol(department)
+  if (ci < 0) return err(`Invalid department: ${department}`)
 
+  // Upload to Cloudinary
+  const url = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/${department}`)
+  if (!url) return err("Cloudinary upload failed", 500)
+
+  // Find frame
+  const frameId = await findOurFrame()
+  if (!frameId) return await handleFullSync(supabase)
+
+  // Find row
   const { data: shotRow } = await supabase
-    .from("miro_shot_rows").select("row_index")
-    .eq("shot_id", shot_id).single()
-  if (!shotRow) return jsonResponse({ error: "Shot not synced to Miro yet" }, 404)
+    .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
+  if (!shotRow) return err("Shot not synced to Miro", 404)
 
+  // Offset if multiple images in same cell
   const { count } = await supabase
     .from("miro_wip_images").select("id", { count: "exact", head: true })
     .eq("shot_id", shot_id).eq("department", department)
-  const offset = (count || 0) * 40
+  const offset = (count || 0) * 25
 
-  const y = getRowY(shotRow.row_index)
-  const x = BASE_X + COL_X[colIndex] + COL_WIDTH / 2 + offset
-  const imgY = y + ROW_HEIGHT / 2 + offset
-
-  // Upload to Cloudinary first to get a proper HTTPS URL
-  const cloudinaryFolder = `bigrock-wip/${shot_id}/${department}`
-  const cloudinaryUrl = await uploadToCloudinary(image_base64, cloudinaryFolder)
-  if (!cloudinaryUrl) {
-    return jsonResponse({ error: "Failed to upload image to Cloudinary" }, 500)
-  }
-
-  // Use Cloudinary URL for Miro
-  const image = await miroPost("/images", {
-    data: { url: cloudinaryUrl },
-    position: { x, y: imgY, origin: "center" },
-    geometry: { width: 520 },
+  // Place image
+  const img = await miroPost("/images", {
+    data: { url },
+    position: {
+      x: colX(ci) + offset,
+      y: rowY(shotRow.row_index) + offset,
+      origin: "center",
+    },
+    geometry: { width: COL_W[ci] - 30 },
+    parent: { id: frameId },
   })
 
-  const { data: record, error } = await supabase.from("miro_wip_images").insert({
+  // Save to DB
+  const { data: record } = await supabase.from("miro_wip_images").insert({
     shot_id,
     task_id: task_id || null,
     department,
-    miro_item_id: image.id,
+    miro_item_id: img.id,
     uploaded_by: uploaded_by || null,
-    image_url: cloudinaryUrl,
+    image_url: url,
   }).select().single()
 
-  if (error) return jsonResponse({ error: error.message }, 500)
-  return jsonResponse({ success: true, miro_item_id: image.id, image_url: cloudinaryUrl, record })
+  return ok({ success: true, miro_item_id: img.id, image_url: url, record })
 }
 
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// UTILITY
+// ══════════════════════════════════════════════════════════════
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
+// ══════════════════════════════════════════════════════════════
 // MAIN HANDLER
-// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -439,24 +564,28 @@ serve(async (req) => {
 
   try {
     const { action, ...params } = await req.json()
+    console.log(`[miro-sync] Action: ${action}`)
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
+    // Auth check
     const authHeader = req.headers.get("Authorization")
-    if (!authHeader) return jsonResponse({ error: "Unauthorized" }, 401)
+    if (!authHeader) return err("Unauthorized", 401)
     const token = authHeader.replace("Bearer ", "")
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) return jsonResponse({ error: "Unauthorized" }, 401)
+    if (authError || !user) return err("Unauthorized", 401)
 
     switch (action) {
-      case "create_shot_row": return await handleCreateShotRow(supabase, params)
-      case "delete_shot_row": return await handleDeleteShotRow(supabase, params)
+      case "full_sync":        return await handleFullSync(supabase)
+      case "create_shot_row":  return await handleCreateShotRow(supabase, params)
+      case "delete_shot_row":  return await handleDeleteShotRow(supabase, params)
       case "upload_wip_image": return await handleUploadWipImage(supabase, params)
       case "upload_reference": return await handleUploadReference(supabase, params)
-      case "init_board": return await handleInitBoard()
-      default: return jsonResponse({ error: `Unknown action: ${action}` }, 400)
+      case "init_board":       return await handleFullSync(supabase) // init = full sync
+      default:                 return err(`Unknown action: ${action}`)
     }
-  } catch (err) {
-    console.error("miro-sync error:", err)
-    return jsonResponse({ error: err.message || "Internal error" }, 500)
+  } catch (e) {
+    console.error("[miro-sync] Unhandled error:", e)
+    return err(e.message || "Internal error", 500)
   }
 })

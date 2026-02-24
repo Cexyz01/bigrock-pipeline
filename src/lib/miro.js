@@ -63,7 +63,12 @@ export async function uploadReferenceToMiro(shotId, imageBase64) {
   })
 }
 
-// Initialize board headers (one-time, staff only)
+// Full sync — rebuilds the entire Miro table from scratch
+export async function fullSyncMiro() {
+  return callMiroSync({ action: 'full_sync' })
+}
+
+// Initialize board (same as full sync)
 export async function initMiroBoard() {
   return callMiroSync({ action: 'init_board' })
 }

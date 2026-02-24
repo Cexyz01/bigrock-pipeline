@@ -168,10 +168,11 @@ export default function App() {
     if (error) setShots(await getShots()) // revert on failure
   }
   const handleDeleteShot = async (id) => {
-    // Delete from Miro + Cloudinary first, then from database
-    deleteMiroShotRow(id).catch(err => console.warn('Miro delete:', err))
+    // Delete from DB first (CASCADE cleans miro tables), then sync Miro
     await deleteShot(id)
     setShots(await getShots())
+    // Trigger Miro rebuild in background (shot already gone from DB)
+    deleteMiroShotRow(id).catch(err => console.warn('Miro delete:', err))
   }
 
   const handleUploadReference = async (shotId, file) => {
