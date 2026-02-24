@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DEPTS, isStaff } from '../../lib/constants'
 import { getComments } from '../../lib/supabase'
 import Modal from '../ui/Modal'
@@ -13,6 +13,7 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
+  const commentsEndRef = useRef(null)
   const dept = DEPTS.find(d => d.id === task.department)
   const isOwner = task.assigned_to === user.id
   const canComment = staff || isOwner
@@ -20,6 +21,13 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
   useEffect(() => {
     getComments(task.id).then(c => { setComments(c); setLoading(false) })
   }, [task.id])
+
+  // Scroll commenti in fondo quando caricati o quando ne arriva uno nuovo
+  useEffect(() => {
+    if (comments.length > 0) {
+      setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    }
+  }, [comments])
 
   const handleAction = async (action, updates, successMsg) => {
     setActionLoading(action)
@@ -123,6 +131,7 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
                 </div>
               ))
             }
+            <div ref={commentsEndRef} />
           </div>
           {canComment && (
             <div style={{ display: 'flex', gap: 8 }}>
