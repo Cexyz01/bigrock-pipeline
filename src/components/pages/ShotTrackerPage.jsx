@@ -7,13 +7,19 @@ import Modal from '../ui/Modal'
 import EmptyState from '../ui/EmptyState'
 import ShotRow from '../shots/ShotRow'
 
-export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, requestConfirm }) {
+export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, onSyncMiro, addToast, requestConfirm }) {
   const [showCreate, setShowCreate] = useState(false)
   const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '' })
   const [refFile, setRefFile] = useState(null)
   const [refPreview, setRefPreview] = useState(null)
+  const [syncing, setSyncing] = useState(false)
   const refInputRef = useRef(null)
   const staff = isStaff(user.role)
+
+  const handleSyncMiro = async () => {
+    setSyncing(true)
+    try { await onSyncMiro() } finally { setSyncing(false) }
+  }
 
   const cycleShotStatus = useCallback(async (shot, deptId) => {
     if (!staff) return
@@ -75,7 +81,10 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Shot Tracker</h1>
             <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Clicca le celle per cambiare stato' : 'Vista in sola lettura'}</p>
           </div>
-          {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Aggiungi Shot</Btn>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Aggiungi Shot</Btn>}
+            {staff && <Btn variant="ghost" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12 }}>🔄 Sync Miro</Btn>}
+          </div>
         </div>
       </Fade>
 

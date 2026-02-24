@@ -26,7 +26,7 @@ import StoryboardPage from './components/pages/StoryboardPage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
-import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fileToBase64 } from './lib/miro'
+import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fileToBase64 } from './lib/miro'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -152,8 +152,10 @@ export default function App() {
 
     const { data } = await createShot(shotWithOrder)
     if (data) {
-      // Sync to Miro in background (fire-and-forget)
-      createMiroShotRow(data.id, data.code).catch(err => console.warn('Miro sync:', err))
+      // Sync to Miro — show toast on error
+      createMiroShotRow(data.id, data.code).then(res => {
+        if (res.error) addToast(`Miro sync errore: ${res.error}`, 'danger')
+      }).catch(err => addToast(`Miro sync fallito: ${err.message || err}`, 'danger'))
       // Upload reference image if provided
       if (referenceFile) {
         handleUploadReference(data.id, referenceFile)
@@ -172,7 +174,23 @@ export default function App() {
     await deleteShot(id)
     setShots(await getShots())
     // Trigger Miro rebuild in background (shot already gone from DB)
-    deleteMiroShotRow(id).catch(err => console.warn('Miro delete:', err))
+    deleteMiroShotRow(id).then(res => {
+      if (res.error) addToast(`Miro delete errore: ${res.error}`, 'danger')
+    }).catch(err => addToast(`Miro delete fallito: ${err.message || err}`, 'danger'))
+  }
+
+  const handleSyncMiro = async () => {
+    addToast('Sincronizzazione Miro in corso...', 'info')
+    try {
+      const res = await fullSyncMiro()
+      if (res.error) {
+        addToast(`Miro sync errore: ${res.error}`, 'danger')
+      } else {
+        addToast(`Miro sincronizzato! ${res.data?.shots || 0} shots`, 'success')
+      }
+    } catch (err) {
+      addToast(`Miro sync fallito: ${err.message || err}`, 'danger')
+    }
   }
 
   const handleUploadReference = async (shotId, file) => {
@@ -283,7 +301,7 @@ export default function App() {
         ) : (
           <div style={{ flex: 1, padding: '36px 44px', overflowY: 'auto', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
             {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
-            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} requestConfirm={requestConfirm} />}
+            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onSyncMiro={handleSyncMiro} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
