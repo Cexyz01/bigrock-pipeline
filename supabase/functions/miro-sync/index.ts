@@ -210,7 +210,7 @@ async function handleInitBoard() {
 }
 
 // ══════════════════════════════════════════════════
-// ACTION: Create Shot Row — uses SHAPE (not frame) for bg
+// ACTION: Create Shot Row — items float directly on board (no bg shape)
 // ══════════════════════════════════════════════════
 
 async function handleCreateShotRow(supabase: any, params: any) {
@@ -221,67 +221,88 @@ async function handleCreateShotRow(supabase: any, params: any) {
     .from("miro_shot_rows").select("id").eq("shot_id", shot_id).single()
   if (existing) return jsonResponse({ error: "Shot already synced", row: existing }, 409)
 
-  const { data: rows } = await supabase
+  const { data: rows, error: rowsError } = await supabase
     .from("miro_shot_rows").select("row_index")
     .order("row_index", { ascending: false }).limit(1)
+
+  console.log("[create_shot_row] Existing rows query:", { rows, rowsError })
   const rowIndex = rows && rows.length > 0 ? rows[0].row_index + 1 : 0
+  console.log("[create_shot_row] Calculated rowIndex:", rowIndex)
 
   const y = getRowY(rowIndex)
-  const centerX = BASE_X + TOTAL_WIDTH / 2
+  console.log("[create_shot_row] Row Y position:", y)
 
-  // ── 1. Background shape (white rectangle, no title shown) ──
-  const bg = await miroPost("/shapes", {
-    data: { shape: "round_rectangle" },
-    position: { x: centerX, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: TOTAL_WIDTH + 60, height: ROW_HEIGHT },
-    style: { fillColor: "#FFFFFF", borderColor: "#E2E8F0", borderWidth: "2", borderOpacity: "1.0" },
-  })
+  // Track all created Miro item IDs for cleanup on failure
+  const createdItems: string[] = []
 
-  // ── 2. Shot code text ──
-  const shotText = await miroPost("/texts", {
-    data: { content: `<strong>${shot_code}</strong>` },
+  // ── 1. Shot code as a sticky note (purple, large) ──
+  console.log("[create_shot_row] Creating shot code sticky note...")
+  const shotSticky = await miroPost("/sticky_notes", {
+    data: { content: `<strong>${shot_code}</strong>`, shape: "square" },
     position: { x: BASE_X + COL_X[0] + SHOT_COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
     geometry: { width: SHOT_COL_WIDTH - 30 },
-    style: { fontSize: "48", textAlign: "center", color: "#1a1a2e" },
+    style: { fillColor: "purple", textAlign: "center", textAlignVertical: "middle" },
   })
+  createdItems.push(shotSticky.id)
+  console.log("[create_shot_row] Shot sticky created:", shotSticky.id)
 
-  // ── 3. Purple accent bar ──
-  await miroPost("/shapes", {
-    data: { shape: "rectangle" },
-    position: { x: BASE_X + COL_X[0] + 20, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: 8, height: 140 },
-    style: { fillColor: "#6C5CE7", borderWidth: "0", borderOpacity: "0" },
-  })
-
-  // ── 4. Reference placeholder ──
-  await miroPost("/sticky_notes", {
-    data: { content: "Reference", shape: "square" },
-    position: { x: BASE_X + COL_X[1] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: COL_WIDTH - 40 },
-    style: { fillColor: "gray", textAlign: "center", textAlignVertical: "middle" },
-  })
-
-  // ── 5. Department placeholders ──
-  for (let i = 2; i < COL_LABELS.length; i++) {
-    const deptId = DEPT_ORDER[i - 2]
-    await miroPost("/sticky_notes", {
-      data: { content: COL_LABELS[i], shape: "square" },
-      position: { x: BASE_X + COL_X[i] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
+  // ── 2. Reference placeholder ──
+  try {
+    const refSticky = await miroPost("/sticky_notes", {
+      data: { content: "Reference", shape: "square" },
+      position: { x: BASE_X + COL_X[1] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
       geometry: { width: COL_WIDTH - 40 },
-      style: { fillColor: DEPT_STICKY_COLORS[deptId] || "gray", textAlign: "center", textAlignVertical: "middle" },
+      style: { fillColor: "gray", textAlign: "center", textAlignVertical: "middle" },
     })
+    createdItems.push(refSticky.id)
+  } catch (err) {
+    console.warn("[create_shot_row] Reference sticky failed:", err)
   }
 
-  // ── 6. Save to DB (frame_id stores the bg shape ID) ──
-  const { data: row, error } = await supabase.from("miro_shot_rows").insert({
+  // ── 3. Department placeholders ──
+  for (let i = 2; i < COL_LABELS.length; i++) {
+    const deptId = DEPT_ORDER[i - 2]
+    try {
+      const deptSticky = await miroPost("/sticky_notes", {
+        data: { content: COL_LABELS[i], shape: "square" },
+        position: { x: BASE_X + COL_X[i] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
+        geometry: { width: COL_WIDTH - 40 },
+        style: { fillColor: DEPT_STICKY_COLORS[deptId] || "gray", textAlign: "center", textAlignVertical: "middle" },
+      })
+      createdItems.push(deptSticky.id)
+    } catch (err) {
+      console.warn(`[create_shot_row] Dept sticky ${COL_LABELS[i]} failed:`, err)
+    }
+  }
+
+  console.log("[create_shot_row] Created items:", createdItems)
+
+  // ── 4. Save to DB ──
+  const insertData: any = {
     shot_id,
     row_index: rowIndex,
-    frame_id: bg.id,
-    shot_code_item_id: shotText.id,
-  }).select().single()
+    frame_id: null,
+  }
+  // Add shot_code_item_id if the column exists
+  insertData.shot_code_item_id = shotSticky.id
 
-  if (error) return jsonResponse({ error: error.message }, 500)
-  return jsonResponse({ success: true, row })
+  const { data: row, error } = await supabase.from("miro_shot_rows")
+    .insert(insertData).select().single()
+
+  if (error) {
+    console.error("[create_shot_row] DB insert error:", error)
+    // If insert failed (e.g. missing column), try without shot_code_item_id
+    const { data: row2, error: error2 } = await supabase.from("miro_shot_rows")
+      .insert({ shot_id, row_index: rowIndex, frame_id: shotSticky.id })
+      .select().single()
+    if (error2) {
+      console.error("[create_shot_row] DB insert fallback also failed:", error2)
+      return jsonResponse({ error: error2.message, miro_items_created: createdItems }, 500)
+    }
+    return jsonResponse({ success: true, row: row2, miro_items: createdItems })
+  }
+
+  return jsonResponse({ success: true, row, miro_items: createdItems })
 }
 
 // ══════════════════════════════════════════════════
