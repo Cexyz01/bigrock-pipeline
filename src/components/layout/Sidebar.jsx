@@ -162,7 +162,7 @@ export default function Sidebar({
               width: hovered ? Math.round(EXPANDED_W * 0.6) : RAIL_W - 20,
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               overflow: 'hidden',
-              transform: packPressed ? 'scale(0.93)' : packHover ? 'scale(1.05)' : 'scale(1)',
+              transform: packPressed ? 'scale(0.93)' : packHover ? 'scale(1.12)' : 'scale(1)',
               opacity: packPressed ? 0.85 : packHover ? 1 : 0.9,
               userSelect: 'none', WebkitUserDrag: 'none',
             }}
