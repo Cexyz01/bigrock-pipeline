@@ -35,6 +35,10 @@ const ROW_H = 1000
 const CELL_PAD = 30   // padding inside each department cell
 const IMG_GAP = 10    // gap between task sub-cells and images
 
+// Reference images: fixed width so ALL references look identical.
+// 1600px wide ≈ 73% of cell width. For 16:9 images → height ~900 → fits ROW_H perfectly.
+const REF_IMG_W = 1600
+
 const COLS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
 const DEPTS = ["concept", "modeling", "texturing", "rigging", "animation", "compositing"]
 
@@ -296,8 +300,10 @@ async function placeCellImages(
     const imgAreaH = taskH - 8
     const slotW = (imgAreaW - (imgGrid.cols - 1) * 6) / imgGrid.cols
     const slotH = (imgAreaH - (imgGrid.rows - 1) * 6) / imgGrid.rows
-    // Use min dimension * 0.95 so image always fits without cropping
-    const miroW = Math.min(slotW, slotH) * 0.95
+    // Set width conservatively so even portrait images (up to ~3:4) fit in the slot.
+    // slotH * 0.65 → a 3:4 portrait would be 0.65*slotH * (4/3) = 0.87*slotH → fits.
+    // Also cap by slotW so landscape images don't overflow horizontally.
+    const miroW = Math.min(slotW * 0.9, slotH * 0.65)
 
     const imgX0 = taskCX - imgAreaW / 2
     const imgY0 = taskCY - imgAreaH / 2
@@ -463,7 +469,7 @@ async function handleFullSync(supabase: any) {
         await miroPost("/images", {
           data: { url: shot.concept_image_url },
           position: { x: colX(1), y, origin: "center" },
-          geometry: { width: COL_W[1] - 2 * CELL_PAD },
+          geometry: { width: REF_IMG_W },
           parent: { id: frameId },
         })
       } catch (e) {
@@ -586,7 +592,7 @@ async function handleUploadReference(supabase: any, params: any) {
   const img = await miroPost("/images", {
     data: { url },
     position: { x: colX(1), y: rowY(shotRow.row_index), origin: "center" },
-    geometry: { width: COL_W[1] - 2 * CELL_PAD },
+    geometry: { width: REF_IMG_W },
     parent: { id: frameId },
   })
 
