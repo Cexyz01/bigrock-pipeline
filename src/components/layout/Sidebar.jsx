@@ -84,48 +84,60 @@ export default function Sidebar({
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 900 }} onClick={() => setShowNotifs(false)} />
               <div style={{
-                position: 'fixed', top: 80, left: (hovered ? EXPANDED_W : RAIL_W) + 10, width: 400,
+                position: 'fixed', top: 80, left: (hovered ? EXPANDED_W : RAIL_W) + 10, width: 380,
                 background: '#fff', border: '1px solid #E8ECF1', borderRadius: 16,
-                boxShadow: '0 16px 48px rgba(0,0,0,0.12)', zIndex: 1000,
-                maxHeight: '70vh', overflowY: 'auto', padding: 20,
+                boxShadow: '0 16px 48px rgba(0,0,0,0.10)', zIndex: 1000,
+                maxHeight: '70vh', display: 'flex', flexDirection: 'column',
                 animation: 'scaleIn 0.15s ease',
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>
-                    Notifiche
-                    {unreadCount > 0 && <span style={{ fontSize: 12, color: '#6C5CE7', marginLeft: 8 }}>{unreadCount} nuove</span>}
-                  </h3>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #F1F5F9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>Notifiche</span>
+                    {unreadCount > 0 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: '#6C5CE7', color: '#fff', padding: '2px 7px', borderRadius: 8, minWidth: 18, textAlign: 'center' }}>{unreadCount}</span>
+                    )}
+                  </div>
                   {unreadCount > 0 && (
-                    <Btn variant="default" onClick={onMarkAllRead} style={{ fontSize: 11, padding: '4px 10px' }}>Segna tutte lette</Btn>
+                    <button onClick={onMarkAllRead}
+                      style={{ fontSize: 11, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: '2px 4px' }}
+                      onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+                      onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
+                    >Segna tutte lette</button>
                   )}
                 </div>
-                {(!notifications || notifications.length === 0) ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>Nessuna notifica</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {notifications.slice(0, 30).map(n => (
+                {/* List */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+                  {(!notifications || notifications.length === 0) ? (
+                    <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>Nessuna notifica</div>
+                  ) : notifications.slice(0, 30).map(n => {
+                    const date = new Date(n.created_at)
+                    const isToday = new Date().toDateString() === date.toDateString()
+                    const timeStr = date.toLocaleTimeString('it', { hour: '2-digit', minute: '2-digit' })
+                    const dateStr = isToday ? timeStr : `${date.toLocaleDateString('it', { day: 'numeric', month: 'short' })} ${timeStr}`
+                    return (
                       <div
                         key={n.id}
                         onClick={() => handleNotifClick(n)}
                         style={{
-                          padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
-                          background: n.read ? '#F8FAFC' : '#fff',
-                          border: `1px solid ${n.read ? '#F1F5F9' : '#E2E8F0'}`,
-                          transition: 'background 0.12s ease',
+                          display: 'flex', alignItems: 'flex-start', gap: 10,
+                          padding: '10px 20px', cursor: 'pointer',
+                          borderLeft: !n.read ? '3px solid #6C5CE7' : '3px solid transparent',
+                          background: 'transparent',
+                          transition: 'background 0.1s ease',
                         }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#F1F5F9'}
-                        onMouseLeave={e => e.currentTarget.style.background = n.read ? '#F8FAFC' : '#fff'}
+                        onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {!n.read && <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#6C5CE7', flexShrink: 0 }} />}
-                          <span style={{ fontSize: 13, fontWeight: n.read ? 400 : 600, color: '#1a1a2e' }}>{n.title}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: n.read ? 400 : 600, color: '#1a1a2e', lineHeight: 1.3 }}>{n.title}</div>
+                          {n.body && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
                         </div>
-                        {n.body && <div style={{ fontSize: 12, color: '#64748B', marginTop: 3, lineHeight: 1.4 }}>{n.body}</div>}
-                        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 6 }}>{new Date(n.created_at).toLocaleString('it')}</div>
+                        <span style={{ fontSize: 10, color: '#B0B8C4', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>{dateStr}</span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    )
+                  })}
+                </div>
               </div>
             </>
           )}
