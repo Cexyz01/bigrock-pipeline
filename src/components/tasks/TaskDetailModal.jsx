@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { DEPTS, isStaff } from '../../lib/constants'
 import { getComments } from '../../lib/supabase'
+import { uploadWipImageToMiro, fileToBase64 } from '../../lib/miro'
 import Modal from '../ui/Modal'
 import Btn from '../ui/Btn'
 import Av from '../ui/Av'
@@ -13,7 +14,10 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
+  const [wipFile, setWipFile] = useState(null)
+  const [wipPreview, setWipPreview] = useState(null)
   const commentsEndRef = useRef(null)
+  const fileInputRef = useRef(null)
   const dept = DEPTS.find(d => d.id === task.department)
   const isOwner = task.assigned_to === user.id
   const canComment = staff || isOwner
@@ -51,6 +55,35 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
   const handleAssign = async (userId) => {
     await onUpdate(task.id, { assigned_to: userId || null })
     if (addToast) addToast('Assegnazione aggiornata', 'success')
+  }
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 4 * 1024 * 1024) {
+      if (addToast) addToast('Immagine troppo grande (max 4MB)', 'danger')
+      return
+    }
+    setWipFile(file)
+    setWipPreview(URL.createObjectURL(file))
+  }
+
+  const handleSubmitForReview = async () => {
+    setActionLoading('submit')
+    // Upload image to Miro if one was selected and task has a shot
+    if (wipFile && task.shot_id) {
+      try {
+        const base64 = await fileToBase64(wipFile)
+        await uploadWipImageToMiro(task.shot_id, task.department, task.id, base64, user.id)
+      } catch (err) {
+        console.warn('Miro upload failed:', err)
+        // Don't block the review — Miro is fire-and-forget
+      }
+    }
+    await onUpdate(task.id, { status: 'review' })
+    if (addToast) addToast('Task inviato per review!', 'success')
+    setActionLoading(null)
+    onClose()
   }
 
   const students = profiles ? profiles.filter(p => p.role === 'studente') : []
@@ -105,11 +138,43 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
           )}
           {staff && <Btn variant="danger" onClick={handleDelete}>Elimina</Btn>}
 
-          {/* Student: only "Invia per Review" when task is in progress */}
+          {/* Student: WIP image upload + Submit for Review */}
           {!staff && isOwner && task.status === 'wip' && (
-            <Btn variant="primary" loading={actionLoading === 'submit'} onClick={() => handleAction('submit', { status: 'review' }, 'Task inviato per review!')}>
-              Invia per Review
-            </Btn>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+              {/* Image drop zone — only if task has a shot linked */}
+              {task.shot_id && (
+                <div>
+                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      border: '2px dashed #E2E8F0', borderRadius: 12,
+                      padding: wipPreview ? 8 : '20px 16px', textAlign: 'center',
+                      cursor: 'pointer', background: '#F8FAFC',
+                      transition: 'border-color 0.2s ease',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = '#6C5CE7'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = '#E2E8F0'}
+                  >
+                    {wipPreview ? (
+                      <div>
+                        <img src={wipPreview} alt="WIP preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, display: 'block', margin: '0 auto' }} />
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 6 }}>{wipFile?.name} — Clicca per cambiare</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize: 20, marginBottom: 4 }}>🖼️</div>
+                        <div style={{ fontSize: 12, color: '#64748B' }}>Allega immagine WIP per Miro</div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>Opzionale · Max 4MB · PNG, JPG, WEBP</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <Btn variant="primary" loading={actionLoading === 'submit'} onClick={handleSubmitForReview}>
+                Invia per Review
+              </Btn>
+            </div>
           )}
         </div>
 

@@ -25,6 +25,7 @@ import StoryboardPage from './components/pages/StoryboardPage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
+import { createMiroShotRow } from './lib/miro'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -142,7 +143,14 @@ export default function App() {
   const clearDeepLink = () => setDeepLink(null)
 
   // Handlers
-  const handleCreateShot = async (shot) => { await createShot(shot); setShots(await getShots()) }
+  const handleCreateShot = async (shot) => {
+    const { data } = await createShot(shot)
+    if (data) {
+      // Sync to Miro in background (fire-and-forget)
+      createMiroShotRow(data.id, data.code).catch(err => console.warn('Miro sync:', err))
+    }
+    setShots(await getShots())
+  }
   const handleUpdateShot = async (id, updates) => {
     // Optimistic: update UI instantly, then persist in background
     setShots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
