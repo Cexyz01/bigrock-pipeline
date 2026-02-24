@@ -20,6 +20,8 @@ export default function Sidebar({
   const [showCalendar, setShowCalendar] = useState(false)
   const [showNotifs, setShowNotifs] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [packHover, setPackHover] = useState(false)
+  const [packPressed, setPackPressed] = useState(false)
   const staff = isStaff(user.role)
 
   const mainNav = [
@@ -157,21 +159,29 @@ export default function Sidebar({
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', borderRadius: 12,
-              width: hovered ? EXPANDED_W - 24 : RAIL_W - 20,
+              width: hovered ? Math.round(EXPANDED_W * 0.6) : RAIL_W - 20,
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               overflow: 'hidden',
+              transform: packPressed ? 'scale(0.93)' : packHover ? 'scale(1.05)' : 'scale(1)',
+              opacity: packPressed ? 0.85 : packHover ? 1 : 0.9,
             }}
             onClick={() => setView('pack')}
+            onMouseEnter={() => setPackHover(true)}
+            onMouseLeave={() => { setPackHover(false); setPackPressed(false) }}
+            onMouseDown={() => setPackPressed(true)}
+            onMouseUp={() => setPackPressed(false)}
           >
             <img
               src={packIcon}
               alt="Pack"
+              draggable={false}
               style={{
-                width: hovered ? EXPANDED_W - 24 : RAIL_W - 20,
+                width: '100%',
                 height: 'auto',
                 objectFit: 'contain',
                 borderRadius: 12,
                 transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                pointerEvents: 'none',
               }}
             />
           </div>
