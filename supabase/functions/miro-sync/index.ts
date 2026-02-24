@@ -694,13 +694,9 @@ serve(async (req) => {
     const { action, ...params } = await req.json()
     console.log(`[miro-sync] Action: ${action}`)
 
+    // Auth is verified by Supabase relay (verify_jwt default=true)
+    // Use service role for DB operations
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
-    const authHeader = req.headers.get("Authorization")
-    if (!authHeader) return err("Unauthorized", 401)
-    const token = authHeader.replace("Bearer ", "")
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) return err("Unauthorized", 401)
 
     switch (action) {
       case "full_sync":         return await handleFullSync(supabase)
