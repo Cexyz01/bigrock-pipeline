@@ -7,22 +7,15 @@ import { supabase } from './supabase'
 const FUNCTION_NAME = 'miro-sync'
 
 async function callMiroSync(payload) {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return { data: null, error: 'Not authenticated' }
-
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${FUNCTION_NAME}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify(payload),
+  const { data, error } = await supabase.functions.invoke(FUNCTION_NAME, {
+    body: payload,
   })
-
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) return { data: null, error: json.error || `Miro sync failed (${res.status})` }
-  return { data: json, error: null }
+  if (error) {
+    // error.message may contain the response body or status
+    const msg = typeof error === 'string' ? error : (error.message || error.context?.message || 'Unknown error')
+    return { data: null, error: msg }
+  }
+  return { data, error: null }
 }
 
 // Create a shot row on the Miro board
