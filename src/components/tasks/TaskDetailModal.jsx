@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { DEPTS, isStaff } from '../../lib/constants'
 import { getComments } from '../../lib/supabase'
-import { uploadWipImageToMiro, fileToBase64 } from '../../lib/miro'
+import { uploadWipImagesToMiro, fileToBase64 } from '../../lib/miro'
 import Modal from '../ui/Modal'
 import Btn from '../ui/Btn'
 import Av from '../ui/Av'
@@ -9,13 +9,16 @@ import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 
+const MAX_IMAGES = 4
+const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+
 export default function TaskDetailModal({ task, user, staff, profiles, onClose, onUpdate, onDelete, onComment, addToast, requestConfirm }) {
   const [comments, setComments] = useState([])
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
-  const [wipFile, setWipFile] = useState(null)
-  const [wipPreview, setWipPreview] = useState(null)
+  const [wipFiles, setWipFiles] = useState([])
+  const [wipPreviews, setWipPreviews] = useState([])
   const commentsEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const dept = DEPTS.find(d => d.id === task.department)
@@ -25,6 +28,11 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
   useEffect(() => {
     getComments(task.id).then(c => { setComments(c); setLoading(false) })
   }, [task.id])
+
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => wipPreviews.forEach(url => URL.revokeObjectURL(url))
+  }, [])
 
   // Scroll commenti in fondo quando caricati o quando ne arriva uno nuovo
   useEffect(() => {
@@ -57,24 +65,46 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
     if (addToast) addToast('Assegnazione aggiornata', 'success')
   }
 
-  const handleFileSelect = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 4 * 1024 * 1024) {
-      if (addToast) addToast('Immagine troppo grande (max 4MB)', 'danger')
+  const handleFilesSelect = (e) => {
+    const selected = Array.from(e.target.files || [])
+    if (!selected.length) return
+
+    // Check how many slots are available
+    const available = MAX_IMAGES - wipFiles.length
+    if (available <= 0) {
+      if (addToast) addToast(`Massimo ${MAX_IMAGES} immagini`, 'danger')
       return
     }
-    setWipFile(file)
-    setWipPreview(URL.createObjectURL(file))
+
+    const toAdd = selected.slice(0, available)
+    const oversized = toAdd.filter(f => f.size > MAX_FILE_SIZE)
+    if (oversized.length > 0) {
+      if (addToast) addToast(`${oversized.length} immagine/i troppo grandi (max 4MB)`, 'danger')
+    }
+    const valid = toAdd.filter(f => f.size <= MAX_FILE_SIZE)
+    if (valid.length === 0) return
+
+    const newPreviews = valid.map(f => URL.createObjectURL(f))
+    setWipFiles(prev => [...prev, ...valid])
+    setWipPreviews(prev => [...prev, ...newPreviews])
+
+    // Reset input so the same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleRemoveFile = (index) => {
+    URL.revokeObjectURL(wipPreviews[index])
+    setWipFiles(prev => prev.filter((_, i) => i !== index))
+    setWipPreviews(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleSubmitForReview = async () => {
     setActionLoading('submit')
-    // Upload image to Miro if one was selected and task has a shot
-    if (wipFile && task.shot_id) {
+    // Upload images to Miro if any were selected and task has a shot
+    if (wipFiles.length > 0 && task.shot_id) {
       try {
-        const base64 = await fileToBase64(wipFile)
-        await uploadWipImageToMiro(task.shot_id, task.department, task.id, base64, user.id)
+        const base64Array = await Promise.all(wipFiles.map(f => fileToBase64(f)))
+        await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, user.id)
       } catch (err) {
         console.warn('Miro upload failed:', err)
         // Don't block the review — Miro is fire-and-forget
@@ -141,34 +171,97 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
           {/* Student: WIP image upload + Submit for Review */}
           {!staff && isOwner && task.status === 'wip' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-              {/* Image drop zone — only if task has a shot linked */}
+              {/* Multi-image drop zone — only if task has a shot linked */}
               {task.shot_id && (
                 <div>
-                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    style={{
-                      border: '2px dashed #E2E8F0', borderRadius: 12,
-                      padding: wipPreview ? 8 : '20px 16px', textAlign: 'center',
-                      cursor: 'pointer', background: '#F8FAFC',
-                      transition: 'border-color 0.2s ease',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = '#6C5CE7'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = '#E2E8F0'}
-                  >
-                    {wipPreview ? (
-                      <div>
-                        <img src={wipPreview} alt="WIP preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, display: 'block', margin: '0 auto' }} />
-                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 6 }}>{wipFile?.name} — Clicca per cambiare</div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFilesSelect}
+                    style={{ display: 'none' }}
+                  />
+
+                  {/* Image preview grid */}
+                  {wipPreviews.length > 0 && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: wipPreviews.length === 1 ? '1fr' : '1fr 1fr',
+                      gap: 8,
+                      marginBottom: 8,
+                    }}>
+                      {wipPreviews.map((preview, idx) => (
+                        <div key={idx} style={{
+                          position: 'relative',
+                          borderRadius: 10,
+                          overflow: 'hidden',
+                          background: '#F8FAFC',
+                          border: '1px solid #E2E8F0',
+                        }}>
+                          <img
+                            src={preview}
+                            alt={`WIP ${idx + 1}`}
+                            style={{
+                              width: '100%',
+                              height: 120,
+                              objectFit: 'cover',
+                              display: 'block',
+                            }}
+                          />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleRemoveFile(idx) }}
+                            style={{
+                              position: 'absolute', top: 4, right: 4,
+                              width: 22, height: 22, borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.55)', color: '#fff',
+                              border: 'none', cursor: 'pointer', fontSize: 12,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              lineHeight: 1,
+                            }}
+                          >
+                            X
+                          </button>
+                          <div style={{
+                            fontSize: 10, color: '#94A3B8', padding: '3px 6px',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {wipFiles[idx]?.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add image button / drop zone */}
+                  {wipFiles.length < MAX_IMAGES && (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      style={{
+                        border: '2px dashed #E2E8F0', borderRadius: 12,
+                        padding: '16px 12px', textAlign: 'center',
+                        cursor: 'pointer', background: '#F8FAFC',
+                        transition: 'border-color 0.2s ease',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = '#6C5CE7'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = '#E2E8F0'}
+                    >
+                      <div style={{ fontSize: 18, marginBottom: 2 }}>
+                        {wipFiles.length === 0 ? '\uD83D\uDDBC\uFE0F' : '+'}
                       </div>
-                    ) : (
-                      <div>
-                        <div style={{ fontSize: 20, marginBottom: 4 }}>🖼️</div>
-                        <div style={{ fontSize: 12, color: '#64748B' }}>Allega immagine WIP per Miro</div>
-                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>Opzionale · Max 4MB · PNG, JPG, WEBP</div>
+                      <div style={{ fontSize: 12, color: '#64748B' }}>
+                        {wipFiles.length === 0
+                          ? 'Allega immagini WIP per Miro'
+                          : `Aggiungi immagine (${wipFiles.length}/${MAX_IMAGES})`
+                        }
                       </div>
-                    )}
-                  </div>
+                      {wipFiles.length === 0 && (
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                          Fino a {MAX_IMAGES} immagini · Max 4MB ciascuna · PNG, JPG, WEBP
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               <Btn variant="primary" loading={actionLoading === 'submit'} onClick={handleSubmitForReview}>

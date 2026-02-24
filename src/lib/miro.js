@@ -54,6 +54,18 @@ export async function uploadWipImageToMiro(shotId, department, taskId, imageBase
   })
 }
 
+// Upload multiple WIP images to the correct Miro cell (batch)
+export async function uploadWipImagesToMiro(shotId, department, taskId, imagesBase64, uploadedBy) {
+  return callMiroSync({
+    action: 'upload_wip_images',
+    shot_id: shotId,
+    department,
+    task_id: taskId,
+    images_base64: imagesBase64,
+    uploaded_by: uploadedBy,
+  })
+}
+
 // Upload a reference image to the Reference column on Miro
 export async function uploadReferenceToMiro(shotId, imageBase64) {
   return callMiroSync({

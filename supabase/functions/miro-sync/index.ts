@@ -16,27 +16,30 @@ const CLD_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
 const CLD_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
 
 // ══════════════════════════════════════════════════════════════
-// TABLE LAYOUT — Frame + Shapes (Excel-like grid)
+// TABLE LAYOUT — Large Excel-like grid inside a Miro Frame
 //
-// The board has ONE frame titled "BIGROCK PIPELINE".
-// Inside: header row (colored shapes) + data rows (pastel shapes).
-// Images are placed ON TOP of the cell shapes.
+// ~10× wider, ~5× taller than before.
+// Each department cell contains a sub-grid of tasks.
+// Each task sub-cell can hold up to 4 images in a 2×2 mini-grid.
 // Positions are RELATIVE to the frame's top-left corner.
 // ══════════════════════════════════════════════════════════════
 
 const FRAME_TITLE = "BIGROCK PIPELINE — Shot Tracker"
-const PAD = 20
-const GAP = 4
-const COL_W = [160, 220, 220, 220, 220, 220, 220, 220]
-const HDR_H = 50
-const ROW_H = 200
+
+const PAD = 40
+const GAP = 8
+const COL_W = [500, 2200, 2200, 2200, 2200, 2200, 2200, 2200]
+const HDR_H = 100
+const ROW_H = 1000
+
+const CELL_PAD = 30   // padding inside each department cell
+const IMG_GAP = 10    // gap between task sub-cells and images
 
 const COLS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
 const DEPTS = ["concept", "modeling", "texturing", "rigging", "animation", "compositing"]
 
 // Header fill colors (vibrant)
 const HDR_FILL = ["#6C5CE7", "#636E72", "#FF6B81", "#0984E3", "#FDCB6E", "#00B894", "#E84393", "#74B9FF"]
-// Header text colors
 const HDR_TEXT = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#1a1a2e", "#ffffff", "#ffffff", "#ffffff"]
 // Data cell fill colors (light pastels)
 const CELL_FILL = ["#F8F7FF", "#F5F5F5", "#FFF0F3", "#EBF5FB", "#FFF9E6", "#E8F8F5", "#FDEDEC", "#EBF5FB"]
@@ -48,29 +51,49 @@ function colX(i: number): number {
   return x + COL_W[i] / 2
 }
 
-// Header center Y
 function hdrY(): number { return PAD + HDR_H / 2 }
 
-// Data row center Y (0-indexed)
 function rowY(r: number): number {
   return PAD + HDR_H + GAP + ROW_H / 2 + r * (ROW_H + GAP)
 }
 
-// Total frame width
 function frameW(): number {
   return PAD * 2 + COL_W.reduce((a, b) => a + b, 0) + GAP * (COL_W.length - 1)
 }
 
-// Total frame height for N data rows
 function frameH(n: number): number {
   if (n <= 0) return PAD * 2 + HDR_H
   return PAD + HDR_H + GAP + n * ROW_H + (n - 1) * GAP + PAD
 }
 
-// Department name → column index (2..7)
 function deptCol(dept: string): number {
   const i = DEPTS.indexOf(dept)
   return i >= 0 ? i + 2 : -1
+}
+
+// ══════════════════════════════════════════════════════════════
+// SUB-GRID LAYOUT ALGORITHMS
+// ══════════════════════════════════════════════════════════════
+
+// How many columns/rows to arrange N tasks in a department cell
+function calcTaskGrid(n: number): { cols: number; rows: number } {
+  if (n <= 0) return { cols: 0, rows: 0 }
+  if (n === 1) return { cols: 1, rows: 1 }
+  if (n === 2) return { cols: 2, rows: 1 }
+  if (n <= 4) return { cols: 2, rows: 2 }
+  if (n <= 6) return { cols: 3, rows: 2 }
+  if (n <= 9) return { cols: 3, rows: 3 }
+  if (n <= 12) return { cols: 4, rows: 3 }
+  const cols = Math.ceil(Math.sqrt(n))
+  return { cols, rows: Math.ceil(n / cols) }
+}
+
+// How to arrange up to 4 images inside a task sub-cell
+function calcImageGrid(n: number): { cols: number; rows: number } {
+  if (n <= 0) return { cols: 0, rows: 0 }
+  if (n === 1) return { cols: 1, rows: 1 }
+  if (n === 2) return { cols: 2, rows: 1 }
+  return { cols: 2, rows: 2 } // 3 or 4
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -92,7 +115,7 @@ async function miroGet(path: string) {
 
 async function miroPost(path: string, body: any) {
   const bodyStr = JSON.stringify(body)
-  console.log(`[miro] POST ${path} — ${bodyStr.substring(0, 150)}`)
+  console.log(`[miro] POST ${path} — ${bodyStr.substring(0, 120)}`)
   const res = await fetch(`${boardUrl}${path}`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${MIRO_TOKEN}`, "Content-Type": "application/json" },
@@ -114,7 +137,6 @@ async function miroPatch(path: string, body: any) {
   })
   if (!res.ok) {
     const t = await res.text()
-    console.error(`[miro] PATCH ${path} FAILED: ${res.status} ${t}`)
     throw new Error(`Miro PATCH ${res.status}: ${t}`)
   }
   return res.json()
@@ -130,7 +152,6 @@ async function miroDelete(itemId: string): Promise<boolean> {
   } catch { return false }
 }
 
-// Find our frame by title on the board
 async function findOurFrame(): Promise<string | null> {
   try {
     const data = await miroGet("/items?type=frame&limit=50")
@@ -138,40 +159,40 @@ async function findOurFrame(): Promise<string | null> {
       item.data?.title?.includes("BIGROCK PIPELINE")
     )
     return frame?.id || null
-  } catch (err) {
-    console.warn("[miro] Failed to query frames:", err)
-    return null
-  }
+  } catch { return null }
 }
 
-// Delete a frame AND all its children (frame delete does NOT cascade!)
 async function deleteFrameAndChildren(frameId: string): Promise<void> {
-  // 1. Get all children of the frame
   try {
     let cursor: string | null = null
     const childIds: string[] = []
     do {
       const url = `/items?parent_item_id=${frameId}&limit=50${cursor ? `&cursor=${cursor}` : ""}`
       const data = await miroGet(url)
-      for (const item of data.data || []) {
-        childIds.push(item.id)
-      }
+      for (const item of data.data || []) childIds.push(item.id)
       cursor = data.cursor || null
     } while (cursor)
 
-    console.log(`[miro] Deleting ${childIds.length} children of frame ${frameId}`)
-
-    // 2. Delete all children
-    for (const id of childIds) {
-      await miroDelete(id)
-    }
-  } catch (err) {
-    console.warn("[miro] Error fetching frame children:", err)
+    console.log(`[miro] Deleting ${childIds.length} children + frame ${frameId}`)
+    await parallelLimit(childIds.map(id => () => miroDelete(id)), 5)
+  } catch (e) {
+    console.warn("[miro] Error deleting children:", e)
   }
-
-  // 3. Delete the frame itself
   await miroDelete(frameId)
-  console.log(`[miro] Frame ${frameId} + children deleted`)
+}
+
+// Run async tasks with concurrency limit
+async function parallelLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = []
+  let idx = 0
+  async function worker() {
+    while (idx < tasks.length) {
+      const i = idx++
+      results[i] = await tasks[i]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()))
+  return results
 }
 
 // Create a cell shape inside a frame
@@ -184,19 +205,133 @@ async function createCell(
     position: { x, y, origin: "center" },
     geometry: { width: w, height: h },
     style: {
-      fillColor: fill,
-      color: textColor,
-      fontSize,
-      fontFamily: "open_sans",
-      textAlign: "center",
-      textAlignVertical: "middle",
-      borderWidth: "1.0",
-      borderOpacity: "0.15",
-      borderColor: "#CBD5E1",
+      fillColor: fill, color: textColor, fontSize,
+      fontFamily: "open_sans", textAlign: "center", textAlignVertical: "middle",
+      borderWidth: "1.0", borderOpacity: "0.15", borderColor: "#CBD5E1",
     },
     parent: { id: frameId },
   })
   return item.id
+}
+
+// ══════════════════════════════════════════════════════════════
+// PLACE CELL IMAGES — Sub-grid layout for one department cell
+//
+// Queries all tasks for shot+dept, arranges them in a grid,
+// places up to 4 images per task in a 2×2 mini-grid.
+// ══════════════════════════════════════════════════════════════
+
+async function placeCellImages(
+  frameId: string, shotId: string, department: string,
+  rowIndex: number, colIndex: number, supabase: any,
+): Promise<void> {
+  // 1. Delete existing Miro items for this cell
+  const { data: existingItems } = await supabase
+    .from("miro_wip_images").select("id, miro_item_id")
+    .eq("shot_id", shotId).eq("department", department)
+    .not("miro_item_id", "is", null)
+
+  if (existingItems?.length) {
+    await parallelLimit(
+      existingItems
+        .filter((i: any) => i.miro_item_id && i.miro_item_id !== "pending")
+        .map((i: any) => () => miroDelete(i.miro_item_id)),
+      5,
+    )
+  }
+
+  // 2. Get tasks for this shot+dept
+  const { data: tasks } = await supabase
+    .from("tasks").select("id, title, status")
+    .eq("shot_id", shotId).eq("department", department)
+    .order("created_at")
+
+  if (!tasks?.length) return
+
+  // 3. Get all images for these tasks
+  const { data: allImages } = await supabase
+    .from("miro_wip_images").select("id, task_id, image_url, image_order")
+    .eq("shot_id", shotId).eq("department", department)
+    .not("image_url", "is", null)
+    .order("image_order")
+
+  const imagesByTask: Record<string, any[]> = {}
+  for (const img of allImages || []) {
+    const tid = img.task_id || "_none"
+    if (!imagesByTask[tid]) imagesByTask[tid] = []
+    imagesByTask[tid].push(img)
+  }
+
+  // 4. Calculate task grid
+  const grid = calcTaskGrid(tasks.length)
+  if (grid.cols === 0) return
+
+  const cellW = COL_W[colIndex]
+  const cellH = ROW_H
+  const innerW = cellW - 2 * CELL_PAD
+  const innerH = cellH - 2 * CELL_PAD
+  const taskW = (innerW - (grid.cols - 1) * IMG_GAP) / grid.cols
+  const taskH = (innerH - (grid.rows - 1) * IMG_GAP) / grid.rows
+
+  // Inner area origin (top-left of usable area within the cell)
+  const innerX0 = colX(colIndex) - cellW / 2 + CELL_PAD
+  const innerY0 = rowY(rowIndex) - cellH / 2 + CELL_PAD
+
+  // 5. Place images for each task
+  const placements: (() => Promise<void>)[] = []
+
+  for (let t = 0; t < tasks.length; t++) {
+    const task = tasks[t]
+    const gi = t % grid.cols
+    const gj = Math.floor(t / grid.cols)
+
+    const taskCX = innerX0 + gi * (taskW + IMG_GAP) + taskW / 2
+    const taskCY = innerY0 + gj * (taskH + IMG_GAP) + taskH / 2
+
+    const taskImgs = (imagesByTask[task.id] || []).slice(0, 4)
+    if (taskImgs.length === 0) continue
+
+    const imgGrid = calcImageGrid(taskImgs.length)
+    const imgAreaW = taskW - 8
+    const imgAreaH = taskH - 8
+    const slotW = (imgAreaW - (imgGrid.cols - 1) * 6) / imgGrid.cols
+    const slotH = (imgAreaH - (imgGrid.rows - 1) * 6) / imgGrid.rows
+    // Use min dimension * 0.95 so image always fits without cropping
+    const miroW = Math.min(slotW, slotH) * 0.95
+
+    const imgX0 = taskCX - imgAreaW / 2
+    const imgY0 = taskCY - imgAreaH / 2
+
+    for (let m = 0; m < taskImgs.length; m++) {
+      const img = taskImgs[m]
+      const mi = m % imgGrid.cols
+      const mj = Math.floor(m / imgGrid.cols)
+
+      const imgCX = imgX0 + mi * (slotW + 6) + slotW / 2
+      const imgCY = imgY0 + mj * (slotH + 6) + slotH / 2
+
+      placements.push(async () => {
+        try {
+          const miroItem = await miroPost("/images", {
+            data: { url: img.image_url },
+            position: { x: imgCX, y: imgCY, origin: "center" },
+            geometry: { width: miroW },
+            parent: { id: frameId },
+          })
+          await supabase.from("miro_wip_images")
+            .update({ miro_item_id: miroItem.id })
+            .eq("id", img.id)
+        } catch (e) {
+          console.warn(`[placeCellImages] Image failed:`, e)
+        }
+      })
+    }
+  }
+
+  if (placements.length > 0) {
+    console.log(`[placeCellImages] Placing ${placements.length} images for ${department}`)
+    await parallelLimit(placements, 3)
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -220,9 +355,9 @@ async function cloudUpload(base64: string, folder: string): Promise<string | nul
     fd.append("api_key", CLD_KEY)
     fd.append("signature", sig)
     const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: "POST", body: fd })
-    if (!res.ok) { console.error("[cloudinary] upload:", res.status, await res.text()); return null }
+    if (!res.ok) { console.error("[cloudinary]", res.status, await res.text()); return null }
     return (await res.json()).secure_url || null
-  } catch (err) { console.error("[cloudinary] error:", err); return null }
+  } catch (e) { console.error("[cloudinary] error:", e); return null }
 }
 
 async function cloudDeletePrefix(prefix: string): Promise<void> {
@@ -257,33 +392,29 @@ function err(msg: string, status = 400) {
   })
 }
 
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
 // ══════════════════════════════════════════════════════════════
 // FULL SYNC — Nuclear rebuild of the entire Miro table
-//
-// 1. Delete existing frame (cascade deletes all children)
-// 2. Query all shots from DB
-// 3. Create frame → header → rows → images
 // ══════════════════════════════════════════════════════════════
 
 async function handleFullSync(supabase: any) {
-  console.log("[full_sync] ═══ Starting full sync ═══")
+  console.log("[full_sync] ═══ Starting ═══")
 
-  // 1. Delete existing frame + ALL its children
+  // 1. Delete existing frame + children
   const oldFrame = await findOurFrame()
   if (oldFrame) {
-    console.log("[full_sync] Deleting old frame + children:", oldFrame)
     await deleteFrameAndChildren(oldFrame)
     await sleep(500)
   }
 
-  // 2. Get all shots ordered by sequence + sort_order
+  // 2. Get all shots
   const { data: shots, error: shotsErr } = await supabase
     .from("shots").select("id, code, sequence, sort_order, concept_image_url")
     .order("sequence").order("sort_order").order("code")
-
-  if (shotsErr) throw new Error(`DB shots query failed: ${shotsErr.message}`)
+  if (shotsErr) throw new Error(`DB: ${shotsErr.message}`)
   const n = shots?.length || 0
-  console.log(`[full_sync] Found ${n} shots`)
+  console.log(`[full_sync] ${n} shots`)
 
   // 3. Create frame
   const fw = frameW()
@@ -295,18 +426,16 @@ async function handleFullSync(supabase: any) {
     style: { fillColor: "#ffffff" },
   })
   const frameId = frame.id
-  console.log(`[full_sync] Frame created: ${frameId} (${fw}×${fh})`)
-
+  console.log(`[full_sync] Frame: ${frameId} (${fw}×${fh})`)
   await sleep(500)
 
-  // 4. Create header cells
+  // 4. Header cells
   for (let i = 0; i < COLS.length; i++) {
     await createCell(frameId, colX(i), hdrY(), COL_W[i], HDR_H,
-      HDR_FILL[i], `<strong>${COLS[i]}</strong>`, HDR_TEXT[i], "14")
+      HDR_FILL[i], `<strong>${COLS[i]}</strong>`, HDR_TEXT[i], "28")
   }
-  console.log("[full_sync] Header row created")
 
-  // 5. Clear old miro_shot_rows and rebuild
+  // 5. Clear and rebuild miro_shot_rows
   await supabase.from("miro_shot_rows").delete().not("id", "is", null)
 
   for (let r = 0; r < n; r++) {
@@ -315,65 +444,39 @@ async function handleFullSync(supabase: any) {
 
     // Shot name cell
     const cellId = await createCell(frameId, colX(0), y, COL_W[0], ROW_H,
-      CELL_FILL[0], `<strong>${shot.code}</strong>`, "#1a1a2e", "16")
+      CELL_FILL[0], `<strong>${shot.code}</strong>`, "#1a1a2e", "36")
 
     // Column cells (1..7)
     for (let c = 1; c < COLS.length; c++) {
       await createCell(frameId, colX(c), y, COL_W[c], ROW_H,
-        CELL_FILL[c], "", "#94A3B8", "11")
+        CELL_FILL[c], "", "#94A3B8", "14")
     }
 
     // Save to DB
     await supabase.from("miro_shot_rows").insert({
-      shot_id: shot.id,
-      row_index: r,
-      frame_id: frameId,
-      shot_code_item_id: cellId,
+      shot_id: shot.id, row_index: r, frame_id: frameId, shot_code_item_id: cellId,
     })
 
-    // Reference image
+    // Reference image (fills entire cell, no crop)
     if (shot.concept_image_url) {
       try {
         await miroPost("/images", {
           data: { url: shot.concept_image_url },
           position: { x: colX(1), y, origin: "center" },
-          geometry: { width: COL_W[1] - 20 },
+          geometry: { width: COL_W[1] - 2 * CELL_PAD },
           parent: { id: frameId },
         })
       } catch (e) {
-        console.warn(`[full_sync] Reference img failed for ${shot.code}:`, e)
+        console.warn(`[full_sync] Ref img ${shot.code}:`, e)
       }
+    }
+
+    // Department images via sub-grid
+    for (let d = 0; d < DEPTS.length; d++) {
+      await placeCellImages(frameId, shot.id, DEPTS[d], r, d + 2, supabase)
     }
 
     console.log(`[full_sync] Row ${r}: ${shot.code}`)
-  }
-
-  // 6. Re-place WIP images from DB (using Cloudinary URLs)
-  const { data: wipImgs } = await supabase
-    .from("miro_wip_images").select("id, shot_id, department, image_url")
-    .not("image_url", "is", null)
-
-  if (wipImgs?.length) {
-    const shotRowMap: Record<string, number> = {}
-    shots.forEach((s: any, i: number) => { shotRowMap[s.id] = i })
-
-    for (const wip of wipImgs) {
-      const ri = shotRowMap[wip.shot_id]
-      if (ri === undefined) continue
-      const ci = deptCol(wip.department)
-      if (ci < 0) continue
-      try {
-        const img = await miroPost("/images", {
-          data: { url: wip.image_url },
-          position: { x: colX(ci), y: rowY(ri), origin: "center" },
-          geometry: { width: COL_W[ci] - 20 },
-          parent: { id: frameId },
-        })
-        await supabase.from("miro_wip_images").update({ miro_item_id: img.id }).eq("id", wip.id)
-      } catch (e) {
-        console.warn(`[full_sync] WIP img failed:`, e)
-      }
-    }
   }
 
   console.log("[full_sync] ═══ Done ═══")
@@ -381,36 +484,29 @@ async function handleFullSync(supabase: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// CREATE SHOT ROW — Incremental add (fast, ~10 API calls)
-//
-// If no frame exists yet → creates frame + headers + row.
-// If frame exists → expands frame + adds row.
+// CREATE SHOT ROW — Incremental
 // ══════════════════════════════════════════════════════════════
 
 async function handleCreateShotRow(supabase: any, params: any) {
   const { shot_id, shot_code } = params
   if (!shot_id || !shot_code) return err("shot_id and shot_code required")
 
-  // Already synced?
   const { data: existing } = await supabase
     .from("miro_shot_rows").select("id").eq("shot_id", shot_id).single()
   if (existing) return err("Shot already synced", 409)
 
-  // Next row index
   const { data: rows } = await supabase
     .from("miro_shot_rows").select("row_index")
     .order("row_index", { ascending: false }).limit(1)
   const rowIndex = rows?.length ? rows[0].row_index + 1 : 0
-  console.log(`[create] Shot ${shot_code} → row ${rowIndex}`)
+  console.log(`[create] ${shot_code} → row ${rowIndex}`)
 
-  // Find or create frame
   let frameId = await findOurFrame()
 
   if (!frameId) {
-    // No frame → create frame + headers
-    console.log("[create] No frame found, creating...")
+    console.log("[create] No frame, creating...")
     const fw = frameW()
-    const fh = frameH(1) // 1 row
+    const fh = frameH(1)
     const frame = await miroPost("/frames", {
       data: { title: FRAME_TITLE, format: "custom", type: "freeform" },
       position: { x: fw / 2, y: fh / 2, origin: "center" },
@@ -419,103 +515,78 @@ async function handleCreateShotRow(supabase: any, params: any) {
     })
     frameId = frame.id
     await sleep(500)
-
-    // Create headers
     for (let i = 0; i < COLS.length; i++) {
       await createCell(frameId, colX(i), hdrY(), COL_W[i], HDR_H,
-        HDR_FILL[i], `<strong>${COLS[i]}</strong>`, HDR_TEXT[i], "14")
+        HDR_FILL[i], `<strong>${COLS[i]}</strong>`, HDR_TEXT[i], "28")
     }
-    console.log("[create] Frame + headers created")
   } else {
-    // Frame exists → expand height
     const numRows = rowIndex + 1
     const newH = frameH(numRows)
     const fw = frameW()
-    console.log(`[create] Expanding frame to ${fw}×${newH} for ${numRows} rows`)
     try {
       await miroPatch(`/frames/${frameId}`, {
         geometry: { width: fw, height: newH },
         position: { x: fw / 2, y: newH / 2, origin: "center" },
       })
     } catch (e) {
-      console.warn("[create] Frame resize failed, doing full_sync:", e)
+      console.warn("[create] Frame resize failed, full_sync:", e)
       return await handleFullSync(supabase)
     }
   }
 
-  // Create cells for this row
   const y = rowY(rowIndex)
   const cellId = await createCell(frameId, colX(0), y, COL_W[0], ROW_H,
-    CELL_FILL[0], `<strong>${shot_code}</strong>`, "#1a1a2e", "16")
+    CELL_FILL[0], `<strong>${shot_code}</strong>`, "#1a1a2e", "36")
 
   for (let c = 1; c < COLS.length; c++) {
     await createCell(frameId, colX(c), y, COL_W[c], ROW_H,
-      CELL_FILL[c], "", "#94A3B8", "11")
+      CELL_FILL[c], "", "#94A3B8", "14")
   }
 
-  // Save to DB
   const { error: dbErr } = await supabase.from("miro_shot_rows").insert({
     shot_id, row_index: rowIndex, frame_id: frameId, shot_code_item_id: cellId,
   })
-  if (dbErr) {
-    console.error("[create] DB insert error:", dbErr)
-    return err(dbErr.message, 500)
-  }
+  if (dbErr) return err(dbErr.message, 500)
 
-  console.log(`[create] Row created: ${shot_code} at row ${rowIndex}`)
   return ok({ success: true, row_index: rowIndex, frame_id: frameId })
 }
 
 // ══════════════════════════════════════════════════════════════
-// DELETE SHOT ROW — Cleanup + full_sync to re-compact
+// DELETE SHOT ROW — Cleanup + full_sync
 // ══════════════════════════════════════════════════════════════
 
 async function handleDeleteShotRow(supabase: any, params: any) {
   const { shot_id } = params
   if (!shot_id) return err("shot_id required")
-
-  console.log(`[delete] Deleting shot ${shot_id}`)
-
-  // Cleanup Cloudinary
   await cloudDeletePrefix(`bigrock-wip/${shot_id}`)
-
-  // Delete from DB (cascade may have already done this)
   await supabase.from("miro_wip_images").delete().eq("shot_id", shot_id)
   await supabase.from("miro_shot_rows").delete().eq("shot_id", shot_id)
-
-  // Full sync to rebuild the table compactly
   return await handleFullSync(supabase)
 }
 
 // ══════════════════════════════════════════════════════════════
-// UPLOAD REFERENCE — Cloudinary → Miro (incremental)
+// UPLOAD REFERENCE — Cloudinary → Miro (incremental, full cell)
 // ══════════════════════════════════════════════════════════════
 
 async function handleUploadReference(supabase: any, params: any) {
   const { shot_id, image_base64 } = params
   if (!shot_id || !image_base64) return err("shot_id and image_base64 required")
 
-  // Upload to Cloudinary
   const url = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/reference`)
   if (!url) return err("Cloudinary upload failed", 500)
 
-  // Find frame
   const frameId = await findOurFrame()
-  if (!frameId) {
-    console.warn("[upload_ref] No frame, triggering full_sync")
-    return await handleFullSync(supabase)
-  }
+  if (!frameId) return await handleFullSync(supabase)
 
-  // Find row
   const { data: shotRow } = await supabase
     .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
-  if (!shotRow) return err("Shot not synced to Miro", 404)
+  if (!shotRow) return err("Shot not synced", 404)
 
-  // Place image on top of the Reference cell
+  // Reference fills the entire cell (no crop — width constrained, height auto)
   const img = await miroPost("/images", {
     data: { url },
     position: { x: colX(1), y: rowY(shotRow.row_index), origin: "center" },
-    geometry: { width: COL_W[1] - 20 },
+    geometry: { width: COL_W[1] - 2 * CELL_PAD },
     parent: { id: frameId },
   })
 
@@ -523,7 +594,7 @@ async function handleUploadReference(supabase: any, params: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// UPLOAD WIP IMAGE — Cloudinary → Miro (incremental)
+// UPLOAD WIP IMAGE (single) — Cloudinary → DB → re-layout cell
 // ══════════════════════════════════════════════════════════════
 
 async function handleUploadWipImage(supabase: any, params: any) {
@@ -533,58 +604,85 @@ async function handleUploadWipImage(supabase: any, params: any) {
   const ci = deptCol(department)
   if (ci < 0) return err(`Invalid department: ${department}`)
 
-  // Upload to Cloudinary
   const url = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/${department}`)
   if (!url) return err("Cloudinary upload failed", 500)
 
-  // Find frame
+  // Get max image_order for this task
+  const { data: existOrd } = await supabase
+    .from("miro_wip_images").select("image_order")
+    .eq("task_id", task_id).order("image_order", { ascending: false }).limit(1)
+  const nextOrder = (existOrd?.[0]?.image_order ?? -1) + 1
+
+  await supabase.from("miro_wip_images").insert({
+    shot_id, task_id: task_id || null, department,
+    miro_item_id: "pending", uploaded_by: uploaded_by || null,
+    image_url: url, image_order: nextOrder,
+  })
+
+  // Re-layout this cell
   const frameId = await findOurFrame()
   if (!frameId) return await handleFullSync(supabase)
 
-  // Find row
   const { data: shotRow } = await supabase
     .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
-  if (!shotRow) return err("Shot not synced to Miro", 404)
+  if (!shotRow) return err("Shot not synced", 404)
 
-  // Offset if multiple images in same cell
-  const { count } = await supabase
-    .from("miro_wip_images").select("id", { count: "exact", head: true })
-    .eq("shot_id", shot_id).eq("department", department)
-  const offset = (count || 0) * 25
+  await placeCellImages(frameId, shot_id, department, shotRow.row_index, ci, supabase)
 
-  // Place image
-  const img = await miroPost("/images", {
-    data: { url },
-    position: {
-      x: colX(ci) + offset,
-      y: rowY(shotRow.row_index) + offset,
-      origin: "center",
-    },
-    geometry: { width: COL_W[ci] - 30 },
-    parent: { id: frameId },
-  })
-
-  // Save to DB
-  const { data: record } = await supabase.from("miro_wip_images").insert({
-    shot_id,
-    task_id: task_id || null,
-    department,
-    miro_item_id: img.id,
-    uploaded_by: uploaded_by || null,
-    image_url: url,
-  }).select().single()
-
-  return ok({ success: true, miro_item_id: img.id, image_url: url, record })
+  return ok({ success: true, image_url: url, images_placed: true })
 }
 
 // ══════════════════════════════════════════════════════════════
-// UTILITY
+// UPLOAD WIP IMAGES (batch) — multiple images at once
 // ══════════════════════════════════════════════════════════════
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+async function handleUploadWipImages(supabase: any, params: any) {
+  const { shot_id, department, task_id, images_base64, uploaded_by } = params
+  if (!shot_id || !department || !images_base64?.length) {
+    return err("shot_id, department, images_base64[] required")
+  }
+
+  const ci = deptCol(department)
+  if (ci < 0) return err(`Invalid department: ${department}`)
+
+  // Upload all to Cloudinary
+  const urls: string[] = []
+  for (const b64 of images_base64) {
+    const url = await cloudUpload(b64, `bigrock-wip/${shot_id}/${department}`)
+    if (url) urls.push(url)
+  }
+  if (urls.length === 0) return err("All uploads failed", 500)
+
+  // Get max image_order
+  const { data: existOrd } = await supabase
+    .from("miro_wip_images").select("image_order")
+    .eq("task_id", task_id).order("image_order", { ascending: false }).limit(1)
+  let nextOrder = (existOrd?.[0]?.image_order ?? -1) + 1
+
+  // Insert all
+  for (const url of urls) {
+    await supabase.from("miro_wip_images").insert({
+      shot_id, task_id: task_id || null, department,
+      miro_item_id: "pending", uploaded_by: uploaded_by || null,
+      image_url: url, image_order: nextOrder++,
+    })
+  }
+
+  // Re-layout this cell
+  const frameId = await findOurFrame()
+  if (!frameId) return await handleFullSync(supabase)
+
+  const { data: shotRow } = await supabase
+    .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
+  if (!shotRow) return err("Shot not synced", 404)
+
+  await placeCellImages(frameId, shot_id, department, shotRow.row_index, ci, supabase)
+
+  return ok({ success: true, images_uploaded: urls.length })
+}
 
 // ══════════════════════════════════════════════════════════════
-// MAIN HANDLER
+// MAIN
 // ══════════════════════════════════════════════════════════════
 
 serve(async (req) => {
@@ -598,7 +696,6 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-    // Auth check
     const authHeader = req.headers.get("Authorization")
     if (!authHeader) return err("Unauthorized", 401)
     const token = authHeader.replace("Bearer ", "")
@@ -606,16 +703,17 @@ serve(async (req) => {
     if (authError || !user) return err("Unauthorized", 401)
 
     switch (action) {
-      case "full_sync":        return await handleFullSync(supabase)
-      case "create_shot_row":  return await handleCreateShotRow(supabase, params)
-      case "delete_shot_row":  return await handleDeleteShotRow(supabase, params)
-      case "upload_wip_image": return await handleUploadWipImage(supabase, params)
-      case "upload_reference": return await handleUploadReference(supabase, params)
-      case "init_board":       return await handleFullSync(supabase) // init = full sync
-      default:                 return err(`Unknown action: ${action}`)
+      case "full_sync":         return await handleFullSync(supabase)
+      case "create_shot_row":   return await handleCreateShotRow(supabase, params)
+      case "delete_shot_row":   return await handleDeleteShotRow(supabase, params)
+      case "upload_wip_image":  return await handleUploadWipImage(supabase, params)
+      case "upload_wip_images": return await handleUploadWipImages(supabase, params)
+      case "upload_reference":  return await handleUploadReference(supabase, params)
+      case "init_board":        return await handleFullSync(supabase)
+      default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {
-    console.error("[miro-sync] Unhandled error:", e)
+    console.error("[miro-sync] error:", e)
     return err(e.message || "Internal error", 500)
   }
 })
