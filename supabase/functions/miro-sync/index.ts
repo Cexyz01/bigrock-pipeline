@@ -35,9 +35,16 @@ const ROW_H = 1000
 const CELL_PAD = 30   // padding inside each department cell
 const IMG_GAP = 10    // gap between task sub-cells and images
 
-// Reference images: fixed width so ALL references look identical.
-// 1600px wide ≈ 73% of cell width. For 16:9 images → height ~900 → fits ROW_H perfectly.
-const REF_IMG_W = 1600
+// Calculate the max width so that an image with given dimensions
+// fits ENTIRELY within maxW × maxH (never cropped, only scaled).
+function calcFitWidth(imgW: number, imgH: number, maxW: number, maxH: number): number {
+  if (!imgW || !imgH) return maxW * 0.7  // fallback when no dimensions known
+  // Width if we constrain by max width
+  const byW = maxW
+  // Width if we constrain by max height: h = w * (imgH/imgW) ≤ maxH → w ≤ maxH * (imgW/imgH)
+  const byH = maxH * (imgW / imgH)
+  return Math.floor(Math.min(byW, byH))
+}
 
 const COLS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
 const DEPTS = ["concept", "modeling", "texturing", "rigging", "animation", "compositing"]
@@ -252,9 +259,9 @@ async function placeCellImages(
 
   if (!tasks?.length) return
 
-  // 3. Get all images for these tasks
+  // 3. Get all images for these tasks (with dimensions)
   const { data: allImages } = await supabase
-    .from("miro_wip_images").select("id, task_id, image_url, image_order")
+    .from("miro_wip_images").select("id, task_id, image_url, image_order, img_width, img_height")
     .eq("shot_id", shotId).eq("department", department)
     .not("image_url", "is", null)
     .order("image_order")
@@ -300,10 +307,6 @@ async function placeCellImages(
     const imgAreaH = taskH - 8
     const slotW = (imgAreaW - (imgGrid.cols - 1) * 6) / imgGrid.cols
     const slotH = (imgAreaH - (imgGrid.rows - 1) * 6) / imgGrid.rows
-    // Set width conservatively so even portrait images (up to ~3:4) fit in the slot.
-    // slotH * 0.65 → a 3:4 portrait would be 0.65*slotH * (4/3) = 0.87*slotH → fits.
-    // Also cap by slotW so landscape images don't overflow horizontally.
-    const miroW = Math.min(slotW * 0.9, slotH * 0.65)
 
     const imgX0 = taskCX - imgAreaW / 2
     const imgY0 = taskCY - imgAreaH / 2
@@ -315,6 +318,9 @@ async function placeCellImages(
 
       const imgCX = imgX0 + mi * (slotW + 6) + slotW / 2
       const imgCY = imgY0 + mj * (slotH + 6) + slotH / 2
+
+      // Per-image smart sizing: uses actual dimensions if available
+      const miroW = calcFitWidth(img.img_width, img.img_height, slotW * 0.95, slotH * 0.95)
 
       placements.push(async () => {
         try {
@@ -349,7 +355,9 @@ async function sha1(msg: string): Promise<string> {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
 }
 
-async function cloudUpload(base64: string, folder: string): Promise<string | null> {
+interface CloudResult { url: string; width: number; height: number }
+
+async function cloudUpload(base64: string, folder: string): Promise<CloudResult | null> {
   if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return null
   try {
     const ts = Math.floor(Date.now() / 1000).toString()
@@ -362,7 +370,8 @@ async function cloudUpload(base64: string, folder: string): Promise<string | nul
     fd.append("signature", sig)
     const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: "POST", body: fd })
     if (!res.ok) { console.error("[cloudinary]", res.status, await res.text()); return null }
-    return (await res.json()).secure_url || null
+    const json = await res.json()
+    return { url: json.secure_url || "", width: json.width || 0, height: json.height || 0 }
   } catch (e) { console.error("[cloudinary] error:", e); return null }
 }
 
@@ -416,7 +425,7 @@ async function handleFullSync(supabase: any) {
 
   // 2. Get all shots
   const { data: shots, error: shotsErr } = await supabase
-    .from("shots").select("id, code, sequence, sort_order, concept_image_url")
+    .from("shots").select("id, code, sequence, sort_order, concept_image_url, ref_cloud_url, ref_img_width, ref_img_height")
     .order("sequence").order("sort_order").order("code")
   if (shotsErr) throw new Error(`DB: ${shotsErr.message}`)
   const n = shots?.length || 0
@@ -463,13 +472,17 @@ async function handleFullSync(supabase: any) {
       shot_id: shot.id, row_index: r, frame_id: frameId, shot_code_item_id: cellId,
     })
 
-    // Reference image (fills entire cell, no crop)
-    if (shot.concept_image_url) {
+    // Reference image — use Cloudinary URL + stored dimensions for smart sizing
+    const refUrl = shot.ref_cloud_url || shot.concept_image_url
+    if (refUrl) {
       try {
+        const maxW = COL_W[1] - 2 * CELL_PAD   // 2140
+        const maxH = ROW_H - 2 * CELL_PAD       // 940
+        const miroW = calcFitWidth(shot.ref_img_width, shot.ref_img_height, maxW, maxH)
         await miroPost("/images", {
-          data: { url: shot.concept_image_url },
+          data: { url: refUrl },
           position: { x: colX(1), y, origin: "center" },
-          geometry: { width: REF_IMG_W },
+          geometry: { width: miroW },
           parent: { id: frameId },
         })
       } catch (e) {
@@ -578,8 +591,15 @@ async function handleUploadReference(supabase: any, params: any) {
   const { shot_id, image_base64 } = params
   if (!shot_id || !image_base64) return err("shot_id and image_base64 required")
 
-  const url = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/reference`)
-  if (!url) return err("Cloudinary upload failed", 500)
+  const upload = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/reference`)
+  if (!upload) return err("Cloudinary upload failed", 500)
+
+  // Save Cloudinary URL + dimensions to shots table for future full_sync
+  await supabase.from("shots").update({
+    ref_cloud_url: upload.url,
+    ref_img_width: upload.width,
+    ref_img_height: upload.height,
+  }).eq("id", shot_id)
 
   const frameId = await findOurFrame()
   if (!frameId) return await handleFullSync(supabase)
@@ -588,15 +608,19 @@ async function handleUploadReference(supabase: any, params: any) {
     .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
   if (!shotRow) return err("Shot not synced", 404)
 
-  // Reference fills the entire cell (no crop — width constrained, height auto)
+  // Calculate width that fills max space while fitting entirely within the cell
+  const maxW = COL_W[1] - 2 * CELL_PAD   // 2140
+  const maxH = ROW_H - 2 * CELL_PAD       // 940
+  const miroW = calcFitWidth(upload.width, upload.height, maxW, maxH)
+
   const img = await miroPost("/images", {
-    data: { url },
+    data: { url: upload.url },
     position: { x: colX(1), y: rowY(shotRow.row_index), origin: "center" },
-    geometry: { width: REF_IMG_W },
+    geometry: { width: miroW },
     parent: { id: frameId },
   })
 
-  return ok({ success: true, miro_item_id: img.id, image_url: url })
+  return ok({ success: true, miro_item_id: img.id, image_url: upload.url })
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -610,8 +634,8 @@ async function handleUploadWipImage(supabase: any, params: any) {
   const ci = deptCol(department)
   if (ci < 0) return err(`Invalid department: ${department}`)
 
-  const url = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/${department}`)
-  if (!url) return err("Cloudinary upload failed", 500)
+  const upload = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/${department}`)
+  if (!upload) return err("Cloudinary upload failed", 500)
 
   // Get max image_order for this task
   const { data: existOrd } = await supabase
@@ -622,7 +646,8 @@ async function handleUploadWipImage(supabase: any, params: any) {
   await supabase.from("miro_wip_images").insert({
     shot_id, task_id: task_id || null, department,
     miro_item_id: "pending", uploaded_by: uploaded_by || null,
-    image_url: url, image_order: nextOrder,
+    image_url: upload.url, image_order: nextOrder,
+    img_width: upload.width, img_height: upload.height,
   })
 
   // Re-layout this cell
@@ -635,7 +660,7 @@ async function handleUploadWipImage(supabase: any, params: any) {
 
   await placeCellImages(frameId, shot_id, department, shotRow.row_index, ci, supabase)
 
-  return ok({ success: true, image_url: url, images_placed: true })
+  return ok({ success: true, image_url: upload.url, images_placed: true })
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -652,12 +677,12 @@ async function handleUploadWipImages(supabase: any, params: any) {
   if (ci < 0) return err(`Invalid department: ${department}`)
 
   // Upload all to Cloudinary
-  const urls: string[] = []
+  const uploads: CloudResult[] = []
   for (const b64 of images_base64) {
-    const url = await cloudUpload(b64, `bigrock-wip/${shot_id}/${department}`)
-    if (url) urls.push(url)
+    const upload = await cloudUpload(b64, `bigrock-wip/${shot_id}/${department}`)
+    if (upload) uploads.push(upload)
   }
-  if (urls.length === 0) return err("All uploads failed", 500)
+  if (uploads.length === 0) return err("All uploads failed", 500)
 
   // Get max image_order
   const { data: existOrd } = await supabase
@@ -665,12 +690,13 @@ async function handleUploadWipImages(supabase: any, params: any) {
     .eq("task_id", task_id).order("image_order", { ascending: false }).limit(1)
   let nextOrder = (existOrd?.[0]?.image_order ?? -1) + 1
 
-  // Insert all
-  for (const url of urls) {
+  // Insert all with dimensions
+  for (const upload of uploads) {
     await supabase.from("miro_wip_images").insert({
       shot_id, task_id: task_id || null, department,
       miro_item_id: "pending", uploaded_by: uploaded_by || null,
-      image_url: url, image_order: nextOrder++,
+      image_url: upload.url, image_order: nextOrder++,
+      img_width: upload.width, img_height: upload.height,
     })
   }
 
@@ -684,7 +710,7 @@ async function handleUploadWipImages(supabase: any, params: any) {
 
   await placeCellImages(frameId, shot_id, department, shotRow.row_index, ci, supabase)
 
-  return ok({ success: true, images_uploaded: urls.length })
+  return ok({ success: true, images_uploaded: uploads.length })
 }
 
 // ══════════════════════════════════════════════════════════════
