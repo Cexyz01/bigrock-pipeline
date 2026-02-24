@@ -10,6 +10,7 @@ import {
   getNotifications, markNotificationRead, markAllNotificationsRead, sendNotification,
   subscribeToTable, subscribeToNotifications,
   subscribeToDMs, getDMUnreadCount,
+  uploadConceptImage,
 } from './lib/supabase'
 
 import Sidebar from './components/layout/Sidebar'
@@ -25,7 +26,7 @@ import StoryboardPage from './components/pages/StoryboardPage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
-import { createMiroShotRow } from './lib/miro'
+import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fileToBase64 } from './lib/miro'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -162,7 +163,26 @@ export default function App() {
     const { error } = await updateShot(id, updates)
     if (error) setShots(await getShots()) // revert on failure
   }
-  const handleDeleteShot = async (id) => { await deleteShot(id); setShots(await getShots()) }
+  const handleDeleteShot = async (id) => {
+    // Delete from Miro + Cloudinary first, then from database
+    deleteMiroShotRow(id).catch(err => console.warn('Miro delete:', err))
+    await deleteShot(id)
+    setShots(await getShots())
+  }
+
+  const handleUploadReference = async (shotId, file) => {
+    // Upload reference to Supabase Storage for the site
+    const { url } = await uploadConceptImage(shotId, file)
+    if (url) await updateShot(shotId, { concept_image_url: url })
+    // Also upload to Miro (fire-and-forget)
+    try {
+      const base64 = await fileToBase64(file)
+      await uploadReferenceToMiro(shotId, base64)
+    } catch (err) {
+      console.warn('Miro reference upload:', err)
+    }
+    setShots(await getShots())
+  }
 
   const handleCreateTask = async (task) => {
     const { data } = await createTask(task)
@@ -258,7 +278,7 @@ export default function App() {
         ) : (
           <div style={{ flex: 1, padding: '36px 44px', overflowY: 'auto', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
             {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
-            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} requestConfirm={requestConfirm} />}
+            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} requestConfirm={requestConfirm} />}
             {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}

@@ -7,7 +7,7 @@ import Modal from '../ui/Modal'
 import EmptyState from '../ui/EmptyState'
 import ShotRow from '../shots/ShotRow'
 
-export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, requestConfirm }) {
+export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, requestConfirm }) {
   const [showCreate, setShowCreate] = useState(false)
   const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '' })
   const staff = isStaff(user.role)
@@ -89,6 +89,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
                     onCycle={cycleShotStatus}
                     onDelete={onDeleteShot}
                     onMove={handleMoveShot}
+                    onUploadReference={onUploadReference}
                     isFirst={idx === 0}
                     isLast={idx === seqShots.length - 1}
                     requestConfirm={requestConfirm}

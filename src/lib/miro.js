@@ -34,6 +34,14 @@ export async function createMiroShotRow(shotId, shotCode) {
   })
 }
 
+// Delete a shot row from Miro + Cloudinary
+export async function deleteMiroShotRow(shotId) {
+  return callMiroSync({
+    action: 'delete_shot_row',
+    shot_id: shotId,
+  })
+}
+
 // Upload a WIP image to the correct Miro cell
 export async function uploadWipImageToMiro(shotId, department, taskId, imageBase64, uploadedBy) {
   return callMiroSync({
@@ -43,6 +51,15 @@ export async function uploadWipImageToMiro(shotId, department, taskId, imageBase
     task_id: taskId,
     image_base64: imageBase64,
     uploaded_by: uploadedBy,
+  })
+}
+
+// Upload a reference image to the Reference column on Miro
+export async function uploadReferenceToMiro(shotId, imageBase64) {
+  return callMiroSync({
+    action: 'upload_reference',
+    shot_id: shotId,
+    image_base64: imageBase64,
   })
 }
 

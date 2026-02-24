@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import { DEPTS } from '../../lib/constants'
 import ShotCell from './ShotCell'
 
@@ -8,12 +8,32 @@ const arrowBtnStyle = {
   lineHeight: 1, transition: 'color 0.15s ease',
 }
 
-const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, onMove, isFirst, isLast, requestConfirm }) {
+const iconBtnStyle = {
+  background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', opacity: 0.5, padding: 4,
+  transition: 'opacity 0.15s ease',
+}
+
+const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, onMove, onUploadReference, isFirst, isLast, requestConfirm }) {
   const [h, setH] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef(null)
 
   const handleDelete = useCallback(() => {
     requestConfirm(`Eliminare lo shot ${shot.code}?`, () => onDelete(shot.id))
   }, [shot.id, shot.code, onDelete, requestConfirm])
+
+  const handleFileSelect = useCallback(async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !onUploadReference) return
+    if (file.size > 5 * 1024 * 1024) return // Max 5MB
+    setUploading(true)
+    try {
+      await onUploadReference(shot.id, file)
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }, [shot.id, onUploadReference])
 
   return (
     <div
@@ -49,12 +69,34 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{shot.code}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{shot.code}</span>
+            {shot.concept_image_url && (
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', flexShrink: 0 }} title="Reference caricata" />
+            )}
+          </div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shot.description}</div>
         </div>
+        {/* Staff action buttons — visible on hover */}
         {staff && h && (
-          <button onClick={handleDelete}
-            style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 12, cursor: 'pointer', opacity: 0.5, padding: 4 }}>🗑</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {/* Reference image upload */}
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              style={{ ...iconBtnStyle, color: '#6C5CE7', opacity: uploading ? 0.3 : 0.5 }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '0.5' }}
+              title="Carica immagine reference"
+            >{uploading ? '⏳' : '🖼️'}</button>
+            {/* Delete */}
+            <button onClick={handleDelete}
+              style={{ ...iconBtnStyle, color: '#EF4444' }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '0.5' }}
+            >🗑</button>
+          </div>
         )}
       </div>
       {DEPTS.map(dept => (
@@ -73,6 +115,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
   if (prev.isFirst !== next.isFirst) return false
   if (prev.isLast !== next.isLast) return false
   if (prev.shot.sort_order !== next.shot.sort_order) return false
+  if (prev.shot.concept_image_url !== next.shot.concept_image_url) return false
   for (const d of DEPTS) {
     if (prev.shot[`status_${d.id}`] !== next.shot[`status_${d.id}`]) return false
   }

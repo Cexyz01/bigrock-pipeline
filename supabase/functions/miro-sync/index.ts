@@ -14,20 +14,20 @@ const CLOUDINARY_API_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
 const CLOUDINARY_API_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
 
 // ══════════════════════════════════════════════════
-// MIRO BOARD LAYOUT — 3× Scale for comfortable zoom
+// MIRO BOARD LAYOUT — 2× Scale for comfortable zoom
 // Design matches BigRock Pipeline site style
 // Accent: #6C5CE7 · Dark: #1a1a2e · Muted: #64748B
 // ══════════════════════════════════════════════════
 
 const BASE_X = 0
 const BASE_Y = 0
-const TITLE_HEIGHT = 300       // Space for board title banner
-const HEADER_HEIGHT = 240      // Header row height (80 × 3)
-const ROW_HEIGHT = 900         // Shot row height (300 × 3)
-const ROW_GAP = 150            // Gap between rows (50 × 3)
-const COL_WIDTH = 900          // Department column width (300 × 3)
-const COL_GAP = 120            // Gap between columns (40 × 3)
-const SHOT_COL_WIDTH = 600     // Shot code column width (200 × 3)
+const TITLE_HEIGHT = 200       // Space for board title banner
+const HEADER_HEIGHT = 160      // Header row height (80 × 2)
+const ROW_HEIGHT = 600         // Shot row height (300 × 2)
+const ROW_GAP = 100            // Gap between rows (50 × 2)
+const COL_WIDTH = 600          // Department column width (300 × 2)
+const COL_GAP = 80             // Gap between columns (40 × 2)
+const SHOT_COL_WIDTH = 400     // Shot code column width (200 × 2)
 
 // Column X positions (left edge of each column)
 const COL_X = [
@@ -92,6 +92,19 @@ async function miroPost(path: string, body: any) {
   return res.json()
 }
 
+async function miroDelete(itemId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${MIRO_API}/boards/${BOARD_ID}/items/${itemId}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${MIRO_TOKEN}` },
+    })
+    return res.ok || res.status === 404 // 404 = already gone, that's fine
+  } catch (err) {
+    console.warn(`Failed to delete Miro item ${itemId}:`, err)
+    return false
+  }
+}
+
 function jsonResponse(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -99,8 +112,7 @@ function jsonResponse(data: any, status = 200) {
   })
 }
 
-// ── Cloudinary Upload ──
-// Signed upload: SHA-1(sorted_params + api_secret)
+// ── Cloudinary Helpers ──
 
 async function sha1(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message)
@@ -146,6 +158,29 @@ async function uploadToCloudinary(imageBase64: string, folder: string): Promise<
   }
 }
 
+async function deleteCloudinaryByPrefix(prefix: string): Promise<boolean> {
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) return false
+
+  try {
+    const auth = btoa(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`)
+    const res = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/image/upload?prefix=${encodeURIComponent(prefix)}&type=upload`,
+      {
+        method: "DELETE",
+        headers: { "Authorization": `Basic ${auth}` },
+      }
+    )
+    if (!res.ok) {
+      const text = await res.text()
+      console.warn("Cloudinary delete by prefix failed:", res.status, text)
+    }
+    return res.ok
+  } catch (err) {
+    console.warn("Cloudinary delete error:", err)
+    return false
+  }
+}
+
 // ══════════════════════════════════════════════════
 // ACTION: Init Board — Creates title banner + header row
 // ══════════════════════════════════════════════════
@@ -154,27 +189,26 @@ async function handleInitBoard() {
   const centerX = BASE_X + TOTAL_WIDTH / 2
 
   // ── 1. Title Banner ──
-  // Large "BIGROCK PIPELINE" title
   await miroPost("/texts", {
     data: { content: `<strong>BIGROCK PIPELINE</strong>` },
-    position: { x: centerX, y: BASE_Y + 80, origin: "center" },
-    geometry: { width: 2400 },
-    style: { fontSize: "96", textAlign: "center", color: "#6C5CE7" },
+    position: { x: centerX, y: BASE_Y + 50, origin: "center" },
+    geometry: { width: 1600 },
+    style: { fontSize: "64", textAlign: "center", color: "#6C5CE7" },
   })
 
   // Subtitle
   await miroPost("/texts", {
     data: { content: "Storyboard & WIP Tracker" },
-    position: { x: centerX, y: BASE_Y + 180, origin: "center" },
-    geometry: { width: 2400 },
-    style: { fontSize: "48", textAlign: "center", color: "#94A3B8" },
+    position: { x: centerX, y: BASE_Y + 120, origin: "center" },
+    geometry: { width: 1600 },
+    style: { fontSize: "32", textAlign: "center", color: "#94A3B8" },
   })
 
-  // ── 2. Separator line (thin frame) ──
+  // ── 2. Separator line ──
   await miroPost("/shapes", {
     data: { shape: "rectangle" },
-    position: { x: centerX, y: BASE_Y + TITLE_HEIGHT - 30, origin: "center" },
-    geometry: { width: TOTAL_WIDTH - 200, height: 4 },
+    position: { x: centerX, y: BASE_Y + TITLE_HEIGHT - 20, origin: "center" },
+    geometry: { width: TOTAL_WIDTH - 100, height: 3 },
     style: { fillColor: "#E2E8F0", borderWidth: "0", borderOpacity: "0" },
   })
 
@@ -185,11 +219,10 @@ async function handleInitBoard() {
     const colWidth = i === 0 ? SHOT_COL_WIDTH : COL_WIDTH
     const colCenterX = BASE_X + COL_X[i] + colWidth / 2
 
-    // Header sticky note with department color
     await miroPost("/sticky_notes", {
       data: { content: `<strong>${COL_LABELS[i]}</strong>`, shape: "square" },
       position: { x: colCenterX, y: headerY, origin: "center" },
-      geometry: { width: colWidth - 40 },
+      geometry: { width: colWidth - 30 },
       style: { fillColor: HEADER_STICKY_COLORS[i], textAlign: "center", textAlignVertical: "middle" },
     })
   }
@@ -227,24 +260,24 @@ async function handleCreateShotRow(supabase: any, params: any) {
   // ── 1. Row Frame — Light background container ──
   const frame = await miroPost("/frames", {
     data: { title: shot_code, format: "custom" },
-    geometry: { width: TOTAL_WIDTH + 80, height: ROW_HEIGHT },
+    geometry: { width: TOTAL_WIDTH + 60, height: ROW_HEIGHT },
     position: { x: centerX, y: y + ROW_HEIGHT / 2, origin: "center" },
     style: { fillColor: "#FFFFFF" },
   })
 
-  // ── 2. Shot Code — Bold accent text on the left ──
+  // ── 2. Shot Code — Bold text on the left ──
   const shotText = await miroPost("/texts", {
     data: { content: `<strong>${shot_code}</strong>` },
     position: { x: BASE_X + COL_X[0] + SHOT_COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: SHOT_COL_WIDTH - 40 },
-    style: { fontSize: "72", textAlign: "center", color: "#1a1a2e" },
+    geometry: { width: SHOT_COL_WIDTH - 30 },
+    style: { fontSize: "48", textAlign: "center", color: "#1a1a2e" },
   })
 
   // ── 3. Shot Code accent indicator — small purple bar ──
   await miroPost("/shapes", {
     data: { shape: "rectangle" },
-    position: { x: BASE_X + COL_X[0] + 30, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: 12, height: 200 },
+    position: { x: BASE_X + COL_X[0] + 20, y: y + ROW_HEIGHT / 2, origin: "center" },
+    geometry: { width: 8, height: 140 },
     style: { fillColor: "#6C5CE7", borderWidth: "0", borderOpacity: "0" },
   })
 
@@ -256,7 +289,7 @@ async function handleCreateShotRow(supabase: any, params: any) {
     await miroPost("/sticky_notes", {
       data: { content: `${COL_LABELS[i]}\n\nWIP images will appear here`, shape: "square" },
       position: { x: BASE_X + COL_X[i] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-      geometry: { width: COL_WIDTH - 60 },
+      geometry: { width: COL_WIDTH - 40 },
       style: { fillColor: stickyColor, textAlign: "center", textAlignVertical: "middle" },
     })
   }
@@ -265,7 +298,7 @@ async function handleCreateShotRow(supabase: any, params: any) {
   await miroPost("/sticky_notes", {
     data: { content: "Reference\n\nDrop reference image here", shape: "square" },
     position: { x: BASE_X + COL_X[1] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: COL_WIDTH - 60 },
+    geometry: { width: COL_WIDTH - 40 },
     style: { fillColor: "gray", textAlign: "center", textAlignVertical: "middle" },
   })
 
@@ -280,6 +313,83 @@ async function handleCreateShotRow(supabase: any, params: any) {
   if (error) return jsonResponse({ error: error.message }, 500)
 
   return jsonResponse({ success: true, row })
+}
+
+// ══════════════════════════════════════════════════
+// ACTION: Delete Shot Row — Removes all Miro + Cloudinary items for a shot
+// ══════════════════════════════════════════════════
+
+async function handleDeleteShotRow(supabase: any, params: any) {
+  const { shot_id } = params
+  if (!shot_id) return jsonResponse({ error: "shot_id required" }, 400)
+
+  // 1. Get shot row info from DB
+  const { data: shotRow } = await supabase
+    .from("miro_shot_rows")
+    .select("id, frame_id, shot_code_item_id")
+    .eq("shot_id", shot_id)
+    .single()
+
+  if (!shotRow) return jsonResponse({ success: true, message: "Shot not synced to Miro (nothing to delete)" })
+
+  // 2. Get all WIP images for this shot
+  const { data: wipImages } = await supabase
+    .from("miro_wip_images")
+    .select("miro_item_id")
+    .eq("shot_id", shot_id)
+
+  // 3. Delete all items from Miro (frame, text, WIP images) — in parallel, fire-and-forget
+  const miroDeletes: Promise<boolean>[] = []
+  if (shotRow.frame_id) miroDeletes.push(miroDelete(shotRow.frame_id))
+  if (shotRow.shot_code_item_id) miroDeletes.push(miroDelete(shotRow.shot_code_item_id))
+  if (wipImages) {
+    for (const img of wipImages) {
+      if (img.miro_item_id) miroDeletes.push(miroDelete(img.miro_item_id))
+    }
+  }
+  await Promise.all(miroDeletes)
+
+  // 4. Delete all Cloudinary images for this shot (by folder prefix)
+  await deleteCloudinaryByPrefix(`bigrock-wip/${shot_id}`)
+
+  // 5. Clean up DB records (CASCADE from shots table will also do this,
+  //    but we clean up explicitly in case this is called independently)
+  await supabase.from("miro_wip_images").delete().eq("shot_id", shot_id)
+  await supabase.from("miro_shot_rows").delete().eq("shot_id", shot_id)
+
+  return jsonResponse({ success: true, message: "Shot row and all images deleted from Miro and Cloudinary" })
+}
+
+// ══════════════════════════════════════════════════
+// ACTION: Upload Reference Image — Places reference in column 1
+// ══════════════════════════════════════════════════
+
+async function handleUploadReference(supabase: any, params: any) {
+  const { shot_id, image_base64 } = params
+  if (!shot_id || !image_base64) {
+    return jsonResponse({ error: "shot_id and image_base64 required" }, 400)
+  }
+
+  // Find shot row
+  const { data: shotRow } = await supabase
+    .from("miro_shot_rows")
+    .select("row_index, frame_id")
+    .eq("shot_id", shot_id)
+    .single()
+  if (!shotRow) return jsonResponse({ error: "Shot not synced to Miro yet" }, 404)
+
+  const y = getRowY(shotRow.row_index)
+  const x = BASE_X + COL_X[1] + COL_WIDTH / 2   // Column 1 = Reference
+  const imgY = y + ROW_HEIGHT / 2
+
+  // Upload to Miro — large reference image filling the cell
+  const image = await miroPost("/images", {
+    data: { url: image_base64 },
+    position: { x, y: imgY, origin: "center" },
+    geometry: { width: COL_WIDTH - 60 },
+  })
+
+  return jsonResponse({ success: true, miro_item_id: image.id })
 }
 
 // ══════════════════════════════════════════════════
@@ -309,7 +419,7 @@ async function handleUploadWipImage(supabase: any, params: any) {
     .select("id", { count: "exact", head: true })
     .eq("shot_id", shot_id)
     .eq("department", department)
-  const offset = (count || 0) * 60  // 20 × 3 = 60px offset per stacked image
+  const offset = (count || 0) * 40  // 20 × 2 = 40px offset per stacked image
 
   const y = getRowY(shotRow.row_index)
   const x = BASE_X + COL_X[colIndex] + COL_WIDTH / 2 + offset
@@ -318,11 +428,11 @@ async function handleUploadWipImage(supabase: any, params: any) {
   // Upload to Miro + Cloudinary in parallel
   const cloudinaryFolder = `bigrock-wip/${shot_id}/${department}`
   const [image, cloudinaryUrl] = await Promise.all([
-    // Miro — 780px wide (260 × 3)
+    // Miro — 520px wide (260 × 2)
     miroPost("/images", {
       data: { url: image_base64 },
       position: { x, y: imgY, origin: "center" },
-      geometry: { width: 780 },
+      geometry: { width: 520 },
     }),
     // Cloudinary — persistent backup for review page
     uploadToCloudinary(image_base64, cloudinaryFolder),
@@ -366,8 +476,12 @@ serve(async (req) => {
     switch (action) {
       case "create_shot_row":
         return await handleCreateShotRow(supabase, params)
+      case "delete_shot_row":
+        return await handleDeleteShotRow(supabase, params)
       case "upload_wip_image":
         return await handleUploadWipImage(supabase, params)
+      case "upload_reference":
+        return await handleUploadReference(supabase, params)
       case "init_board":
         return await handleInitBoard()
       default:
