@@ -144,7 +144,7 @@ export default function App() {
   const clearDeepLink = () => setDeepLink(null)
 
   // Handlers
-  const handleCreateShot = async (shot) => {
+  const handleCreateShot = async (shot, referenceFile) => {
     // Auto-assign sort_order = next available in the same sequence
     const seqShots = shots.filter(s => s.sequence === shot.sequence)
     const maxOrder = seqShots.reduce((max, s) => Math.max(max, s.sort_order || 0), -1)
@@ -154,6 +154,10 @@ export default function App() {
     if (data) {
       // Sync to Miro in background (fire-and-forget)
       createMiroShotRow(data.id, data.code).catch(err => console.warn('Miro sync:', err))
+      // Upload reference image if provided
+      if (referenceFile) {
+        handleUploadReference(data.id, referenceFile)
+      }
     }
     setShots(await getShots())
   }

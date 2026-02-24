@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react'
-import { DEPTS, SHOT_STATUSES, isStaff } from '../../lib/constants'
+import { useState, useCallback, useRef } from 'react'
+import { DEPTS, SHOT_STATUSES, isStaff, ACCENT } from '../../lib/constants'
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
 import Input from '../ui/Input'
@@ -10,6 +10,9 @@ import ShotRow from '../shots/ShotRow'
 export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, requestConfirm }) {
   const [showCreate, setShowCreate] = useState(false)
   const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '' })
+  const [refFile, setRefFile] = useState(null)
+  const [refPreview, setRefPreview] = useState(null)
+  const refInputRef = useRef(null)
   const staff = isStaff(user.role)
 
   const cycleShotStatus = useCallback(async (shot, deptId) => {
@@ -37,11 +40,29 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
     await Promise.all(seqShots.map((s, i) => onUpdateShot(s.id, { sort_order: i })))
   }, [staff, shots, onUpdateShot])
 
+  const handleRefSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return
+    setRefFile(file)
+    const url = URL.createObjectURL(file)
+    setRefPreview(url)
+  }
+
   const handleCreate = async () => {
     if (!newShot.code) return
-    await onCreateShot(newShot)
+    await onCreateShot(newShot, refFile)
     setNewShot({ code: '', sequence: 'SEQ01', description: '' })
+    setRefFile(null)
+    setRefPreview(null)
     setShowCreate(false)
+  }
+
+  const handleCloseCreate = () => {
+    setShowCreate(false)
+    setRefFile(null)
+    setRefPreview(null)
+    if (refInputRef.current) refInputRef.current.value = ''
   }
 
   const seqs = [...new Set(shots.map(sh => sh.sequence))].sort()
@@ -112,12 +133,37 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       </div>
 
       {/* Create Modal */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Aggiungi Shot">
+      <Modal open={showCreate} onClose={handleCloseCreate} title="Aggiungi Shot">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Input value={newShot.code} onChange={v => setNewShot(p => ({ ...p, code: v }))} placeholder="Codice shot (es. SH010)" />
           <Input value={newShot.sequence} onChange={v => setNewShot(p => ({ ...p, sequence: v }))} placeholder="Sequenza (es. SEQ01)" />
           <Input value={newShot.description} onChange={v => setNewShot(p => ({ ...p, description: v }))} placeholder="Descrizione" />
-          <Btn variant="primary" onClick={handleCreate}>Crea Shot</Btn>
+
+          {/* Reference image upload */}
+          <div>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Immagine Reference (opzionale)</div>
+            <input ref={refInputRef} type="file" accept="image/*" onChange={handleRefSelect} style={{ display: 'none' }} />
+            {refPreview ? (
+              <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '2px solid ' + ACCENT }}>
+                <img src={refPreview} alt="Reference" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' }} />
+                <button
+                  onClick={() => { setRefFile(null); setRefPreview(null); if (refInputRef.current) refInputRef.current.value = '' }}
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >✕</button>
+              </div>
+            ) : (
+              <div
+                onClick={() => refInputRef.current?.click()}
+                style={{ border: '2px dashed #CBD5E1', borderRadius: 8, padding: '20px 0', textAlign: 'center', cursor: 'pointer', color: '#94A3B8', fontSize: 13, transition: 'border-color 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
+                onMouseLeave={e => e.currentTarget.style.borderColor = '#CBD5E1'}
+              >
+                📷 Clicca per selezionare immagine
+              </div>
+            )}
+          </div>
+
+          <Btn variant="primary" onClick={handleCreate} disabled={!newShot.code}>Crea Shot</Btn>
         </div>
       </Modal>
     </div>
