@@ -306,6 +306,11 @@ export default function App() {
             {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} onNavigate={handleNavigate} />}
+            {view === 'pack' && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94A3B8', fontSize: 15 }}>
+                Pack — Coming soon
+              </div>
+            )}
           </div>
         )}
       </div>

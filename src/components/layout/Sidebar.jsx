@@ -5,6 +5,8 @@ import NavBtn from '../ui/NavBtn'
 import Av from '../ui/Av'
 import Btn from '../ui/Btn'
 import CalendarPopup from '../pages/CalendarPopup'
+import houstonLogo from '../../../Images/houston.png'
+import packIcon from '../../../Images/pack-bigrock.png'
 
 const RAIL_W = 72
 const EXPANDED_W = 230
@@ -56,19 +58,18 @@ export default function Sidebar({
         }}
       >
         {/* Logo */}
-        <div style={{ height: 68, display: 'flex', alignItems: 'center', borderBottom: '1px solid #F1F5F9' }}>
-          <div style={{ width: RAIL_W, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10,
-              background: 'linear-gradient(135deg, #6C5CE7, #A29BFE)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, fontWeight: 800, color: '#fff',
-            }}>BR</div>
-          </div>
-          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>BigRock</div>
-            <div style={{ fontSize: 10, color: '#94A3B8' }}>Pipeline</div>
-          </div>
+        <div style={{ height: 68, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #F1F5F9', overflow: 'hidden' }}>
+          <img
+            src={houstonLogo}
+            alt="Houston Pipeline"
+            style={{
+              height: 38,
+              width: 'auto',
+              objectFit: 'contain',
+              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              ...(hovered ? { height: 32, maxWidth: EXPANDED_W - 32 } : { height: 38, maxWidth: RAIL_W - 16 }),
+            }}
+          />
         </div>
 
         {/* Notifications */}
@@ -148,6 +149,32 @@ export default function Sidebar({
           {mainNav.map(n => (
             <NavBtn key={n.id} icon={n.icon} label={n.label} active={view === n.id} onClick={() => setView(n.id)} />
           ))}
+        </div>
+
+        {/* Pack Section */}
+        <div style={{ borderTop: '1px solid #F1F5F9', borderBottom: '1px solid #F1F5F9', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', borderRadius: 12,
+              width: hovered ? EXPANDED_W - 24 : RAIL_W - 20,
+              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              overflow: 'hidden',
+            }}
+            onClick={() => setView('pack')}
+          >
+            <img
+              src={packIcon}
+              alt="Pack"
+              style={{
+                width: hovered ? EXPANDED_W - 24 : RAIL_W - 20,
+                height: 'auto',
+                objectFit: 'contain',
+                borderRadius: 12,
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+            />
+          </div>
         </div>
 
         {/* Bottom: Calendar, Crew, User */}
