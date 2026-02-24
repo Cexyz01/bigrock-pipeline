@@ -164,6 +164,7 @@ export default function Sidebar({
               overflow: 'hidden',
               transform: packPressed ? 'scale(0.93)' : packHover ? 'scale(1.05)' : 'scale(1)',
               opacity: packPressed ? 0.85 : packHover ? 1 : 0.9,
+              userSelect: 'none', WebkitUserDrag: 'none',
             }}
             onClick={() => setView('pack')}
             onMouseEnter={() => setPackHover(true)}
