@@ -20,10 +20,10 @@ export const SHOT_STATUSES = [
 ]
 
 export const TASK_STATUSES = [
-  { id: 'todo', label: 'To Do', color: '#94A3B8', bg: '#F1F5F9' },
-  { id: 'wip', label: 'WIP', color: '#3B82F6', bg: '#EFF6FF' },
-  { id: 'review', label: 'Review', color: '#F59E0B', bg: '#FFFBEB' },
-  { id: 'approved', label: 'Done', color: '#10B981', bg: '#ECFDF5' },
+  { id: 'todo', label: 'To Do', color: '#94A3B8', bg: '#E2E8F0' },
+  { id: 'wip', label: 'WIP', color: '#2563EB', bg: '#BFDBFE' },
+  { id: 'review', label: 'Review', color: '#D97706', bg: '#FDE68A' },
+  { id: 'approved', label: 'Done', color: '#059669', bg: '#A7F3D0' },
 ]
 
 export const MOOD_EMOJIS = ['😊','😎','🤔','😴','🔥','💪','🎉','🧠','☕','🎯','💡','🚀','🎮','📚','🌙','⚡','🌈','🍀','🎵','✨']

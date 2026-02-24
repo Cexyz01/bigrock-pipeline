@@ -4,13 +4,13 @@ import StatusBadge from '../ui/StatusBadge'
 import Av from '../ui/Av'
 
 const statusBg = {
-  approved: '#ECFDF5', review: '#FFFBEB', wip: '#EFF6FF', todo: '#fff',
+  approved: '#A7F3D0', review: '#FDE68A', wip: '#BFDBFE', todo: '#E2E8F0',
 }
 const statusBorder = {
-  approved: '#A7F3D0', review: '#FDE68A', wip: '#BFDBFE', todo: '#E8ECF1',
+  approved: '#05966950', review: '#D9770650', wip: '#2563EB50', todo: '#94A3B850',
 }
 const statusHoverBg = {
-  approved: '#D1FAE5', review: '#FEF3C7', wip: '#DBEAFE', todo: '#F8FAFC',
+  approved: '#6EE7B7', review: '#FCD34D', wip: '#93C5FD', todo: '#CBD5E1',
 }
 
 export default function TaskCard({ task, user, staff, onClick }) {

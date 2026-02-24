@@ -44,9 +44,9 @@ export default function ActivityTrackerPage({ tasks, profiles, onNavigate }) {
     tasks.filter(t => t.assigned_to === studentId && t.status !== 'approved')
 
   const cellColors = {
-    green: { bg: '#ECFDF5', border: '#A7F3D0' },
-    yellow: { bg: '#FFFBEB', border: '#FDE68A' },
-    red: { bg: '#FEF2F2', border: '#FECACA' },
+    green: { bg: '#A7F3D0', border: '#05966950' },
+    yellow: { bg: '#FDE68A', border: '#D9770650' },
+    red: { bg: '#FECACA', border: '#DC262650' },
   }
 
   return (
@@ -76,12 +76,12 @@ export default function ActivityTrackerPage({ tasks, profiles, onNavigate }) {
       <Fade delay={50}>
         <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
           {[
-            { bg: '#ECFDF5', border: '#A7F3D0', label: 'Approvato' },
-            { bg: '#FFFBEB', border: '#FDE68A', label: 'In Review' },
-            { bg: '#FEF2F2', border: '#FECACA', label: 'Nessuna attivita' },
+            { bg: '#A7F3D0', border: '#05966950', label: 'Approvato' },
+            { bg: '#FDE68A', border: '#D9770650', label: 'In Review' },
+            { bg: '#FECACA', border: '#DC262650', label: 'Nessuna attivita' },
           ].map(l => (
             <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 12, height: 12, borderRadius: 3, background: l.bg, border: `1px solid ${l.border}` }} />
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: l.bg, border: `1.5px solid ${l.border}` }} />
               <span style={{ fontSize: 12, color: '#64748B' }}>{l.label}</span>
             </div>
           ))}
