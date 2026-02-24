@@ -223,7 +223,7 @@ export default function App() {
         )}
       </div>
 
-      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} />
+      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} />
     </div>
   )
 }

@@ -199,6 +199,65 @@ export async function sendChatMessage(channel, authorId, body) {
   return { data, error }
 }
 
+// ── Direct Messages ──
+
+export async function getDMConversations(userId) {
+  // Fetch all DMs involving this user, with profile data for both sides
+  const { data } = await supabase.from('direct_messages')
+    .select('*, sender:profiles!direct_messages_sender_id_fkey(id, full_name, avatar_url, role, mood_emoji), recipient:profiles!direct_messages_recipient_id_fkey(id, full_name, avatar_url, role, mood_emoji)')
+    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+    .order('created_at', { ascending: false })
+  if (!data) return []
+  // Group by other user, keep latest message + unread count
+  const convMap = {}
+  for (const msg of data) {
+    const otherId = msg.sender_id === userId ? msg.recipient_id : msg.sender_id
+    if (!convMap[otherId]) {
+      const other = msg.sender_id === userId ? msg.recipient : msg.sender
+      convMap[otherId] = { user: other, lastMessage: msg, unread: 0 }
+    }
+    if (!msg.read && msg.recipient_id === userId) convMap[otherId].unread++
+  }
+  return Object.values(convMap).sort((a, b) => new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at))
+}
+
+export async function getDMMessages(userId, otherUserId, limit = 100) {
+  const { data } = await supabase.from('direct_messages')
+    .select('*, sender:profiles!direct_messages_sender_id_fkey(id, full_name, avatar_url, role, mood_emoji)')
+    .or(`and(sender_id.eq.${userId},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${userId})`)
+    .order('created_at', { ascending: true })
+    .limit(limit)
+  return data || []
+}
+
+export async function sendDM(senderId, recipientId, body) {
+  const { data, error } = await supabase.from('direct_messages')
+    .insert({ sender_id: senderId, recipient_id: recipientId, body })
+    .select('*, sender:profiles!direct_messages_sender_id_fkey(id, full_name, avatar_url, role, mood_emoji)')
+    .single()
+  return { data, error }
+}
+
+export async function markDMsRead(userId, otherUserId) {
+  return supabase.from('direct_messages')
+    .update({ read: true })
+    .eq('recipient_id', userId)
+    .eq('sender_id', otherUserId)
+    .eq('read', false)
+}
+
+export function subscribeToDMs(userId, callback) {
+  return supabase
+    .channel(`dm-${userId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'direct_messages',
+      filter: `recipient_id=eq.${userId}`,
+    }, callback)
+    .subscribe()
+}
+
 // ── Storage ──
 
 export async function uploadConceptImage(shotId, file) {
