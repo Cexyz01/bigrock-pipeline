@@ -30,6 +30,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
   const endRef = useRef(null)
+  const inputRef = useRef(null)
   const openRef = useRef(open)
   const channelRef = useRef(channel)
 
@@ -109,6 +110,13 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, dmMessages])
+
+  // Auto-focus input when chat opens, mode changes, channel changes, or DM thread opens
+  useEffect(() => {
+    if (open && (mode === 'channels' || (mode === 'dm' && dmPeer))) {
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
+  }, [open, mode, channel, dmPeer])
 
   // ── Send handlers ──
   const handleSendChannel = async () => {
@@ -394,6 +402,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                     border: 'none', fontSize: 20, cursor: 'pointer', padding: 4, borderRadius: 12,
                   }}>😊</button>
                 <input
+                  ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   placeholder={mode === 'dm' ? `Messaggio a ${dmPeer?.full_name}...` : 'Scrivi un messaggio...'}
