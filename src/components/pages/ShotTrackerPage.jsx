@@ -21,6 +21,22 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
     await onUpdateShot(shot.id, { [key]: next })
   }, [staff, onUpdateShot])
 
+  const handleMoveShot = useCallback(async (shotId, direction) => {
+    if (!staff) return
+    const shot = shots.find(s => s.id === shotId)
+    if (!shot) return
+    const seqShots = shots
+      .filter(s => s.sequence === shot.sequence)
+      .sort((a, b) => (a.sort_order - b.sort_order) || a.code.localeCompare(b.code))
+    const idx = seqShots.findIndex(s => s.id === shotId)
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= seqShots.length) return
+    // Swap positions in array
+    ;[seqShots[idx], seqShots[swapIdx]] = [seqShots[swapIdx], seqShots[idx]]
+    // Reassign sort_order for all shots in this sequence
+    await Promise.all(seqShots.map((s, i) => onUpdateShot(s.id, { sort_order: i })))
+  }, [staff, shots, onUpdateShot])
+
   const handleCreate = async () => {
     if (!newShot.code) return
     await onCreateShot(newShot)
@@ -59,16 +75,29 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       {shots.length === 0 ? (
         <EmptyState title="Nessuno shot" sub={staff ? 'Aggiungi il primo shot per iniziare' : 'Gli shot appariranno qui'} />
       ) : (
-        seqs.map((seq, si) => (
-          <Fade key={seq} delay={si * 60}>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
-              {shots.filter(sh => sh.sequence === seq).map(shot => (
-                <ShotRow key={shot.id} shot={shot} staff={staff} onCycle={cycleShotStatus} onDelete={onDeleteShot} requestConfirm={requestConfirm} />
-              ))}
-            </div>
-          </Fade>
-        ))
+        seqs.map((seq, si) => {
+          const seqShots = shots.filter(sh => sh.sequence === seq)
+          return (
+            <Fade key={seq} delay={si * 60}>
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
+                {seqShots.map((shot, idx) => (
+                  <ShotRow
+                    key={shot.id}
+                    shot={shot}
+                    staff={staff}
+                    onCycle={cycleShotStatus}
+                    onDelete={onDeleteShot}
+                    onMove={handleMoveShot}
+                    isFirst={idx === 0}
+                    isLast={idx === seqShots.length - 1}
+                    requestConfirm={requestConfirm}
+                  />
+                ))}
+              </div>
+            </Fade>
+          )
+        })
       )}
 
       {/* Legend */}

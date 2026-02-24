@@ -144,7 +144,12 @@ export default function App() {
 
   // Handlers
   const handleCreateShot = async (shot) => {
-    const { data } = await createShot(shot)
+    // Auto-assign sort_order = next available in the same sequence
+    const seqShots = shots.filter(s => s.sequence === shot.sequence)
+    const maxOrder = seqShots.reduce((max, s) => Math.max(max, s.sort_order || 0), -1)
+    const shotWithOrder = { ...shot, sort_order: maxOrder + 1 }
+
+    const { data } = await createShot(shotWithOrder)
     if (data) {
       // Sync to Miro in background (fire-and-forget)
       createMiroShotRow(data.id, data.code).catch(err => console.warn('Miro sync:', err))

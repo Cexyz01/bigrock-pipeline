@@ -8,28 +8,49 @@ const MIRO_TOKEN = Deno.env.get("MIRO_ACCESS_TOKEN")!
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 
-// ── Miro Board Layout Constants ──
+// ══════════════════════════════════════════════════
+// MIRO BOARD LAYOUT — 3× Scale for comfortable zoom
+// Design matches BigRock Pipeline site style
+// Accent: #6C5CE7 · Dark: #1a1a2e · Muted: #64748B
+// ══════════════════════════════════════════════════
+
 const BASE_X = 0
 const BASE_Y = 0
-const HEADER_HEIGHT = 80
-const ROW_HEIGHT = 300
-const ROW_GAP = 50
-const COL_WIDTH = 300
-const COL_GAP = 40
+const TITLE_HEIGHT = 300       // Space for board title banner
+const HEADER_HEIGHT = 240      // Header row height (80 × 3)
+const ROW_HEIGHT = 900         // Shot row height (300 × 3)
+const ROW_GAP = 150            // Gap between rows (50 × 3)
+const COL_WIDTH = 900          // Department column width (300 × 3)
+const COL_GAP = 120            // Gap between columns (40 × 3)
+const SHOT_COL_WIDTH = 600     // Shot code column width (200 × 3)
 
 // Column X positions (left edge of each column)
 const COL_X = [
-  0,                          // Col 0: Shot Code
-  200 + COL_GAP,              // Col 1: Reference
-  200 + COL_GAP + (COL_WIDTH + COL_GAP) * 1, // Col 2: Concept
-  200 + COL_GAP + (COL_WIDTH + COL_GAP) * 2, // Col 3: Modeling
-  200 + COL_GAP + (COL_WIDTH + COL_GAP) * 3, // Col 4: Texturing
-  200 + COL_GAP + (COL_WIDTH + COL_GAP) * 4, // Col 5: Rigging
-  200 + COL_GAP + (COL_WIDTH + COL_GAP) * 5, // Col 6: Animation
-  200 + COL_GAP + (COL_WIDTH + COL_GAP) * 6, // Col 7: Compositing
+  0,                                                       // Col 0: Shot Code
+  SHOT_COL_WIDTH + COL_GAP,                                 // Col 1: Reference
+  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 1,    // Col 2: Concept
+  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 2,    // Col 3: Modeling
+  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 3,    // Col 4: Texturing
+  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 4,    // Col 5: Rigging
+  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 5,    // Col 6: Animation
+  SHOT_COL_WIDTH + COL_GAP + (COL_WIDTH + COL_GAP) * 6,    // Col 7: Compositing
 ]
+
 const COL_LABELS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
 const DEPT_ORDER = ["concept", "modeling", "texturing", "rigging", "animation", "compositing"]
+
+// Department sticky note colors — matches site department colors
+const DEPT_STICKY_COLORS: Record<string, string> = {
+  concept: "light_pink",       // #E879F9 → light_pink
+  modeling: "dark_blue",       // #A78BFA → dark_blue (closest to purple-blue)
+  texturing: "yellow",         // #F59E0B → yellow
+  rigging: "light_green",      // #34D399 → light_green
+  animation: "pink",           // #F87171 → pink
+  compositing: "light_blue",   // #60A5FA → light_blue
+}
+
+// Header sticky colors per column index (0=Shot, 1=Ref, 2+=departments)
+const HEADER_STICKY_COLORS = ["gray", "gray", "light_pink", "dark_blue", "yellow", "light_green", "pink", "light_blue"]
 
 const TOTAL_WIDTH = COL_X[7] + COL_WIDTH
 
@@ -40,13 +61,14 @@ const corsHeaders = {
 }
 
 // ── Helpers ──
+
 function getRowY(rowIndex: number): number {
-  return BASE_Y + HEADER_HEIGHT + ROW_GAP + rowIndex * (ROW_HEIGHT + ROW_GAP)
+  return BASE_Y + TITLE_HEIGHT + HEADER_HEIGHT + ROW_GAP + rowIndex * (ROW_HEIGHT + ROW_GAP)
 }
 
 function getDeptColIndex(department: string): number {
   const idx = DEPT_ORDER.indexOf(department)
-  return idx >= 0 ? idx + 2 : -1 // +2 because cols 0,1 are code and reference
+  return idx >= 0 ? idx + 2 : -1 // +2 because cols 0,1 are Shot Code and Reference
 }
 
 async function miroPost(path: string, body: any) {
@@ -72,7 +94,61 @@ function jsonResponse(data: any, status = 200) {
   })
 }
 
-// ── Action: Create Shot Row ──
+// ══════════════════════════════════════════════════
+// ACTION: Init Board — Creates title banner + header row
+// ══════════════════════════════════════════════════
+
+async function handleInitBoard() {
+  const centerX = BASE_X + TOTAL_WIDTH / 2
+
+  // ── 1. Title Banner ──
+  // Large "BIGROCK PIPELINE" title
+  await miroPost("/texts", {
+    data: { content: `<strong>BIGROCK PIPELINE</strong>` },
+    position: { x: centerX, y: BASE_Y + 80, origin: "center" },
+    geometry: { width: 2400 },
+    style: { fontSize: "96", textAlign: "center", color: "#6C5CE7" },
+  })
+
+  // Subtitle
+  await miroPost("/texts", {
+    data: { content: "Storyboard & WIP Tracker" },
+    position: { x: centerX, y: BASE_Y + 180, origin: "center" },
+    geometry: { width: 2400 },
+    style: { fontSize: "48", textAlign: "center", color: "#94A3B8" },
+  })
+
+  // ── 2. Separator line (thin frame) ──
+  await miroPost("/shapes", {
+    data: { shape: "rectangle" },
+    position: { x: centerX, y: BASE_Y + TITLE_HEIGHT - 30, origin: "center" },
+    geometry: { width: TOTAL_WIDTH - 200, height: 4 },
+    style: { fillColor: "#E2E8F0", borderWidth: "0", borderOpacity: "0" },
+  })
+
+  // ── 3. Header Row — Sticky notes as column headers ──
+  const headerY = BASE_Y + TITLE_HEIGHT + HEADER_HEIGHT / 2
+
+  for (let i = 0; i < COL_LABELS.length; i++) {
+    const colWidth = i === 0 ? SHOT_COL_WIDTH : COL_WIDTH
+    const colCenterX = BASE_X + COL_X[i] + colWidth / 2
+
+    // Header sticky note with department color
+    await miroPost("/sticky_notes", {
+      data: { content: `<strong>${COL_LABELS[i]}</strong>`, shape: "square" },
+      position: { x: colCenterX, y: headerY, origin: "center" },
+      geometry: { width: colWidth - 40 },
+      style: { fillColor: HEADER_STICKY_COLORS[i], textAlign: "center", textAlignVertical: "middle" },
+    })
+  }
+
+  return jsonResponse({ success: true, message: "Board initialized with title and headers" })
+}
+
+// ══════════════════════════════════════════════════
+// ACTION: Create Shot Row — Creates a row on Miro for a shot
+// ══════════════════════════════════════════════════
+
 async function handleCreateShotRow(supabase: any, params: any) {
   const { shot_id, shot_code } = params
   if (!shot_id || !shot_code) return jsonResponse({ error: "shot_id and shot_code required" }, 400)
@@ -94,35 +170,54 @@ async function handleCreateShotRow(supabase: any, params: any) {
   const rowIndex = rows && rows.length > 0 ? rows[0].row_index + 1 : 0
 
   const y = getRowY(rowIndex)
+  const centerX = BASE_X + TOTAL_WIDTH / 2
 
-  // 1. Create row frame
+  // ── 1. Row Frame — Light background container ──
   const frame = await miroPost("/frames", {
     data: { title: shot_code, format: "custom" },
-    geometry: { width: TOTAL_WIDTH + 40, height: ROW_HEIGHT },
-    position: { x: BASE_X + TOTAL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-    style: { fillColor: "#F8FAFC" },
+    geometry: { width: TOTAL_WIDTH + 80, height: ROW_HEIGHT },
+    position: { x: centerX, y: y + ROW_HEIGHT / 2, origin: "center" },
+    style: { fillColor: "#FFFFFF" },
   })
 
-  // 2. Create shot code text
+  // ── 2. Shot Code — Bold accent text on the left ──
   const shotText = await miroPost("/texts", {
     data: { content: `<strong>${shot_code}</strong>` },
-    position: { x: BASE_X + COL_X[0] + 100, y: y + ROW_HEIGHT / 2, origin: "center" },
-    geometry: { width: 180 },
-    style: { fontSize: "24", textAlign: "center", color: "#1a1a2e" },
+    position: { x: BASE_X + COL_X[0] + SHOT_COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
+    geometry: { width: SHOT_COL_WIDTH - 40 },
+    style: { fontSize: "72", textAlign: "center", color: "#1a1a2e" },
   })
 
-  // 3. Create department placeholder sticky notes
-  for (let i = 0; i < COL_LABELS.length; i++) {
-    if (i <= 1) continue // skip shot code and reference columns (no placeholder needed beyond text)
+  // ── 3. Shot Code accent indicator — small purple bar ──
+  await miroPost("/shapes", {
+    data: { shape: "rectangle" },
+    position: { x: BASE_X + COL_X[0] + 30, y: y + ROW_HEIGHT / 2, origin: "center" },
+    geometry: { width: 12, height: 200 },
+    style: { fillColor: "#6C5CE7", borderWidth: "0", borderOpacity: "0" },
+  })
+
+  // ── 4. Department placeholder sticky notes ──
+  for (let i = 2; i < COL_LABELS.length; i++) {
+    const deptId = DEPT_ORDER[i - 2]
+    const stickyColor = DEPT_STICKY_COLORS[deptId] || "gray"
+
     await miroPost("/sticky_notes", {
-      data: { content: COL_LABELS[i], shape: "square" },
+      data: { content: `${COL_LABELS[i]}\n\nWIP images will appear here`, shape: "square" },
       position: { x: BASE_X + COL_X[i] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
-      geometry: { width: COL_WIDTH - 20 },
-      style: { fillColor: "#E8ECF1", textAlign: "center", textAlignVertical: "middle" },
+      geometry: { width: COL_WIDTH - 60 },
+      style: { fillColor: stickyColor, textAlign: "center", textAlignVertical: "middle" },
     })
   }
 
-  // 4. Save to database
+  // ── 5. Reference column placeholder ──
+  await miroPost("/sticky_notes", {
+    data: { content: "Reference\n\nDrop reference image here", shape: "square" },
+    position: { x: BASE_X + COL_X[1] + COL_WIDTH / 2, y: y + ROW_HEIGHT / 2, origin: "center" },
+    geometry: { width: COL_WIDTH - 60 },
+    style: { fillColor: "gray", textAlign: "center", textAlignVertical: "middle" },
+  })
+
+  // ── 6. Save to database ──
   const { data: row, error } = await supabase.from("miro_shot_rows").insert({
     shot_id,
     row_index: rowIndex,
@@ -135,7 +230,10 @@ async function handleCreateShotRow(supabase: any, params: any) {
   return jsonResponse({ success: true, row })
 }
 
-// ── Action: Upload WIP Image ──
+// ══════════════════════════════════════════════════
+// ACTION: Upload WIP Image — Places image in the correct cell
+// ══════════════════════════════════════════════════
+
 async function handleUploadWipImage(supabase: any, params: any) {
   const { shot_id, department, task_id, image_base64, uploaded_by } = params
   if (!shot_id || !department || !image_base64) {
@@ -159,17 +257,17 @@ async function handleUploadWipImage(supabase: any, params: any) {
     .select("id", { count: "exact", head: true })
     .eq("shot_id", shot_id)
     .eq("department", department)
-  const offset = (count || 0) * 20
+  const offset = (count || 0) * 60  // 20 × 3 = 60px offset per stacked image
 
   const y = getRowY(shotRow.row_index)
   const x = BASE_X + COL_X[colIndex] + COL_WIDTH / 2 + offset
   const imgY = y + ROW_HEIGHT / 2 + offset
 
-  // Upload image to Miro
+  // Upload image to Miro — 780px wide (260 × 3)
   const image = await miroPost("/images", {
     data: { url: image_base64 },
     position: { x, y: imgY, origin: "center" },
-    geometry: { width: 260 },
+    geometry: { width: 780 },
   })
 
   // Save tracking record
@@ -186,22 +284,10 @@ async function handleUploadWipImage(supabase: any, params: any) {
   return jsonResponse({ success: true, miro_item_id: image.id, record })
 }
 
-// ── Action: Init Board Header ──
-async function handleInitBoard() {
-  // Create header labels
-  const y = BASE_Y + HEADER_HEIGHT / 2
-  for (let i = 0; i < COL_LABELS.length; i++) {
-    await miroPost("/texts", {
-      data: { content: `<strong>${COL_LABELS[i]}</strong>` },
-      position: { x: BASE_X + COL_X[i] + (i === 0 ? 100 : COL_WIDTH / 2), y, origin: "center" },
-      geometry: { width: i === 0 ? 180 : COL_WIDTH },
-      style: { fontSize: "18", textAlign: "center", color: "#6C5CE7" },
-    })
-  }
-  return jsonResponse({ success: true, message: "Board headers created" })
-}
+// ══════════════════════════════════════════════════
+// MAIN HANDLER
+// ══════════════════════════════════════════════════
 
-// ── Main Handler ──
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders })
