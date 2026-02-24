@@ -8,6 +8,11 @@ const MIRO_TOKEN = Deno.env.get("MIRO_ACCESS_TOKEN")!
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 
+// Cloudinary — for persistent image backup (review page)
+const CLOUDINARY_CLOUD_NAME = Deno.env.get("CLOUDINARY_CLOUD_NAME") || ""
+const CLOUDINARY_API_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
+const CLOUDINARY_API_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
+
 // ══════════════════════════════════════════════════
 // MIRO BOARD LAYOUT — 3× Scale for comfortable zoom
 // Design matches BigRock Pipeline site style
@@ -92,6 +97,53 @@ function jsonResponse(data: any, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   })
+}
+
+// ── Cloudinary Upload ──
+// Signed upload: SHA-1(sorted_params + api_secret)
+
+async function sha1(message: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(message)
+  const hashBuffer = await crypto.subtle.digest("SHA-1", msgBuffer)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
+async function uploadToCloudinary(imageBase64: string, folder: string): Promise<string | null> {
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+    console.warn("Cloudinary not configured, skipping backup upload")
+    return null
+  }
+
+  try {
+    const timestamp = Math.floor(Date.now() / 1000).toString()
+    const paramsToSign = `folder=${folder}&timestamp=${timestamp}`
+    const signature = await sha1(paramsToSign + CLOUDINARY_API_SECRET)
+
+    const formData = new FormData()
+    formData.append("file", imageBase64)
+    formData.append("folder", folder)
+    formData.append("timestamp", timestamp)
+    formData.append("api_key", CLOUDINARY_API_KEY)
+    formData.append("signature", signature)
+
+    const res = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+      { method: "POST", body: formData }
+    )
+
+    if (!res.ok) {
+      const text = await res.text()
+      console.error("Cloudinary upload failed:", res.status, text)
+      return null
+    }
+
+    const json = await res.json()
+    return json.secure_url || null
+  } catch (err) {
+    console.error("Cloudinary upload error:", err)
+    return null
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -263,25 +315,32 @@ async function handleUploadWipImage(supabase: any, params: any) {
   const x = BASE_X + COL_X[colIndex] + COL_WIDTH / 2 + offset
   const imgY = y + ROW_HEIGHT / 2 + offset
 
-  // Upload image to Miro — 780px wide (260 × 3)
-  const image = await miroPost("/images", {
-    data: { url: image_base64 },
-    position: { x, y: imgY, origin: "center" },
-    geometry: { width: 780 },
-  })
+  // Upload to Miro + Cloudinary in parallel
+  const cloudinaryFolder = `bigrock-wip/${shot_id}/${department}`
+  const [image, cloudinaryUrl] = await Promise.all([
+    // Miro — 780px wide (260 × 3)
+    miroPost("/images", {
+      data: { url: image_base64 },
+      position: { x, y: imgY, origin: "center" },
+      geometry: { width: 780 },
+    }),
+    // Cloudinary — persistent backup for review page
+    uploadToCloudinary(image_base64, cloudinaryFolder),
+  ])
 
-  // Save tracking record
+  // Save tracking record (with Cloudinary URL if available)
   const { data: record, error } = await supabase.from("miro_wip_images").insert({
     shot_id,
     task_id: task_id || null,
     department,
     miro_item_id: image.id,
     uploaded_by: uploaded_by || null,
+    image_url: cloudinaryUrl,
   }).select().single()
 
   if (error) return jsonResponse({ error: error.message }, 500)
 
-  return jsonResponse({ success: true, miro_item_id: image.id, record })
+  return jsonResponse({ success: true, miro_item_id: image.id, image_url: cloudinaryUrl, record })
 }
 
 // ══════════════════════════════════════════════════
