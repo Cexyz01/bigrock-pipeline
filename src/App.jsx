@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { isStaff } from './lib/constants'
 import {
   supabase, signOut,
@@ -9,6 +9,7 @@ import {
   getCalendarEvents, createCalendarEvent, deleteCalendarEvent,
   getNotifications, markNotificationRead, markAllNotificationsRead, sendNotification,
   subscribeToTable, subscribeToNotifications,
+  subscribeToDMs, getDMUnreadCount,
 } from './lib/supabase'
 
 import Sidebar from './components/layout/Sidebar'
@@ -37,6 +38,9 @@ export default function App() {
   const [view, setView] = useState('overview')
   const [chatOpen, setChatOpen] = useState(false)
   const [deepLink, setDeepLink] = useState(null)
+  const [dmUnreadCount, setDmUnreadCount] = useState(0)
+  const dmToastedRef = useRef(new Set())
+  const chatOpenRef = useRef(false)
   const { toasts, addToast, removeToast } = useToast()
   const { pending, requestConfirm, confirm, cancel } = useConfirm()
 
@@ -74,11 +78,18 @@ export default function App() {
   }
 
   const loadData = async (userId) => {
-    const [p, sh, t, ev, n] = await Promise.all([
-      getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId),
+    const [p, sh, t, ev, n, dmUn] = await Promise.all([
+      getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId), getDMUnreadCount(userId),
     ])
-    setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n)
+    setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn)
   }
+
+  const refreshDmUnread = useCallback(() => {
+    if (user) getDMUnreadCount(user.id).then(setDmUnreadCount)
+  }, [user])
+
+  // Keep chatOpenRef in sync so realtime callback can read it without re-subscribing
+  useEffect(() => { chatOpenRef.current = chatOpen }, [chatOpen])
 
   // Realtime
   useEffect(() => {
@@ -100,9 +111,29 @@ export default function App() {
           })
         }
       }),
+      // DM realtime: update badge + toast when chat is closed
+      subscribeToDMs(user.id, (payload) => {
+        refreshDmUnread()
+        const msg = payload.new
+        if (msg && !chatOpenRef.current) {
+          const senderId = msg.sender_id
+          if (!dmToastedRef.current.has(senderId)) {
+            dmToastedRef.current.add(senderId)
+            // Find sender name from profiles
+            const sender = profiles.find(p => p.id === senderId)
+            const name = sender?.full_name || 'Qualcuno'
+            addToast(`Nuovo messaggio da ${name}`, 'info', {
+              body: msg.body?.slice(0, 80),
+              onClick: () => { setChatOpen(true) },
+            })
+            // Allow re-toast after 30s
+            setTimeout(() => dmToastedRef.current.delete(senderId), 30000)
+          }
+        }
+      }),
     ]
     return () => channels.forEach(ch => supabase.removeChannel(ch))
-  }, [user])
+  }, [user, profiles, refreshDmUnread])
 
   const handleNavigate = (targetView, targetId) => {
     setView(targetView)
@@ -223,7 +254,7 @@ export default function App() {
         )}
       </div>
 
-      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} />
+      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} dmUnreadCount={dmUnreadCount} onDmRead={refreshDmUnread} />
     </div>
   )
 }

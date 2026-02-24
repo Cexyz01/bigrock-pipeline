@@ -123,11 +123,11 @@ export default function Sidebar({
                           display: 'flex', alignItems: 'flex-start', gap: 10,
                           padding: '10px 20px', cursor: 'pointer',
                           borderLeft: !n.read ? '3px solid #6C5CE7' : '3px solid transparent',
-                          background: 'transparent',
+                          background: !n.read ? 'rgba(108,92,231,0.04)' : 'transparent',
                           transition: 'background 0.1s ease',
                         }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        onMouseEnter={e => e.currentTarget.style.background = !n.read ? 'rgba(108,92,231,0.08)' : '#F8FAFC'}
+                        onMouseLeave={e => e.currentTarget.style.background = !n.read ? 'rgba(108,92,231,0.04)' : 'transparent'}
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: n.read ? 400 : 600, color: '#1a1a2e', lineHeight: 1.3 }}>{n.title}</div>

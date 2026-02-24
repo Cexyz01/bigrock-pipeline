@@ -246,6 +246,14 @@ export async function markDMsRead(userId, otherUserId) {
     .eq('read', false)
 }
 
+export async function getDMUnreadCount(userId) {
+  const { count } = await supabase.from('direct_messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('recipient_id', userId)
+    .eq('read', false)
+  return count || 0
+}
+
 export function subscribeToDMs(userId, callback) {
   return supabase
     .channel(`dm-${userId}`)

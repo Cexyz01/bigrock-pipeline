@@ -3,7 +3,7 @@ import { DEPTS, CHAT_EMOJIS, isStaff } from '../../lib/constants'
 import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, getDMConversations, getDMMessages, sendDM, markDMsRead, subscribeToDMs } from '../../lib/supabase'
 import Av from '../ui/Av'
 
-export default function ChatPanel({ user, open, onToggle, profiles }) {
+export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCount = 0, onDmRead }) {
   const staff = isStaff(user.role)
   const channels = ['general']
   if (staff) {
@@ -69,9 +69,11 @@ export default function ChatPanel({ user, open, onToggle, profiles }) {
   const fetchDMThread = useCallback((peerId) => {
     return getDMMessages(user.id, peerId).then(data => {
       setDmMessages(data)
-      markDMsRead(user.id, peerId)
+      markDMsRead(user.id, peerId).then(() => {
+        if (onDmRead) onDmRead()
+      })
     })
-  }, [user.id])
+  }, [user.id, onDmRead])
 
   // Load conversations when switching to DM mode
   useEffect(() => {
@@ -88,9 +90,10 @@ export default function ChatPanel({ user, open, onToggle, profiles }) {
     const sub = subscribeToDMs(user.id, () => {
       fetchConversations()
       if (dmPeer) fetchDMThread(dmPeer.id)
+      else if (onDmRead) onDmRead() // refresh badge when not in a thread
     })
     return () => supabase.removeChannel(sub)
-  }, [user.id, dmPeer, fetchConversations, fetchDMThread])
+  }, [user.id, dmPeer, fetchConversations, fetchDMThread, onDmRead])
 
   // DM polling
   useEffect(() => {
@@ -192,7 +195,15 @@ export default function ChatPanel({ user, open, onToggle, profiles }) {
   return (
     <>
       <button className="chat-tab-handle" onClick={onToggle} style={{ right: open ? 380 : 0 }}>
-        Chat{totalDMUnread > 0 && !open ? ` (${totalDMUnread})` : ''}
+        Chat
+        {dmUnreadCount > 0 && !open && (
+          <span style={{
+            display: 'inline-block', marginLeft: 6,
+            fontSize: 9, fontWeight: 700, background: '#EF4444', color: '#fff',
+            padding: '1px 5px', borderRadius: 8, minWidth: 14, textAlign: 'center',
+            verticalAlign: 'middle',
+          }}>{dmUnreadCount}</span>
+        )}
       </button>
 
       {open && (
@@ -224,12 +235,12 @@ export default function ChatPanel({ user, open, onToggle, profiles }) {
                   cursor: 'pointer', transition: 'all 0.12s ease', position: 'relative',
                 }}>
                 {m === 'channels' ? 'Canali' : 'Messaggi'}
-                {m === 'dm' && totalDMUnread > 0 && (
+                {m === 'dm' && (dmUnreadCount || totalDMUnread) > 0 && (
                   <span style={{
                     position: 'absolute', top: -4, right: -4,
                     fontSize: 9, fontWeight: 700, background: '#EF4444', color: '#fff',
                     padding: '1px 5px', borderRadius: 8, minWidth: 14, textAlign: 'center',
-                  }}>{totalDMUnread}</span>
+                  }}>{dmUnreadCount || totalDMUnread}</span>
                 )}
               </button>
             ))}
