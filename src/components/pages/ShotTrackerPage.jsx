@@ -83,7 +83,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Aggiungi Shot</Btn>}
-            {staff && <Btn variant="ghost" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12 }}>🔄 Sync Miro</Btn>}
+            {staff && <Btn variant="default" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12 }}>🔄 Sync Miro</Btn>}
           </div>
         </div>
       </Fade>
