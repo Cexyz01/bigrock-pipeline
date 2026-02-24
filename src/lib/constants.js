@@ -28,7 +28,7 @@ export const TASK_STATUSES = [
 
 export const MOOD_EMOJIS = ['😊','😎','🤔','😴','🔥','💪','🎉','🧠','☕','🎯','💡','🚀','🎮','📚','🌙','⚡','🌈','🍀','🎵','✨']
 
-export const CHAT_EMOJIS = ['😊','😂','😍','🥳','😎','🤔','😅','👍','❤️','🔥','💯','✅','🎉','🚀','💪','👏','🙏','💡','⭐','🎯','🤝','👀','✨','🍕','💜','🫶','😌','🤩','🥰','💫']
+export const CHAT_EMOJIS = ['👍','👎','😂','🤣','💀','🫡','🗿','😭','🥲','🤡','👀','🫠','💅','🤌','🙃','😤','🤯','🥵','🫣','🤫','😈','👻','🦾','🧃','🍿','🎬','🎨','🖥️','⚡','🛠️','🔧','📐','🎭','🪄','💎','🏆','🧊','☠️','🌀','🫧']
 
 export const getShotStatus = (id) => SHOT_STATUSES.find(s => s.id === id) || SHOT_STATUSES[0]
 export const getTaskStatus = (id) => TASK_STATUSES.find(s => s.id === id) || TASK_STATUSES[0]
