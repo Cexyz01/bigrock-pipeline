@@ -35,15 +35,17 @@ const ROW_H = 1000
 const CELL_PAD = 30   // padding inside each department cell
 const IMG_GAP = 10    // gap between task sub-cells and images
 
-// Calculate the max width so that an image with given dimensions
+// Calculate the size so that an image with given dimensions
 // fits ENTIRELY within maxW × maxH (never cropped, only scaled).
-function calcFitWidth(imgW: number, imgH: number, maxW: number, maxH: number): number {
-  if (!imgW || !imgH) return maxW * 0.7  // fallback when no dimensions known
-  // Width if we constrain by max width
-  const byW = maxW
-  // Width if we constrain by max height: h = w * (imgH/imgW) ≤ maxH → w ≤ maxH * (imgW/imgH)
-  const byH = maxH * (imgW / imgH)
-  return Math.floor(Math.min(byW, byH))
+// Returns both width and height to avoid Miro cropping.
+function calcFitSize(imgW: number, imgH: number, maxW: number, maxH: number): { w: number; h: number } {
+  if (!imgW || !imgH) {
+    // fallback: assume square-ish when no dimensions known
+    const w = Math.floor(maxW * 0.7)
+    return { w, h: w }
+  }
+  const scale = Math.min(maxW / imgW, maxH / imgH)
+  return { w: Math.floor(imgW * scale), h: Math.floor(imgH * scale) }
 }
 
 const COLS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
@@ -320,14 +322,14 @@ async function placeCellImages(
       const imgCY = imgY0 + mj * (slotH + 6) + slotH / 2
 
       // Per-image smart sizing: uses actual dimensions if available
-      const miroW = calcFitWidth(img.img_width, img.img_height, slotW * 0.95, slotH * 0.95)
+      const fit = calcFitSize(img.img_width, img.img_height, slotW * 0.95, slotH * 0.95)
 
       placements.push(async () => {
         try {
           const miroItem = await miroPost("/images", {
             data: { url: img.image_url },
             position: { x: imgCX, y: imgCY, origin: "center" },
-            geometry: { width: miroW },
+            geometry: { width: fit.w, height: fit.h },
             parent: { id: frameId },
           })
           await supabase.from("miro_wip_images")
@@ -478,11 +480,11 @@ async function handleFullSync(supabase: any) {
       try {
         const maxW = COL_W[1] - 2 * CELL_PAD   // 2140
         const maxH = ROW_H - 2 * CELL_PAD       // 940
-        const miroW = calcFitWidth(shot.ref_img_width, shot.ref_img_height, maxW, maxH)
+        const fit = calcFitSize(shot.ref_img_width, shot.ref_img_height, maxW, maxH)
         await miroPost("/images", {
           data: { url: refUrl },
           position: { x: colX(1), y, origin: "center" },
-          geometry: { width: miroW },
+          geometry: { width: fit.w, height: fit.h },
           parent: { id: frameId },
         })
       } catch (e) {
@@ -608,15 +610,15 @@ async function handleUploadReference(supabase: any, params: any) {
     .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
   if (!shotRow) return err("Shot not synced", 404)
 
-  // Calculate width that fills max space while fitting entirely within the cell
+  // Calculate size that fills max space while fitting entirely within the cell
   const maxW = COL_W[1] - 2 * CELL_PAD   // 2140
   const maxH = ROW_H - 2 * CELL_PAD       // 940
-  const miroW = calcFitWidth(upload.width, upload.height, maxW, maxH)
+  const fit = calcFitSize(upload.width, upload.height, maxW, maxH)
 
   const img = await miroPost("/images", {
     data: { url: upload.url },
     position: { x: colX(1), y: rowY(shotRow.row_index), origin: "center" },
-    geometry: { width: miroW },
+    geometry: { width: fit.w, height: fit.h },
     parent: { id: frameId },
   })
 
