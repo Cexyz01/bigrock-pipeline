@@ -12,34 +12,46 @@ export default function useAdminChannel(enabled) {
   useEffect(() => {
     if (!enabled) return
 
-    const channel = supabase.channel('admin-commands')
-    channelRef.current = channel
+    let cancelled = false
 
-    channel.on('broadcast', { event: 'admin-cmd' }, ({ payload }) => {
-      if (!payload) return
+    try {
+      const channel = supabase.channel('admin-commands', {
+        config: { broadcast: { self: true } },
+      })
 
-      switch (payload.type) {
-        case 'broadcast_message':
-          setBroadcastMessage(payload.message)
-          break
-        case 'matrix_toggle':
-          setMatrixActive(prev => !prev)
-          break
-        case 'ban_user':
-          setBanInfo({
-            target: payload.target,
-            email: payload.email,
-            seconds: payload.seconds,
-          })
-          break
+      channel.on('broadcast', { event: 'admin-cmd' }, ({ payload }) => {
+        if (cancelled || !payload) return
+
+        switch (payload.type) {
+          case 'broadcast_message':
+            setBroadcastMessage(payload.message)
+            break
+          case 'matrix_toggle':
+            setMatrixActive(prev => !prev)
+            break
+          case 'ban_user':
+            setBanInfo({
+              target: payload.target,
+              email: payload.email,
+              seconds: payload.seconds,
+            })
+            break
+        }
+      })
+
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED' && !cancelled) {
+          channelRef.current = channel
+        }
+      })
+
+      return () => {
+        cancelled = true
+        channelRef.current = null
+        supabase.removeChannel(channel)
       }
-    })
-
-    channel.subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-      channelRef.current = null
+    } catch (err) {
+      console.warn('[DevConsole] channel error:', err)
     }
   }, [enabled])
 
