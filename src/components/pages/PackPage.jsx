@@ -293,7 +293,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
         {/* Main content */}
         {tab === 'collection' && (
-          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, minHeight: 0, ...(isMobile ? { overflowY: 'auto', WebkitOverflowScrolling: 'touch' } : {}) }}>
             {/* LEFT/TOP: Shop */}
             <div style={{
               ...(isMobile ? {
@@ -318,9 +318,10 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
             {/* RIGHT/BOTTOM: Collection */}
             <div style={{
-              flex: 1,
+              flex: isMobile ? 'none' : 1,
               display: 'flex', flexDirection: 'column',
-              minWidth: 0, minHeight: 0,
+              minWidth: 0,
+              ...(isMobile ? {} : { minHeight: 0 }),
             }}>
               {/* Sticky filters */}
               <div style={{
@@ -389,8 +390,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
               {/* Scrollable card grid */}
               <div style={{
-                flex: 1, minHeight: 0,
-                overflowY: 'auto',
+                ...(isMobile ? {} : { flex: 1, minHeight: 0, overflowY: 'auto' }),
                 padding: isMobile ? '8px 12px 80px' : '12px 24px 24px',
               }}>
                 <div style={{
