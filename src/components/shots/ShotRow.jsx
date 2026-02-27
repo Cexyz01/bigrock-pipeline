@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react'
 import { DEPTS } from '../../lib/constants'
+import useIsMobile from '../../hooks/useIsMobile'
 import ShotCell from './ShotCell'
 
 const arrowBtnStyle = {
@@ -14,12 +15,13 @@ const iconBtnStyle = {
 }
 
 const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, onMove, onUploadReference, isFirst, isLast, requestConfirm }) {
+  const isMobile = useIsMobile()
   const [h, setH] = useState(false)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef(null)
 
   const handleDelete = useCallback(() => {
-    requestConfirm(`Eliminare lo shot ${shot.code}?`, () => onDelete(shot.id))
+    requestConfirm(`Delete shot ${shot.code}?`, () => onDelete(shot.id))
   }, [shot.id, shot.code, onDelete, requestConfirm])
 
   const handleFileSelect = useCallback(async (e) => {
@@ -40,8 +42,8 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
-        display: 'grid', gridTemplateColumns: '200px repeat(6, 80px)', gap: 3,
-        padding: '10px 0', borderRadius: 8,
+        display: 'grid', gridTemplateColumns: isMobile ? '140px repeat(6, 64px)' : '200px repeat(6, 80px)', gap: 3,
+        padding: '10px 0', borderRadius: 8, minWidth: isMobile ? 'max-content' : undefined,
         background: h ? '#F8FAFC' : 'transparent',
         transition: 'background 0.12s ease',
       }}
@@ -56,7 +58,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
               style={{ ...arrowBtnStyle, opacity: isFirst ? 0.2 : 0.7 }}
               onMouseEnter={e => { if (!isFirst) e.currentTarget.style.color = '#6C5CE7' }}
               onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
-              title="Sposta su"
+              title="Move up"
             >▲</button>
             <button
               onClick={() => onMove?.(shot.id, 'down')}
@@ -64,7 +66,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
               style={{ ...arrowBtnStyle, opacity: isLast ? 0.2 : 0.7 }}
               onMouseEnter={e => { if (!isLast) e.currentTarget.style.color = '#6C5CE7' }}
               onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
-              title="Sposta giù"
+              title="Move down"
             >▼</button>
           </div>
         )}
@@ -72,7 +74,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{shot.code}</span>
             {shot.concept_image_url && (
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', flexShrink: 0 }} title="Reference caricata" />
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', flexShrink: 0 }} title="Reference uploaded" />
             )}
           </div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shot.description}</div>
@@ -88,7 +90,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
               style={{ ...iconBtnStyle, color: '#6C5CE7', opacity: uploading ? 0.3 : 0.5 }}
               onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
               onMouseLeave={e => { e.currentTarget.style.opacity = '0.5' }}
-              title="Carica immagine reference"
+              title="Upload reference image"
             >{uploading ? '⏳' : '🖼️'}</button>
             {/* Delete */}
             <button onClick={handleDelete}

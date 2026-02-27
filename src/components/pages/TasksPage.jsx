@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { DEPTS, isStaff } from '../../lib/constants'
+import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
 import Pill from '../ui/Pill'
@@ -9,12 +10,19 @@ import TaskCard from '../tasks/TaskCard'
 import CreateTaskModal from '../tasks/CreateTaskModal'
 import TaskDetailModal from '../tasks/TaskDetailModal'
 
-export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, onUpdateTask, onDeleteTask, onAddComment, addToast, requestConfirm, deepLink, clearDeepLink }) {
+export default function TasksPage({
+  tasks, shots, profiles, user,
+  onCreateTask, onUpdateTask, onDeleteTask, onRejectTask, onAddWipComment,
+  onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
+  wipViews,
+  addToast, requestConfirm, deepLink, clearDeepLink,
+}) {
   const [filter, setFilter] = useState({ dept: '', status: '', user: '' })
   const [showCreate, setShowCreate] = useState(false)
   const [selectedTask, setSelectedTask] = useState(null)
   const [viewMode, setViewMode] = useState('all')
   const staff = isStaff(user.role)
+  const isMobile = useIsMobile()
 
   // Deep link: auto-open task from notification
   useEffect(() => {
@@ -24,6 +32,14 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
       clearDeepLink()
     }
   }, [deepLink, tasks])
+
+  // Keep selected task fresh when tasks list updates
+  useEffect(() => {
+    if (selectedTask) {
+      const fresh = tasks.find(t => t.id === selectedTask.id)
+      if (fresh) setSelectedTask(fresh)
+    }
+  }, [tasks])
 
   const filteredTasks = tasks.filter(t => {
     if (viewMode === 'mine' && !staff && t.assigned_to !== user.id) return false
@@ -42,25 +58,25 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
             <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Tasks</h1>
-            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Gestisci tutti i task' : 'I tuoi task'}</p>
+            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Manage all tasks' : 'Your tasks'}</p>
           </div>
-          {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nuovo Task</Btn>}
+          {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ New Task</Btn>}
         </div>
       </Fade>
 
       {/* Filters */}
       <Fade delay={50}>
         <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Pill label="Tutti" active={viewMode === 'all'} onClick={() => setViewMode('all')} />
-          <Pill label="I Miei" active={viewMode === 'mine'} onClick={() => setViewMode('mine')} />
+          <Pill label="All" active={viewMode === 'all'} onClick={() => setViewMode('all')} />
+          <Pill label="Mine" active={viewMode === 'mine'} onClick={() => setViewMode('mine')} />
           <div style={{ width: 1, height: 22, background: '#E2E8F0', margin: '0 6px' }} />
-          <Pill label="Tutti i Reparti" active={!filter.dept} onClick={() => setFilter(f => ({ ...f, dept: '' }))} />
+          <Pill label="All Departments" active={!filter.dept} onClick={() => setFilter(f => ({ ...f, dept: '' }))} />
           {DEPTS.map(d => <Pill key={d.id} label={d.label} active={filter.dept === d.id} onClick={() => setFilter(f => ({ ...f, dept: d.id }))} />)}
           {staff && (
             <>
               <div style={{ width: 1, height: 22, background: '#E2E8F0', margin: '0 6px' }} />
               <Select value={filter.user} onChange={v => setFilter(f => ({ ...f, user: v }))}
-                options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Tutti gli studenti"
+                options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="All students"
                 style={{ padding: '7px 14px', fontSize: 12, borderRadius: 12 }} />
             </>
           )}
@@ -69,16 +85,20 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
 
       {/* Task grid */}
       {filteredTasks.length === 0 ? (
-        <EmptyState icon="📋" title="Nessun task" sub={staff ? 'Crea il primo task' : 'Nessun task assegnato'} />
+        <EmptyState icon="📋" title="No tasks" sub={staff ? 'Create the first task' : 'No tasks assigned'} />
       ) : (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-          gap: 20,
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))',
+          gap: isMobile ? 12 : 20,
         }}>
           {filteredTasks.map((task, i) => (
             <Fade key={task.id} delay={Math.min(i * 20, 300)}>
-              <TaskCard task={task} user={user} staff={staff} onClick={() => setSelectedTask(task)} />
+              <TaskCard
+                task={task} user={user} staff={staff}
+                onClick={() => setSelectedTask(task)}
+                wipViews={wipViews}
+              />
             </Fade>
           ))}
         </div>
@@ -93,7 +113,10 @@ export default function TasksPage({ tasks, shots, profiles, user, onCreateTask, 
         <TaskDetailModal
           task={selectedTask} user={user} staff={staff} profiles={profiles}
           onClose={() => setSelectedTask(null)}
-          onUpdate={onUpdateTask} onDelete={onDeleteTask} onComment={onAddComment}
+          onUpdate={onUpdateTask} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}
+          onCreateWipUpdate={onCreateWipUpdate}
+          onCommitForReview={onCommitForReview}
+          onMarkWipViewed={onMarkWipViewed}
           addToast={addToast} requestConfirm={requestConfirm}
         />
       )}

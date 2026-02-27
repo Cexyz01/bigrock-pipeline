@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
-import { DEPTS, SHOT_STATUSES, isStaff, ACCENT } from '../../lib/constants'
+import { DEPTS, SHOT_STATUSES, isStaff, isAdmin, ACCENT } from '../../lib/constants'
+import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
 import Input from '../ui/Input'
@@ -7,18 +8,31 @@ import Modal from '../ui/Modal'
 import EmptyState from '../ui/EmptyState'
 import ShotRow from '../shots/ShotRow'
 
-export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, onSyncMiro, addToast, requestConfirm }) {
+export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, onSyncMiro, onFixMiro, addToast, requestConfirm }) {
   const [showCreate, setShowCreate] = useState(false)
   const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '' })
   const [refFile, setRefFile] = useState(null)
   const [refPreview, setRefPreview] = useState(null)
   const [syncing, setSyncing] = useState(false)
+  const [fixing, setFixing] = useState(false)
   const refInputRef = useRef(null)
   const staff = isStaff(user.role)
+  const isMobile = useIsMobile()
 
-  const handleSyncMiro = async () => {
-    setSyncing(true)
-    try { await onSyncMiro() } finally { setSyncing(false) }
+  const handleSyncMiro = () => {
+    requestConfirm(
+      'Rebuild entire Miro?',
+      'This operation deletes the entire Miro board and recreates it from scratch. Use "Fix Miro" to fix only missing images.',
+      async () => {
+        setSyncing(true)
+        try { await onSyncMiro() } finally { setSyncing(false) }
+      }
+    )
+  }
+
+  const handleFixMiro = async () => {
+    setFixing(true)
+    try { await onFixMiro() } finally { setFixing(false) }
   }
 
   const cycleShotStatus = useCallback(async (shot, deptId) => {
@@ -78,32 +92,35 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Shot Tracker</h1>
-            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Clicca le celle per cambiare stato' : 'Vista in sola lettura'}</p>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Shot Tracker</h1>
+            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Aggiungi Shot</Btn>}
-            {staff && <Btn variant="default" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12 }}>🔄 Sync Miro</Btn>}
+            {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Add Shot</Btn>}
+            {isAdmin(user.role) && <Btn variant="default" loading={fixing} onClick={handleFixMiro} style={{ fontSize: 12 }}>🔧 Fix Miro</Btn>}
+            {isAdmin(user.role) && <Btn variant="default" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12, background: '#FEE2E2', color: '#DC2626', borderColor: '#FECACA' }}>⚠️ Rebuild Miro</Btn>}
           </div>
         </div>
       </Fade>
 
       {/* Header */}
+      <div style={isMobile ? { overflowX: 'auto', WebkitOverflowScrolling: 'touch' } : {}}>
       <div style={{
-        display: 'grid', gridTemplateColumns: '200px repeat(6, 80px)', gap: 3,
+        display: 'grid', gridTemplateColumns: isMobile ? '140px repeat(6, 64px)' : '200px repeat(6, 80px)', gap: 3,
         padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
         position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
+        minWidth: isMobile ? 'max-content' : undefined,
       }}>
         <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 8 }}>Shot</div>
         {DEPTS.map(d => (
-          <div key={d.id} style={{ fontSize: 11, textAlign: 'center', color: '#64748B' }}>
-            <div style={{ fontSize: 10, marginTop: 2, fontWeight: 500 }}>{d.label}</div>
+          <div key={d.id} style={{ fontSize: isMobile ? 9 : 11, textAlign: 'center', color: '#64748B' }}>
+            <div style={{ fontSize: isMobile ? 9 : 10, marginTop: 2, fontWeight: 500 }}>{d.label}</div>
           </div>
         ))}
       </div>
 
       {shots.length === 0 ? (
-        <EmptyState title="Nessuno shot" sub={staff ? 'Aggiungi il primo shot per iniziare' : 'Gli shot appariranno qui'} />
+        <EmptyState title="No shots" sub={staff ? 'Add the first shot to get started' : 'Shots will appear here'} />
       ) : (
         seqs.map((seq, si) => {
           const seqShots = shots.filter(sh => sh.sequence === seq)
@@ -131,8 +148,10 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
         })
       )}
 
+      </div>{/* close scroll wrapper */}
+
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1' }}>
+      <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap' }}>
         {SHOT_STATUSES.map(st => (
           <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1.5px solid ${st.color}50` }} />
@@ -142,15 +161,15 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       </div>
 
       {/* Create Modal */}
-      <Modal open={showCreate} onClose={handleCloseCreate} title="Aggiungi Shot">
+      <Modal open={showCreate} onClose={handleCloseCreate} title="Add Shot">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Input value={newShot.code} onChange={v => setNewShot(p => ({ ...p, code: v }))} placeholder="Codice shot (es. SH010)" />
-          <Input value={newShot.sequence} onChange={v => setNewShot(p => ({ ...p, sequence: v }))} placeholder="Sequenza (es. SEQ01)" />
-          <Input value={newShot.description} onChange={v => setNewShot(p => ({ ...p, description: v }))} placeholder="Descrizione" />
+          <Input value={newShot.code} onChange={v => setNewShot(p => ({ ...p, code: v }))} placeholder="Shot code (e.g. SH010)" />
+          <Input value={newShot.sequence} onChange={v => setNewShot(p => ({ ...p, sequence: v }))} placeholder="Sequence (e.g. SEQ01)" />
+          <Input value={newShot.description} onChange={v => setNewShot(p => ({ ...p, description: v }))} placeholder="Description" />
 
           {/* Reference image upload */}
           <div>
-            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Immagine Reference (opzionale)</div>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Reference Image (optional)</div>
             <input ref={refInputRef} type="file" accept="image/*" onChange={handleRefSelect} style={{ display: 'none' }} />
             {refPreview ? (
               <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '2px solid ' + ACCENT }}>
@@ -167,12 +186,12 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
                 onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
                 onMouseLeave={e => e.currentTarget.style.borderColor = '#CBD5E1'}
               >
-                📷 Clicca per selezionare immagine
+                📷 Click to select image
               </div>
             )}
           </div>
 
-          <Btn variant="primary" onClick={handleCreate} disabled={!newShot.code}>Crea Shot</Btn>
+          <Btn variant="primary" onClick={handleCreate} disabled={!newShot.code}>Create Shot</Btn>
         </div>
       </Modal>
     </div>

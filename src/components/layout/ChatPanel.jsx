@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { DEPTS, CHAT_EMOJIS, isStaff } from '../../lib/constants'
+import { DEPTS, CHAT_EMOJIS, isStaff, displayRole } from '../../lib/constants'
 import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, getDMConversations, getDMMessages, sendDM, markDMsRead, subscribeToDMs } from '../../lib/supabase'
 import Av from '../ui/Av'
 
-export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCount = 0, onDmRead }) {
+export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCount = 0, onDmRead, isMobile = false }) {
   const staff = isStaff(user.role)
   const channels = ['general']
   if (staff) {
@@ -188,12 +188,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
           {!isMine && !isDM && (
             <div style={{ fontSize: 10, fontWeight: 600, color: '#64748B', marginBottom: 3 }}>
               {author?.full_name}
-              {author?.role !== 'studente' && <span style={{ color: '#6C5CE7', marginLeft: 4 }}>{author?.role}</span>}
+              {author?.role !== 'studente' && <span style={{ color: '#6C5CE7', marginLeft: 4 }}>{displayRole(author?.role)}</span>}
             </div>
           )}
           <div style={{ fontSize: 13, color: '#1a1a2e', lineHeight: 1.6, wordBreak: 'break-word' }}>{m.body}</div>
           <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 4, textAlign: isMine ? 'right' : 'left' }}>
-            {new Date(m.created_at).toLocaleTimeString('it', { hour: '2-digit', minute: '2-digit' })}
+            {new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
       </div>
@@ -202,25 +202,50 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
 
   return (
     <>
-      <button className="chat-tab-handle" onClick={onToggle} style={{ right: open ? 380 : 0 }}>
-        Chat
-        {dmUnreadCount > 0 && !open && (
-          <span style={{
-            display: 'inline-block', marginLeft: 6,
-            fontSize: 9, fontWeight: 700, background: '#EF4444', color: '#fff',
-            padding: '1px 5px', borderRadius: 8, minWidth: 14, textAlign: 'center',
-            verticalAlign: 'middle',
-          }}>{dmUnreadCount}</span>
-        )}
-      </button>
+      {/* Desktop: side tab handle / Mobile: FAB */}
+      {!isMobile ? (
+        <button
+          className={`chat-tab-handle${dmUnreadCount > 0 && !open ? ' chat-tab-unread' : ''}`}
+          onClick={onToggle}
+          style={{ right: open ? 380 : 0 }}
+        >
+          Chat
+        </button>
+      ) : !open ? (
+        <button
+          className="mobile-chat-fab"
+          onClick={onToggle}
+          style={{
+            position: 'fixed', bottom: 76, right: 16, zIndex: 45,
+            width: 52, height: 52, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #6C5CE7, #A29BFE)',
+            border: 'none', cursor: 'pointer',
+            boxShadow: '0 4px 16px rgba(108,92,231,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: 22,
+          }}
+        >
+          💬
+          {dmUnreadCount > 0 && (
+            <span style={{
+              position: 'absolute', top: -2, right: -2,
+              fontSize: 9, fontWeight: 700, background: '#EF4444', color: '#fff',
+              padding: '2px 6px', borderRadius: 8, minWidth: 16, textAlign: 'center',
+            }}>{dmUnreadCount}</span>
+          )}
+        </button>
+      ) : null}
 
       {open && (
         <div style={{
-          position: 'fixed', right: 0, top: 0, bottom: 0, width: 380,
-          background: '#fff', borderLeft: '1px solid #E8ECF1',
-          display: 'flex', flexDirection: 'column', zIndex: 55,
-          animation: 'slideInRight 0.25s ease',
-          boxShadow: '-4px 0 24px rgba(0,0,0,0.06)',
+          position: 'fixed',
+          ...(isMobile
+            ? { inset: 0, width: '100%', borderRadius: 0, animation: 'slideInUp 0.25s ease' }
+            : { right: 0, top: 0, bottom: 0, width: 380, animation: 'slideInRight 0.25s ease', borderLeft: '1px solid #E8ECF1' }
+          ),
+          background: '#fff',
+          display: 'flex', flexDirection: 'column', zIndex: isMobile ? 100 : 55,
+          boxShadow: isMobile ? 'none' : '-4px 0 24px rgba(0,0,0,0.06)',
         }}>
           {/* Header */}
           <div style={{ padding: '18px 20px', borderBottom: '1px solid #E8ECF1', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -242,7 +267,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                   border: `1px solid ${mode === m ? 'rgba(108,92,231,0.15)' : '#E8ECF1'}`,
                   cursor: 'pointer', transition: 'all 0.12s ease', position: 'relative',
                 }}>
-                {m === 'channels' ? 'Canali' : 'Messaggi'}
+                {m === 'channels' ? 'Channels' : 'Messages'}
                 {m === 'dm' && (dmUnreadCount || totalDMUnread) > 0 && (
                   <span style={{
                     position: 'absolute', top: -4, right: -4,
@@ -272,7 +297,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: 12, padding: 48 }}>Nessun messaggio</div>
+                  <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: 12, padding: 48 }}>No messages</div>
                 ) : messages.map(m => renderMessage(m, false))}
                 <div ref={endRef} />
               </div>
@@ -291,7 +316,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                     color: '#6C5CE7', border: '1px solid rgba(108,92,231,0.15)',
                     cursor: 'pointer', transition: 'all 0.12s ease',
                   }}>
-                  + Nuovo messaggio
+                  + New message
                 </button>
               </div>
 
@@ -299,7 +324,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
               {showNewDM && (
                 <div style={{ padding: '0 16px 12px', borderBottom: '1px solid #E8ECF1' }}>
                   {dmContacts.length === 0 ? (
-                    <div style={{ padding: 16, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>Nessun contatto disponibile</div>
+                    <div style={{ padding: 16, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No contacts available</div>
                   ) : dmContacts.map(p => (
                     <div key={p.id}
                       onClick={() => { setDmPeer(p); setShowNewDM(false) }}
@@ -313,7 +338,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                       <Av name={p.full_name} size={28} url={p.avatar_url} mood={p.mood_emoji} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{p.full_name}</div>
-                        <div style={{ fontSize: 10, color: '#94A3B8' }}>{p.role}{p.department ? ` · ${p.department}` : ''}</div>
+                        <div style={{ fontSize: 10, color: '#94A3B8' }}>{displayRole(p.role)}{p.department ? ` · ${p.department}` : ''}</div>
                       </div>
                     </div>
                   ))}
@@ -323,7 +348,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
               {/* Conversation list */}
               {conversations.length === 0 && !showNewDM ? (
                 <div style={{ padding: 48, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>
-                  Nessuna conversazione
+                  No conversations
                 </div>
               ) : conversations.map(conv => (
                 <div key={conv.user.id}
@@ -341,12 +366,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 13, fontWeight: conv.unread > 0 ? 700 : 500, color: '#1a1a2e' }}>{conv.user.full_name}</span>
                       <span style={{ fontSize: 10, color: '#94A3B8' }}>
-                        {new Date(conv.lastMessage.created_at).toLocaleTimeString('it', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(conv.lastMessage.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                       <span style={{ fontSize: 11, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                        {conv.lastMessage.sender_id === user.id ? 'Tu: ' : ''}{conv.lastMessage.body}
+                        {conv.lastMessage.sender_id === user.id ? 'You: ' : ''}{conv.lastMessage.body}
                       </span>
                       {conv.unread > 0 && (
                         <span style={{
@@ -371,12 +396,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                 <Av name={dmPeer.full_name} size={28} url={dmPeer.avatar_url} mood={dmPeer.mood_emoji} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{dmPeer.full_name}</div>
-                  <div style={{ fontSize: 10, color: '#94A3B8' }}>{dmPeer.role}</div>
+                  <div style={{ fontSize: 10, color: '#94A3B8' }}>{displayRole(dmPeer.role)}</div>
                 </div>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {dmMessages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: 12, padding: 48 }}>Inizia la conversazione</div>
+                  <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: 12, padding: 48 }}>Start the conversation</div>
                 ) : dmMessages.map(m => renderMessage(m, true))}
                 <div ref={endRef} />
               </div>
@@ -405,7 +430,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
                   ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
-                  placeholder={mode === 'dm' ? `Messaggio a ${dmPeer?.full_name}...` : 'Scrivi un messaggio...'}
+                  placeholder={mode === 'dm' ? `Message to ${dmPeer?.full_name}...` : 'Write a message...'}
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
                   style={{
                     flex: 1, padding: '11px 16px', fontSize: 13,

@@ -1,12 +1,14 @@
 import { useState, useRef } from 'react'
-import { DEPTS, MOOD_EMOJIS, isStaff } from '../../lib/constants'
+import { DEPTS, MOOD_EMOJIS, isStaff, displayRole } from '../../lib/constants'
 import { uploadAvatar, updateProfile } from '../../lib/supabase'
+import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Av from '../ui/Av'
 import Btn from '../ui/Btn'
 
 export default function ProfilePage({ user, onProfileUpdate, addToast }) {
+  const isMobile = useIsMobile()
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const fileRef = useRef(null)
@@ -18,7 +20,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 1024 * 1024) {
-      addToast('Immagine troppo grande (max 1MB)', 'error')
+      addToast('Image too large (max 1MB)', 'error')
       return
     }
     setUploading(true)
@@ -26,9 +28,9 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
     if (!error && url) {
       await updateProfile(user.id, { avatar_url: url })
       onProfileUpdate({ ...user, avatar_url: url })
-      addToast('Avatar aggiornato!', 'success')
+      addToast('Avatar updated!', 'success')
     } else {
-      addToast('Errore nel caricamento', 'error')
+      addToast('Upload error', 'error')
     }
     setUploading(false)
   }
@@ -38,7 +40,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
     setDeleting(true)
     await updateProfile(user.id, { avatar_url: null })
     onProfileUpdate({ ...user, avatar_url: null })
-    addToast('Avatar rimosso', 'success')
+    addToast('Avatar removed', 'success')
     setDeleting(false)
   }
 
@@ -46,19 +48,19 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
     const newMood = user.mood_emoji === emoji ? null : emoji
     await updateProfile(user.id, { mood_emoji: newMood })
     onProfileUpdate({ ...user, mood_emoji: newMood })
-    addToast(newMood ? `Mood: ${newMood}` : 'Mood rimosso', 'success')
+    addToast(newMood ? `Mood: ${newMood}` : 'Mood removed', 'success')
   }
 
   return (
     <div style={{ maxWidth: 640 }}>
       <Fade>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Profilo</h1>
-        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Personalizza il tuo profilo</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Profile</h1>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Customize your profile</p>
       </Fade>
 
       <Fade delay={100}>
         <Card style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 28 }}>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'center' : 'center', gap: isMobile ? 16 : 24, marginBottom: 28, textAlign: isMobile ? 'center' : 'left' }}>
             <div style={{ position: 'relative' }}>
               <Av name={user.full_name} size={84} url={user.avatar_url} mood={user.mood_emoji} />
               <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
@@ -69,13 +71,13 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
               <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                 <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
                   style={{ padding: '7px 16px', fontSize: 12 }}>
-                  Cambia Avatar
+                  Change Avatar
                 </Btn>
                 {/* #6: Delete avatar button */}
                 {user.avatar_url && (
                   <Btn variant="danger" onClick={handleDeleteAvatar} loading={deleting}
                     style={{ padding: '7px 16px', fontSize: 12 }}>
-                    Rimuovi
+                    Remove
                   </Btn>
                 )}
               </div>
@@ -83,20 +85,20 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <InfoField label="Ruolo" value={user.role} />
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 10 : 16 }}>
+            <InfoField label="Role" value={displayRole(user.role)} />
             {/* #7: Staff don't show department */}
-            {!staff && <InfoField label="Dipartimento" value={dept ? dept.label : 'Non assegnato'} />}
+            {!staff && <InfoField label="Department" value={dept ? dept.label : 'Unassigned'} />}
             <InfoField label="Email" value={user.email} />
-            <InfoField label="Membro dal" value={user.created_at ? new Date(user.created_at).toLocaleDateString('it') : '-'} />
+            <InfoField label="Member since" value={user.created_at ? new Date(user.created_at).toLocaleDateString('en') : '-'} />
           </div>
         </Card>
       </Fade>
 
       <Fade delay={200}>
         <Card>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#1a1a2e' }}>Mood del Giorno</div>
-          <div style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>Scegli un emoji che rappresenta come ti senti oggi</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#1a1a2e' }}>Mood of the Day</div>
+          <div style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>Choose an emoji that represents how you feel today</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {MOOD_EMOJIS.map(e => (
               <button key={e} onClick={() => handleMood(e)}

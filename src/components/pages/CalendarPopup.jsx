@@ -18,7 +18,7 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
   }
 
   const handleDelete = (ev) => {
-    requestConfirm(`Eliminare "${ev.title}"?`, () => onDelete(ev.id))
+    requestConfirm(`Delete "${ev.title}"?`, () => onDelete(ev.id))
   }
 
   const milestones = events.filter(e => e.is_milestone)
@@ -27,14 +27,14 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>Calendario</h2>
-        {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={{ padding: '6px 14px', fontSize: 12 }}>+ Evento</Btn>}
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>Calendar</h2>
+        {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={{ padding: '6px 14px', fontSize: 12 }}>+ Event</Btn>}
       </div>
 
       {/* Milestones */}
       <div style={{ marginBottom: 20 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: '#64748B' }}>Milestones</h3>
-        {milestones.length === 0 ? <span style={{ color: '#94A3B8', fontSize: 12 }}>Nessuna milestone</span> : (
+        {milestones.length === 0 ? <span style={{ color: '#94A3B8', fontSize: 12 }}>No milestones</span> : (
           <div style={{ position: 'relative', paddingLeft: 24 }}>
             <div style={{ position: 'absolute', left: 8, top: 6, bottom: 6, width: 1.5, background: '#E8ECF1', borderRadius: 1 }} />
             {milestones.map((ms, i) => {
@@ -47,7 +47,7 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff',
                   }}>{past ? '✓' : ''}</div>
                   <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: past ? '#10B981' : '#1a1a2e' }}>{ms.title}</span>
-                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{new Date(ms.event_date).toLocaleDateString('it', { day: 'numeric', month: 'short' })}</span>
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{new Date(ms.event_date).toLocaleDateString('en', { day: 'numeric', month: 'short' })}</span>
                   {staff && <button onClick={() => handleDelete(ms)} style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 11, cursor: 'pointer', opacity: 0.4 }}>✕</button>}
                 </div>
               )
@@ -57,9 +57,9 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
       </div>
 
       {/* Upcoming */}
-      <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#64748B' }}>Prossimi Eventi</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#64748B' }}>Upcoming Events</h3>
       {upcoming.length === 0 ? (
-        <span style={{ color: '#94A3B8', fontSize: 12 }}>Nessun evento in programma</span>
+        <span style={{ color: '#94A3B8', fontSize: 12 }}>No upcoming events</span>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {upcoming.map(ev => (
@@ -69,7 +69,7 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#6C5CE7' }}>{new Date(ev.event_date).getDate()}</span>
-                <span style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase' }}>{new Date(ev.event_date).toLocaleDateString('it', { month: 'short' })}</span>
+                <span style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase' }}>{new Date(ev.event_date).toLocaleDateString('en', { month: 'short' })}</span>
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{ev.title}</div>
@@ -82,10 +82,10 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
       )}
 
       {/* Create */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Aggiungi Evento">
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Add Event">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Input value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Titolo evento" />
-          <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Descrizione (opzionale)" />
+          <Input value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Event title" />
+          <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Description (optional)" />
           <div style={{ display: 'flex', gap: 10 }}>
             <Input type="date" value={form.event_date} onChange={v => setForm(f => ({ ...f, event_date: v }))} style={{ flex: 1 }} />
             <Input type="time" value={form.event_time} onChange={v => setForm(f => ({ ...f, event_time: v }))} style={{ flex: 1 }} />
@@ -94,7 +94,7 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
             <input type="checkbox" checked={form.is_milestone} onChange={e => setForm(f => ({ ...f, is_milestone: e.target.checked }))} />
             Milestone
           </label>
-          <Btn variant="primary" onClick={handleCreate} disabled={!form.title || !form.event_date}>Crea</Btn>
+          <Btn variant="primary" onClick={handleCreate} disabled={!form.title || !form.event_date}>Create</Btn>
         </div>
       </Modal>
     </div>

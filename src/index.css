@@ -1,13 +1,25 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Re-enable selection where it makes sense */
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+p, .selectable, td, th, pre, code, blockquote {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #F0F2F5;
   color: #1a1a2e;
   font-size: 14px;
@@ -83,6 +95,21 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: -4px 0 24px rgba(108,92,231,0.4);
 }
 
+/* Chat tab — unread pulse: purple ↔ red */
+@keyframes chatPulse {
+  0%, 100% {
+    background: linear-gradient(180deg, #6C5CE7, #A29BFE);
+    box-shadow: -2px 0 16px rgba(108,92,231,0.3);
+  }
+  50% {
+    background: linear-gradient(180deg, #E74C3C, #FF6B6B);
+    box-shadow: -4px 0 24px rgba(231,76,60,0.5), 0 0 12px rgba(255,107,107,0.3);
+  }
+}
+.chat-tab-unread {
+  animation: chatPulse 2s ease-in-out infinite;
+}
+
 /* Emoji picker */
 .emoji-picker-grid {
   display: grid;
@@ -102,3 +129,24 @@ button { font-family: inherit; cursor: pointer; }
   background: rgba(108,92,231,0.08);
   transform: scale(1.2);
 }
+
+/* ── Mobile ── */
+@keyframes slideInUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (max-width: 767px) {
+  .chat-tab-handle { display: none !important; }
+  .emoji-picker-grid { grid-template-columns: repeat(6, 1fr); }
+  .emoji-picker-grid button { width: 38px; height: 38px; }
+}
+
+/* Safe area for notched phones */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .mobile-bottom-bar { padding-bottom: calc(8px + env(safe-area-inset-bottom)) !important; }
+  .mobile-chat-fab { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+}
+
+/* Lock scroll when mobile overlay open */
+body.mobile-overlay-open { overflow: hidden !important; position: fixed; width: 100%; }

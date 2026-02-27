@@ -1,32 +1,59 @@
 import { useState, useEffect, useRef } from 'react'
-import { DEPTS, isStaff } from '../../lib/constants'
-import { getComments } from '../../lib/supabase'
-import { uploadWipImagesToMiro, fileToBase64 } from '../../lib/miro'
-import Modal from '../ui/Modal'
+import { DEPTS, isStaff, displayRole } from '../../lib/constants'
+import { getWipUpdates, getWipComments } from '../../lib/supabase'
+import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
 import Av from '../ui/Av'
 import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
+import { IconX, IconImage, IconSend } from '../ui/Icons'
 
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 
-export default function TaskDetailModal({ task, user, staff, profiles, onClose, onUpdate, onDelete, onComment, addToast, requestConfirm }) {
-  const [comments, setComments] = useState([])
-  const [newComment, setNewComment] = useState('')
+export default function TaskDetailModal({
+  task, user, staff, profiles, onClose, onUpdate, onDelete, onReject, onAddWipComment,
+  onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
+  addToast, requestConfirm,
+}) {
+  const isMobile = useIsMobile()
+  const [mobileTab, setMobileTab] = useState('info') // mobile: info | wip
+  const [wipUpdates, setWipUpdates] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
+  // WIP publish form (student)
   const [wipFiles, setWipFiles] = useState([])
   const [wipPreviews, setWipPreviews] = useState([])
-  const commentsEndRef = useRef(null)
+  const [wipNote, setWipNote] = useState('')
+  const [publishing, setPublishing] = useState(false)
+  // Image lightbox
+  const [lightboxUrl, setLightboxUrl] = useState(null)
+  // Per-WIP comments
+  const [wipComments, setWipComments] = useState({})         // { [wipUpdateId]: [comment, ...] }
+  const [wipCommentInputs, setWipCommentInputs] = useState({}) // { [wipUpdateId]: string }
+
   const fileInputRef = useRef(null)
   const dept = DEPTS.find(d => d.id === task.department)
   const isOwner = task.assigned_to === user.id
-  const canComment = staff || isOwner
 
+  // Load WIP updates + per-WIP comments
   useEffect(() => {
-    getComments(task.id).then(c => { setComments(c); setLoading(false) })
+    getWipUpdates(task.id).then(async (w) => {
+      setWipUpdates(w)
+      // Batch-fetch all WIP comments
+      const wipIds = w.map(u => u.id)
+      const allComments = await getWipComments(wipIds)
+      const grouped = {}
+      for (const c of allComments) {
+        if (!grouped[c.wip_update_id]) grouped[c.wip_update_id] = []
+        grouped[c.wip_update_id].push(c)
+      }
+      setWipComments(grouped)
+      setLoading(false)
+    })
+    // Staff: mark WIP as viewed when opening
+    if (staff && onMarkWipViewed) onMarkWipViewed(task.id)
   }, [task.id])
 
   // Cleanup object URLs on unmount
@@ -34,12 +61,7 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
     return () => wipPreviews.forEach(url => URL.revokeObjectURL(url))
   }, [])
 
-  // Scroll commenti in fondo quando caricati o quando ne arriva uno nuovo
-  useEffect(() => {
-    if (comments.length > 0) {
-      setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-    }
-  }, [comments])
+  // ── Handlers ──
 
   const handleAction = async (action, updates, successMsg) => {
     setActionLoading(action)
@@ -49,46 +71,41 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
     onClose()
   }
 
-  const handleComment = async () => {
-    if (!newComment.trim()) return
-    const { data } = await onComment(task.id, user.id, newComment.trim())
-    if (data) setComments(prev => [...prev, data])
-    setNewComment('')
+  const handleReject = async () => {
+    setActionLoading('reject')
+    await onReject(task.id)
+    setActionLoading(null)
+    onClose()
   }
 
   const handleDelete = () => {
-    requestConfirm(`Eliminare il task "${task.title}"?`, () => { onDelete(task.id); onClose() })
+    requestConfirm(`Delete task "${task.title}"?`, () => { onDelete(task.id); onClose() })
   }
 
   const handleAssign = async (userId) => {
     await onUpdate(task.id, { assigned_to: userId || null })
-    if (addToast) addToast('Assegnazione aggiornata', 'success')
+    if (addToast) addToast('Assignment updated', 'success')
   }
 
+  // WIP file management
   const handleFilesSelect = (e) => {
     const selected = Array.from(e.target.files || [])
     if (!selected.length) return
-
-    // Check how many slots are available
     const available = MAX_IMAGES - wipFiles.length
     if (available <= 0) {
-      if (addToast) addToast(`Massimo ${MAX_IMAGES} immagini`, 'danger')
+      if (addToast) addToast(`Maximum ${MAX_IMAGES} images`, 'danger')
       return
     }
-
     const toAdd = selected.slice(0, available)
     const oversized = toAdd.filter(f => f.size > MAX_FILE_SIZE)
     if (oversized.length > 0) {
-      if (addToast) addToast(`${oversized.length} immagine/i troppo grandi (max 4MB)`, 'danger')
+      if (addToast) addToast(`${oversized.length} image(s) too large (max 4MB)`, 'danger')
     }
     const valid = toAdd.filter(f => f.size <= MAX_FILE_SIZE)
     if (valid.length === 0) return
-
     const newPreviews = valid.map(f => URL.createObjectURL(f))
     setWipFiles(prev => [...prev, ...valid])
     setWipPreviews(prev => [...prev, ...newPreviews])
-
-    // Reset input so the same file can be re-selected
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -98,209 +115,378 @@ export default function TaskDetailModal({ task, user, staff, profiles, onClose, 
     setWipPreviews(prev => prev.filter((_, i) => i !== index))
   }
 
-  const handleSubmitForReview = async () => {
-    setActionLoading('submit')
-    // Upload images to Miro if any were selected and task has a shot
-    if (wipFiles.length > 0 && task.shot_id) {
-      try {
-        const base64Array = await Promise.all(wipFiles.map(f => fileToBase64(f)))
-        await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, user.id)
-      } catch (err) {
-        console.warn('Miro upload failed:', err)
-        // Don't block the review — Miro is fire-and-forget
-      }
+  // Student publishes a WIP update
+  const handlePublishWip = async () => {
+    if (wipFiles.length === 0 && !wipNote.trim()) {
+      if (addToast) addToast('Add at least one image or note', 'danger')
+      return
     }
-    await onUpdate(task.id, { status: 'review' })
-    if (addToast) addToast('Task inviato per review!', 'success')
+    console.log('[WIP] Publishing with', wipFiles.length, 'files:', wipFiles.map(f => `${f.name} (${f.size}b)`))
+    setPublishing(true)
+    const result = await onCreateWipUpdate(task.id, wipNote.trim(), wipFiles)
+    if (result) {
+      // Refresh WIP updates + comments
+      const updated = await getWipUpdates(task.id)
+      setWipUpdates(updated)
+      const wipIds = updated.map(u => u.id)
+      const allComments = await getWipComments(wipIds)
+      const grouped = {}
+      for (const c of allComments) {
+        if (!grouped[c.wip_update_id]) grouped[c.wip_update_id] = []
+        grouped[c.wip_update_id].push(c)
+      }
+      setWipComments(grouped)
+      // Reset form
+      wipPreviews.forEach(url => URL.revokeObjectURL(url))
+      setWipFiles([])
+      setWipPreviews([])
+      setWipNote('')
+    }
+    setPublishing(false)
+  }
+
+  // Staff commits for review
+  const handleCommitReview = async () => {
+    setActionLoading('commit')
+    await onCommitForReview(task.id)
     setActionLoading(null)
     onClose()
   }
 
+  // Per-WIP comment handler (staff only)
+  const handleWipComment = async (wipUpdateId) => {
+    const body = (wipCommentInputs[wipUpdateId] || '').trim()
+    if (!body) return
+    const { data } = await onAddWipComment(wipUpdateId, task.id, user.id, body)
+    if (data) {
+      setWipComments(prev => ({
+        ...prev,
+        [wipUpdateId]: [...(prev[wipUpdateId] || []), data],
+      }))
+    }
+    setWipCommentInputs(prev => ({ ...prev, [wipUpdateId]: '' }))
+  }
+
   const students = profiles ? profiles.filter(p => p.role === 'studente') : []
+  const hasWipUpdates = wipUpdates.length > 0
 
-  return (
-    <Modal open={true} onClose={onClose} title={`${dept?.label || ''} — ${task.title}`}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Info */}
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <StatusBadge status={task.status} type="task" />
-          {task.shot && <span style={{ fontSize: 12, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 6, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>}
-          {task.assigned_user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Av name={task.assigned_user.full_name} size={22} url={task.assigned_user.avatar_url} />
-              <span style={{ fontSize: 12, color: '#64748B' }}>{task.assigned_user.full_name}</span>
-            </div>
-          ) : (
-            <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Non assegnato</span>
-          )}
+  // ── Shared content renderers ──
+  const renderInfoContent = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {task.shot && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Shot</span>
+          <span style={{ fontSize: 12, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 6, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>
         </div>
-
-        {/* Assign (staff, unassigned) */}
-        {staff && (
-          <Select
-            value={task.assigned_to || ''}
-            onChange={handleAssign}
-            options={students.map(s => ({ value: s.id, label: s.full_name }))}
-            placeholder="Assegna a studente..."
-            style={{ fontSize: 12 }}
-          />
-        )}
-
-        {task.description && <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.6, padding: '10px 14px', background: '#F8FAFC', borderRadius: 12 }}>{task.description}</p>}
-
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {/* Staff: full control — start, approve, reject, delete */}
-          {staff && task.status === 'todo' && (
-            <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task avviato!')}>
-              Inizia
-            </Btn>
-          )}
-          {staff && task.status === 'review' && (
-            <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approvato!')}>
-              Approva
-            </Btn>
-          )}
-          {staff && task.status === 'review' && (
-            <Btn variant="danger" loading={actionLoading === 'reject'} onClick={() => handleAction('reject', { status: 'wip' }, 'Revisione richiesta')}>
-              Richiedi Modifiche
-            </Btn>
-          )}
-          {staff && <Btn variant="danger" onClick={handleDelete}>Elimina</Btn>}
-
-          {/* Student: WIP image upload + Submit for Review */}
-          {!staff && isOwner && task.status === 'wip' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-              {/* Multi-image drop zone — only if task has a shot linked */}
-              {task.shot_id && (
-                <div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFilesSelect}
-                    style={{ display: 'none' }}
-                  />
-
-                  {/* Image preview grid */}
-                  {wipPreviews.length > 0 && (
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: wipPreviews.length === 1 ? '1fr' : '1fr 1fr',
-                      gap: 8,
-                      marginBottom: 8,
-                    }}>
-                      {wipPreviews.map((preview, idx) => (
-                        <div key={idx} style={{
-                          position: 'relative',
-                          borderRadius: 10,
-                          overflow: 'hidden',
-                          background: '#F8FAFC',
-                          border: '1px solid #E2E8F0',
-                        }}>
-                          <img
-                            src={preview}
-                            alt={`WIP ${idx + 1}`}
-                            style={{
-                              width: '100%',
-                              height: 120,
-                              objectFit: 'cover',
-                              display: 'block',
-                            }}
-                          />
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleRemoveFile(idx) }}
-                            style={{
-                              position: 'absolute', top: 4, right: 4,
-                              width: 22, height: 22, borderRadius: '50%',
-                              background: 'rgba(0,0,0,0.55)', color: '#fff',
-                              border: 'none', cursor: 'pointer', fontSize: 12,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              lineHeight: 1,
-                            }}
-                          >
-                            X
-                          </button>
-                          <div style={{
-                            fontSize: 10, color: '#94A3B8', padding: '3px 6px',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>
-                            {wipFiles[idx]?.name}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Add image button / drop zone */}
-                  {wipFiles.length < MAX_IMAGES && (
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        border: '2px dashed #E2E8F0', borderRadius: 12,
-                        padding: '16px 12px', textAlign: 'center',
-                        cursor: 'pointer', background: '#F8FAFC',
-                        transition: 'border-color 0.2s ease',
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = '#6C5CE7'}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = '#E2E8F0'}
-                    >
-                      <div style={{ fontSize: 18, marginBottom: 2 }}>
-                        {wipFiles.length === 0 ? '\uD83D\uDDBC\uFE0F' : '+'}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#64748B' }}>
-                        {wipFiles.length === 0
-                          ? 'Allega immagini WIP per Miro'
-                          : `Aggiungi immagine (${wipFiles.length}/${MAX_IMAGES})`
-                        }
-                      </div>
-                      {wipFiles.length === 0 && (
-                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
-                          Fino a {MAX_IMAGES} immagini · Max 4MB ciascuna · PNG, JPG, WEBP
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              <Btn variant="primary" loading={actionLoading === 'submit'} onClick={handleSubmitForReview}>
-                Invia per Review
-              </Btn>
-            </div>
-          )}
-        </div>
-
-        {/* Comments */}
-        <div style={{ borderTop: '1px solid #E8ECF1', paddingTop: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#1a1a2e' }}>Commenti</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
-            {loading ? <span style={{ color: '#94A3B8', fontSize: 13 }}>Caricamento...</span> :
-              comments.length === 0 ? <span style={{ color: '#94A3B8', fontSize: 13 }}>Nessun commento</span> :
-              comments.map(c => (
-                <div key={c.id} style={{ padding: '12px 14px', borderRadius: 10, background: '#F8FAFC' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <Av name={c.author?.full_name} size={20} url={c.author?.avatar_url} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{c.author?.full_name}</span>
-                    {c.author?.role !== 'studente' && <span style={{ fontSize: 10, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '1px 6px', borderRadius: 4 }}>{c.author?.role}</span>}
-                    <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleDateString('it')}</span>
-                  </div>
-                  <div style={{ fontSize: 13, color: '#64748B', lineHeight: 1.5 }}>{c.body}</div>
-                </div>
-              ))
-            }
-            <div ref={commentsEndRef} />
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Assigned</span>
+        {task.assigned_user ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Av name={task.assigned_user.full_name} size={22} url={task.assigned_user.avatar_url} />
+            <span style={{ fontSize: 12, color: '#1a1a2e', fontWeight: 500 }}>{task.assigned_user.full_name}</span>
           </div>
-          {canComment && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Input value={newComment} onChange={setNewComment} placeholder="Scrivi un commento..."
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleComment())} style={{ flex: 1 }} />
-              <Btn variant="primary" onClick={handleComment}>Invia</Btn>
+        ) : (
+          <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
+        )}
+      </div>
+      {staff && (
+        <Select value={task.assigned_to || ''} onChange={handleAssign} options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assign to student..." style={{ fontSize: 12 }} />
+      )}
+      {task.description && (
+        <div>
+          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
+          <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.6, margin: 0, padding: '10px 14px', background: '#F8FAFC', borderRadius: 12 }}>{task.description}</p>
+        </div>
+      )}
+      <div style={{ height: 1, background: '#E8ECF1', margin: '4px 0' }} />
+      {staff && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Actions</span>
+          {task.status === 'todo' && (
+            <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task started!')} style={{ width: '100%', justifyContent: 'center' }}>Start</Btn>
+          )}
+          {task.status === 'wip' && hasWipUpdates && (
+            <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ width: '100%', justifyContent: 'center' }}>Submit for Review</Btn>
+          )}
+          {task.status === 'review' && (
+            <>
+              <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
+              <Btn variant="info" loading={actionLoading === 'reject'} onClick={handleReject} style={{ width: '100%', justifyContent: 'center' }}>Request Changes</Btn>
+            </>
+          )}
+          <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>
+        </div>
+      )}
+    </div>
+  )
+
+  // ── Per-WIP inline comments renderer ──
+  const renderWipCardComments = (updateId) => {
+    const cmts = wipComments[updateId] || []
+    const hasContent = cmts.length > 0 || staff
+    if (!hasContent) return null
+
+    return (
+      <div style={{ marginTop: 10, borderTop: '1px solid #E8ECF1', paddingTop: 10 }}>
+        {/* Existing comments */}
+        {cmts.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: staff ? 10 : 0 }}>
+            {cmts.map(c => (
+              <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <Av name={c.author?.full_name} size={20} url={c.author?.avatar_url} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#1a1a2e' }}>{c.author?.full_name}</span>
+                    {c.author?.role !== 'studente' && (
+                      <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '1px 5px', borderRadius: 4 }}>{displayRole(c.author?.role)}</span>
+                    )}
+                    <span style={{ fontSize: 10, color: '#B0B8C4' }}>
+                      {new Date(c.created_at).toLocaleDateString('en', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.4, marginTop: 2 }}>{c.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Staff comment input */}
+        {staff && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Input
+              value={wipCommentInputs[updateId] || ''}
+              onChange={v => setWipCommentInputs(prev => ({ ...prev, [updateId]: v }))}
+              placeholder="Add feedback..."
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleWipComment(updateId))}
+              style={{ flex: 1, fontSize: 11, padding: '7px 10px' }}
+            />
+            <Btn variant="primary" onClick={() => handleWipComment(updateId)} style={{ padding: '7px 10px' }}>
+              <IconSend size={12} />
+            </Btn>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderWipContent = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? 0 : 20 }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', color: '#94A3B8', paddingTop: 40 }}>Loading...</div>
+        ) : wipUpdates.length === 0 ? (
+          <div style={{ textAlign: 'center', paddingTop: 40 }}>
+            <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}><IconImage size={48} color="#94A3B8" /></div>
+            <div style={{ fontSize: 14, color: '#94A3B8', fontWeight: 500 }}>No WIP updates</div>
+            <div style={{ fontSize: 12, color: '#B0B8C4', marginTop: 4 }}>{isOwner && task.status === 'wip' ? 'Publish your first update below' : 'WIP updates will appear here'}</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {wipUpdates.map((update, idx) => (
+              <div key={update.id} style={{ padding: isMobile ? 12 : 16, borderRadius: 14, background: '#F8FAFC', border: idx === 0 ? '1px solid #6C5CE720' : '1px solid #E8ECF1' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <Av name={update.author?.full_name} size={26} url={update.author?.avatar_url} />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{update.author?.full_name}</span>
+                    {idx === 0 && <span style={{ fontSize: 10, fontWeight: 600, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>Latest</span>}
+                  </div>
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{new Date(update.created_at).toLocaleDateString('en', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                {/* WIP note — displayed as "✅ Done:" */}
+                {update.note && (
+                  <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.5, margin: '0 0 10px' }}>
+                    <span style={{ fontWeight: 600, color: '#059669' }}>✅ Done: </span>
+                    {update.note}
+                  </p>
+                )}
+                {update.images && update.images.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 6 }}>
+                    {update.images.map((imgUrl, imgIdx) => (
+                      <div key={imgIdx} onClick={() => setLightboxUrl(imgUrl)} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', cursor: 'pointer', aspectRatio: '1' }}>
+                        <img src={imgUrl} alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Per-WIP comments section */}
+                {renderWipCardComments(update.id)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Student: WIP publish form */}
+      {!staff && isOwner && task.status === 'wip' && (
+        <div style={{ borderTop: '1px solid #E8ECF1', padding: isMobile ? 12 : 16, background: '#FAFBFD', flexShrink: 0 }}>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelect} style={{ display: 'none' }} />
+          {wipPreviews.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
+              {wipPreviews.map((preview, idx) => (
+                <div key={idx} style={{ position: 'relative', width: 70, height: 70, borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: '1px solid #E2E8F0' }}>
+                  <img src={preview} alt={`WIP ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <button onClick={() => handleRemoveFile(idx)} style={{ position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>X</button>
+                </div>
+              ))}
             </div>
           )}
-          {!canComment && <p style={{ fontSize: 12, color: '#94A3B8' }}>Solo lo studente assegnato e lo staff possono commentare.</p>}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            {wipFiles.length < MAX_IMAGES && (
+              <button onClick={() => fileInputRef.current?.click()} style={{ width: 40, height: 40, borderRadius: 10, border: '2px dashed #CBD5E1', background: '#F8FAFC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#94A3B8' }}><IconImage size={18} /></button>
+            )}
+            <div style={{ flex: 1 }}>
+              <input value={wipNote} onChange={e => setWipNote(e.target.value)} placeholder="What did you work on?..." onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handlePublishWip())} style={{ width: '100%', padding: '10px 14px', fontSize: 13, border: '1px solid #E2E8F0', borderRadius: 10, outline: 'none', background: '#fff' }} />
+            </div>
+            <Btn variant="primary" loading={publishing} onClick={handlePublishWip} disabled={wipFiles.length === 0 && !wipNote.trim()} style={{ flexShrink: 0, padding: '10px 16px' }}>Publish</Btn>
+          </div>
+          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} images · Max 4MB</div>
+        </div>
+      )}
+      {staff && task.status === 'wip' && hasWipUpdates && (
+        <div style={{ borderTop: '1px solid #E8ECF1', padding: '12px 16px', background: '#FAFBFD', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 12, color: '#64748B' }}>{wipUpdates.length} WIP update{wipUpdates.length === 1 ? '' : 's'}</span>
+          <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ padding: '10px 24px' }}>Submit for Review</Btn>
+        </div>
+      )}
+    </div>
+  )
+
+  // ── Render ──
+
+  // ═══ MOBILE LAYOUT ═══
+  if (isMobile) {
+    return (
+      <>
+        <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15,23,42,0.4)' }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, top: 40,
+            background: '#fff', borderRadius: '20px 20px 0 0',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 -8px 32px rgba(0,0,0,0.12)',
+            animation: 'slideInUp 0.2s ease', overflow: 'hidden',
+          }}>
+            {/* Drag handle */}
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: '#CBD5E1', margin: '10px auto 0' }} />
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #E8ECF1', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                {dept && <span style={{ width: 10, height: 10, borderRadius: '50%', background: dept.color, flexShrink: 0 }} />}
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</h2>
+                <StatusBadge status={task.status} type="task" />
+              </div>
+              <button onClick={onClose} style={{ background: '#F1F5F9', border: 'none', color: '#64748B', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><IconX size={16} /></button>
+            </div>
+            {/* Mobile tabs — Info | WIP */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #E8ECF1', flexShrink: 0 }}>
+              {[{ k: 'info', l: 'Info' }, { k: 'wip', l: `WIP${wipUpdates.length > 0 ? ` (${wipUpdates.length})` : ''}` }].map(t => (
+                <button key={t.k} onClick={() => setMobileTab(t.k)} style={{
+                  flex: 1, padding: '11px 0', fontSize: 12, fontWeight: mobileTab === t.k ? 700 : 500,
+                  color: mobileTab === t.k ? '#6C5CE7' : '#64748B', background: 'none', border: 'none', cursor: 'pointer',
+                  borderBottom: mobileTab === t.k ? '2px solid #6C5CE7' : '2px solid transparent',
+                }}>{t.l}</button>
+              ))}
+            </div>
+            {/* Tab content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              {mobileTab === 'info' && renderInfoContent()}
+              {mobileTab === 'wip' && renderWipContent()}
+            </div>
+          </div>
+        </div>
+        {/* Lightbox */}
+        {lightboxUrl && (
+          <div onClick={() => setLightboxUrl(null)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}>
+            <img src={lightboxUrl} alt="WIP Full" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, objectFit: 'contain' }} />
+          </div>
+        )}
+      </>
+    )
+  }
+
+  // ═══ DESKTOP LAYOUT ═══
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 100,
+          background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <div onClick={e => e.stopPropagation()} style={{
+          background: '#fff', borderRadius: 20,
+          width: '94%', maxWidth: 960, height: '85vh', maxHeight: 700,
+          display: 'flex', flexDirection: 'column',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+          animation: 'scaleIn 0.2s ease',
+          overflow: 'hidden',
+        }}>
+          {/* Header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '18px 24px', borderBottom: '1px solid #E8ECF1', flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+              {dept && <span style={{ width: 10, height: 10, borderRadius: '50%', background: dept.color, flexShrink: 0 }} />}
+              <h2 style={{
+                fontSize: 16, fontWeight: 700, color: '#1a1a2e', margin: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{task.title}</h2>
+              <StatusBadge status={task.status} type="task" />
+            </div>
+            <button onClick={onClose} style={{
+              background: '#F1F5F9', border: 'none', color: '#64748B', borderRadius: 8,
+              width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', flexShrink: 0,
+            }}>
+              <IconX size={16} />
+            </button>
+          </div>
+
+          {/* Body — two panels */}
+          <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+            {/* ──── Left Panel (300px) — Info only ──── */}
+            <div style={{
+              width: 300, flexShrink: 0, borderRight: '1px solid #E8ECF1',
+              display: 'flex', flexDirection: 'column',
+            }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+                {renderInfoContent()}
+              </div>
+            </div>
+
+            {/* ──── Right Panel (WIP History + Per-WIP Comments) ──── */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              {renderWipContent()}
+            </div>
+          </div>
         </div>
       </div>
-    </Modal>
+
+      {/* Image lightbox */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={lightboxUrl}
+            alt="WIP Full"
+            style={{
+              maxWidth: '90vw', maxHeight: '90vh',
+              borderRadius: 8, objectFit: 'contain',
+            }}
+          />
+        </div>
+      )}
+    </>
   )
 }

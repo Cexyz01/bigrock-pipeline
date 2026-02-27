@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { isStaff } from './lib/constants'
+import { isStaff, isAdmin, SUPER_ADMIN_EMAIL } from './lib/constants'
+import useIsMobile from './hooks/useIsMobile'
 import {
   supabase, signOut,
   getProfile, getAllProfiles,
@@ -11,6 +12,10 @@ import {
   subscribeToTable, subscribeToNotifications,
   subscribeToDMs, getDMUnreadCount,
   uploadConceptImage,
+  getTcgGameActive,
+  getWipUpdates, createWipUpdate, uploadWipImage, addWipComment,
+  getWipViews, markWipViewed,
+  updateReviewMeta, subscribeToWipUpdates,
 } from './lib/supabase'
 
 import Sidebar from './components/layout/Sidebar'
@@ -26,9 +31,12 @@ import StoryboardPage from './components/pages/StoryboardPage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
-import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fileToBase64 } from './lib/miro'
+import PackPage from './components/pages/PackPage'
+import ReviewPage from './components/pages/ReviewPage'
+import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fixSyncMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
 
 export default function App() {
+  const isMobile = useIsMobile()
   const [session, setSession] = useState(null)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -41,6 +49,8 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false)
   const [deepLink, setDeepLink] = useState(null)
   const [dmUnreadCount, setDmUnreadCount] = useState(0)
+  const [tcgGameActive, setTcgGameActive] = useState(false)
+  const [wipViews, setWipViews] = useState([])
   const dmToastedRef = useRef(new Set())
   const chatOpenRef = useRef(false)
   const { toasts, addToast, removeToast } = useToast()
@@ -74,16 +84,21 @@ export default function App() {
       }).select().single()
       if (!error) profile = data
     }
+    // Auto-promote super admin if role is not yet set
+    if (profile && profile.email === SUPER_ADMIN_EMAIL && profile.role !== 'super_admin') {
+      const { data: promoted } = await supabase.from('profiles').update({ role: 'super_admin' }).eq('id', profile.id).select().single()
+      if (promoted) profile = promoted
+    }
     setUser(profile)
     setLoading(false)
     if (profile) loadData(authUser.id)
   }
 
   const loadData = async (userId) => {
-    const [p, sh, t, ev, n, dmUn] = await Promise.all([
-      getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId), getDMUnreadCount(userId),
+    const [p, sh, t, ev, n, dmUn, gameActive, wv] = await Promise.all([
+      getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId), getDMUnreadCount(userId), getTcgGameActive(), getWipViews(userId),
     ])
-    setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn)
+    setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv)
   }
 
   const refreshDmUnread = useCallback(() => {
@@ -113,6 +128,11 @@ export default function App() {
           })
         }
       }),
+      // WIP updates realtime: refresh tasks + wipViews
+      subscribeToWipUpdates(() => {
+        getTasks().then(setTasks)
+        if (isStaff(user.role)) getWipViews(user.id).then(setWipViews)
+      }),
       // DM realtime: update badge + toast when chat is closed
       subscribeToDMs(user.id, (payload) => {
         refreshDmUnread()
@@ -123,8 +143,8 @@ export default function App() {
             dmToastedRef.current.add(senderId)
             // Find sender name from profiles
             const sender = profiles.find(p => p.id === senderId)
-            const name = sender?.full_name || 'Qualcuno'
-            addToast(`Nuovo messaggio da ${name}`, 'info', {
+            const name = sender?.full_name || 'Someone'
+            addToast(`New message from ${name}`, 'info', {
               body: msg.body?.slice(0, 80),
               onClick: () => { setChatOpen(true) },
             })
@@ -152,11 +172,14 @@ export default function App() {
 
     const { data } = await createShot(shotWithOrder)
     if (data) {
-      // Sync to Miro — show toast on error
-      createMiroShotRow(data.id, data.code).then(res => {
-        if (res.error) addToast(`Miro sync errore: ${res.error}`, 'danger')
-      }).catch(err => addToast(`Miro sync fallito: ${err.message || err}`, 'danger'))
-      // Upload reference image if provided
+      // Sync to Miro — must await so miro_shot_rows exists before reference upload
+      try {
+        const miroRes = await createMiroShotRow(data.id, data.code)
+        if (miroRes.error) addToast(`Miro sync error: ${miroRes.error}`, 'danger')
+      } catch (err) {
+        addToast(`Miro sync failed: ${err.message || err}`, 'danger')
+      }
+      // Upload reference image after Miro row is ready
       if (referenceFile) {
         handleUploadReference(data.id, referenceFile)
       }
@@ -175,28 +198,54 @@ export default function App() {
     setShots(await getShots())
     // Trigger Miro rebuild in background (shot already gone from DB)
     deleteMiroShotRow(id).then(res => {
-      if (res.error) addToast(`Miro delete errore: ${res.error}`, 'danger')
-    }).catch(err => addToast(`Miro delete fallito: ${err.message || err}`, 'danger'))
+      if (res.error) addToast(`Miro delete error: ${res.error}`, 'danger')
+    }).catch(err => addToast(`Miro delete failed: ${err.message || err}`, 'danger'))
   }
 
   const handleSyncMiro = async () => {
-    addToast('Sincronizzazione Miro in corso...', 'info')
+    addToast('Syncing Miro...', 'info')
     try {
       const res = await fullSyncMiro()
       if (res.error) {
-        addToast(`Miro sync errore: ${res.error}`, 'danger')
+        addToast(`Miro sync error: ${res.error}`, 'danger')
       } else {
-        addToast(`Miro sincronizzato! ${res.data?.shots || 0} shots`, 'success')
+        addToast(`Miro synced! ${res.data?.shots || 0} shots`, 'success')
       }
     } catch (err) {
-      addToast(`Miro sync fallito: ${err.message || err}`, 'danger')
+      addToast(`Miro sync failed: ${err.message || err}`, 'danger')
+    }
+  }
+
+  const handleFixMiro = async () => {
+    addToast('Fixing Miro...', 'info')
+    try {
+      const res = await fixSyncMiro()
+      if (res.error) {
+        addToast(`Fix Miro error: ${res.error}`, 'danger')
+      } else {
+        const d = res.data || {}
+        addToast(`Fix Miro complete! ${d.cells_fixed || 0} cells repaired, ${d.images_fixed || 0} images`, 'success')
+      }
+    } catch (err) {
+      addToast(`Fix Miro failed: ${err.message || err}`, 'danger')
     }
   }
 
   const handleUploadReference = async (shotId, file) => {
+    // Read image dimensions from the file
+    const dims = await new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => { resolve({ w: img.naturalWidth, h: img.naturalHeight }); URL.revokeObjectURL(img.src) }
+      img.onerror = () => resolve({ w: 0, h: 0 })
+      img.src = URL.createObjectURL(file)
+    })
     // Upload reference to Supabase Storage for the site
     const { url } = await uploadConceptImage(shotId, file)
-    if (url) await updateShot(shotId, { concept_image_url: url })
+    if (url) await updateShot(shotId, {
+      concept_image_url: url,
+      ref_img_width: dims.w,
+      ref_img_height: dims.h,
+    })
     // Also upload to Miro (fire-and-forget)
     try {
       const base64 = await fileToBase64(file)
@@ -210,7 +259,7 @@ export default function App() {
   const handleCreateTask = async (task) => {
     const { data } = await createTask(task)
     if (data && task.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_assigned', 'Nuovo task assegnato', task.title, 'task', data.id)
+      await sendNotification(task.assigned_to, 'task_assigned', 'New task assigned', task.title, 'task', data.id)
     }
     setTasks(await getTasks())
   }
@@ -218,36 +267,147 @@ export default function App() {
   const handleUpdateTask = async (id, updates) => {
     await updateTask(id, updates)
     const task = tasks.find(t => t.id === id)
-    if (updates.status === 'review' && task?.assigned_to) {
-      const staffMembers = profiles.filter(p => isStaff(p.role))
-      for (const s of staffMembers) {
-        await sendNotification(s.id, 'task_review', 'Task inviato per review', task.title, 'task', id)
-      }
-    }
     if (updates.status === 'approved' && task?.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_approved', 'Task approvato!', task.title, 'task', id)
+      await sendNotification(task.assigned_to, 'task_approved', 'Task approved!', task.title, 'task', id)
     }
-    if (updates.status === 'wip' && task?.status === 'review' && task?.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_revision', 'Modifiche richieste', task.title, 'task', id)
-    }
+    // Reject notification is handled by handleRejectTask
     setTasks(await getTasks())
   }
 
-  const handleDeleteTask = async (id) => { await deleteTask(id); setTasks(await getTasks()) }
+  const handleRejectTask = async (id) => {
+    const task = tasks.find(t => t.id === id)
+    // 1. Remove images from Miro (just the specific cell, not a full sync)
+    try { await deleteTaskMiroImages(id) } catch (err) { console.warn('Miro reject cleanup:', err) }
+    // 2. Set status back to WIP
+    await updateTask(id, { status: 'wip' })
+    // 3. Notify student
+    if (task?.assigned_to) {
+      await sendNotification(task.assigned_to, 'task_revision', 'Changes requested', task.title, 'task', id)
+    }
+    setTasks(await getTasks())
+    addToast('Changes requested', 'success')
+  }
+
+  const handleDeleteTask = async (id) => {
+    // Must await: edge function needs task in DB to find shot_id/department for Miro cell re-layout
+    try { await deleteTaskMiroImages(id) } catch (err) { console.warn('Miro task cleanup:', err) }
+    await deleteTask(id)
+    setTasks(await getTasks())
+  }
+
+  // ── WIP Updates ──
+
+  const handleCreateWipUpdate = async (taskId, note, files) => {
+    // 1. Upload images to Cloudinary
+    const imageUrls = []
+    for (let i = 0; i < files.length; i++) {
+      const { url, error } = await uploadWipImage(taskId, files[i])
+      if (url) imageUrls.push(url)
+      if (error) {
+        console.warn('WIP image upload error:', error.message)
+        addToast(`Image ${i + 1} upload failed: ${error.message}`, 'danger')
+      }
+    }
+    if (files.length > 0 && imageUrls.length === 0) {
+      addToast('No images uploaded — check the console for details', 'danger')
+    }
+
+    // 2. Create the WIP update record
+    const { data, error } = await createWipUpdate(taskId, user.id, note, imageUrls)
+    if (error) {
+      addToast('Error creating WIP update', 'danger')
+      return null
+    }
+
+    // 3. Update task.last_wip_at
+    await updateTask(taskId, { last_wip_at: new Date().toISOString() })
+
+    // 4. Notify all staff
+    const task = tasks.find(t => t.id === taskId)
+    const staffMembers = profiles.filter(p => isStaff(p.role))
+    for (const s of staffMembers) {
+      await sendNotification(s.id, 'wip_update', 'New WIP update', task?.title || 'Task', 'task', taskId)
+    }
+
+    setTasks(await getTasks())
+    addToast('WIP update published!', 'success')
+    return data
+  }
+
+  const handleMarkWipViewed = async (taskId) => {
+    await markWipViewed(taskId, user.id)
+    setWipViews(await getWipViews(user.id))
+  }
+
+  const handleCommitForReview = async (taskId) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+
+    // 1. Get latest WIP update with images
+    const updates = await getWipUpdates(taskId)
+    const latestWithImages = updates.find(u => u.images && u.images.length > 0)
+
+    // 2. Change status to review FIRST — placeCellImages filters by status review/approved
+    await updateTask(taskId, { status: 'review' })
+
+    // 3. Upload images to Miro (now the task is "review" so placeCellImages will find it)
+    if (latestWithImages && task.shot_id) {
+      try {
+        const base64Array = await Promise.all(
+          latestWithImages.images.map(async (url) => {
+            const res = await fetch(url)
+            const blob = await res.blob()
+            return new Promise((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result)
+              reader.onerror = reject
+              reader.readAsDataURL(blob)
+            })
+          })
+        )
+        await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, user.id)
+      } catch (err) {
+        console.warn('Miro upload failed:', err)
+      }
+    }
+
+    // 4. Notify assigned student
+    if (task.assigned_to) {
+      await sendNotification(task.assigned_to, 'task_review', 'Task submitted for review', task.title, 'task', taskId)
+    }
+
+    setTasks(await getTasks())
+    addToast('Task submitted for review!', 'success')
+  }
+
+  const handleUpdateReviewMeta = async (taskId, reviewTitle, reviewDescription) => {
+    await updateReviewMeta(taskId, reviewTitle, reviewDescription)
+    setTasks(await getTasks())
+  }
 
   const handleAddComment = async (taskId, authorId, body) => {
     const result = await addComment(taskId, authorId, body)
     const task = tasks.find(t => t.id === taskId)
     if (task) {
       if (authorId !== task.assigned_to && task.assigned_to) {
-        await sendNotification(task.assigned_to, 'comment', 'Nuovo commento sul tuo task', body.slice(0, 80), 'task', taskId)
+        await sendNotification(task.assigned_to, 'comment', 'New comment on your task', body.slice(0, 80), 'task', taskId)
       }
       if (!isStaff(user.role)) {
         const staffMembers = profiles.filter(p => isStaff(p.role))
         for (const s of staffMembers) {
-          if (s.id !== authorId) await sendNotification(s.id, 'comment', `Commento da ${user.full_name}`, body.slice(0, 80), 'task', taskId)
+          if (s.id !== authorId) await sendNotification(s.id, 'comment', `Comment from ${user.full_name}`, body.slice(0, 80), 'task', taskId)
         }
       }
+    }
+    return result
+  }
+
+  const handleAddWipComment = async (wipUpdateId, taskId, authorId, body) => {
+    const result = await addWipComment(wipUpdateId, authorId, body)
+    // Notify the student who owns the task
+    const task = tasks.find(t => t.id === taskId)
+    if (task?.assigned_to && task.assigned_to !== authorId) {
+      await sendNotification(task.assigned_to, 'comment', 'New feedback on your WIP', body.slice(0, 80), 'task', taskId)
     }
     return result
   }
@@ -271,13 +431,81 @@ export default function App() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 16, fontWeight: 800, color: '#fff', animation: 'pulse 1.5s ease infinite',
         }}>BR</div>
-        <div style={{ color: '#94A3B8', fontSize: 13 }}>Caricamento...</div>
+        <div style={{ color: '#94A3B8', fontSize: 13 }}>Loading...</div>
       </div>
     </div>
   )
   if (!session || !user) return <LoginPage />
 
   const unreadCount = notifications.filter(n => !n.read).length
+
+  // ── Notification rendering for mobile full-page view ──
+  const renderMobileNotifications = () => {
+    const NOTIF_CAT = {
+      wip_update: { label: 'WIP', color: '#0984E3', bg: '#EBF5FB', icon: '🎨' },
+      task_assigned: { label: 'Assigned', color: '#6C5CE7', bg: '#F3F0FF', icon: '📋' },
+      task_review: { label: 'Review', color: '#6C5CE7', bg: '#F3F0FF', icon: '👁' },
+      task_approved: { label: 'Approved', color: '#00B894', bg: '#E8F8F5', icon: '✅' },
+      task_revision: { label: 'Revision', color: '#E17055', bg: '#FFF0ED', icon: '⚠️' },
+      comment: { label: 'Comment', color: '#F39C12', bg: '#FFF8E7', icon: '💬' },
+      dm: { label: 'Message', color: '#D63031', bg: '#FFEDED', icon: '✉️' },
+    }
+    const NOTIF_DEFAULT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: '🔔' }
+    const getCat = (type) => NOTIF_CAT[type] || NOTIF_DEFAULT
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Notifications</h1>
+          {unreadCount > 0 && (
+            <button onClick={handleMarkAllRead} style={{ fontSize: 12, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+              Mark all read
+            </button>
+          )}
+        </div>
+        {(!notifications || notifications.length === 0) ? (
+          <div style={{ padding: 60, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>No notifications</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {notifications.slice(0, 50).map(n => {
+              const cat = getCat(n.type)
+              const unread = !n.read
+              const date = new Date(n.created_at)
+              const diffMin = Math.floor((Date.now() - date) / 60000)
+              const diffH = Math.floor(diffMin / 60)
+              const diffD = Math.floor(diffH / 24)
+              const timeStr = diffMin < 1 ? 'Now' : diffMin < 60 ? `${diffMin}m` : diffH < 24 ? `${diffH}h` : diffD < 7 ? `${diffD}d` : date.toLocaleDateString('en', { day: 'numeric', month: 'short' })
+              return (
+                <div key={n.id} onClick={() => {
+                  handleMarkRead(n.id)
+                  if (n.link_type && n.link_id) handleNavigate(n.link_type === 'task' ? 'tasks' : n.link_type === 'shot' ? 'shots' : 'overview', n.link_id)
+                }} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                  borderRadius: 14, cursor: 'pointer',
+                  borderLeft: unread ? `3.5px solid ${cat.color}` : '3.5px solid transparent',
+                  background: unread ? cat.bg : '#fff',
+                  border: `1px solid ${unread ? cat.color + '30' : '#E8ECF1'}`,
+                }}>
+                  <span style={{ fontSize: 18, width: 36, height: 36, borderRadius: 10, background: unread ? `${cat.color}15` : '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{cat.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: cat.color, textTransform: 'uppercase', letterSpacing: '0.04em', background: `${cat.color}15`, padding: '1px 6px', borderRadius: 4 }}>{cat.label}</span>
+                      {unread && <span style={{ width: 5, height: 5, borderRadius: '50%', background: cat.color }} />}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: unread ? 600 : 400, color: '#1a1a2e', lineHeight: 1.3 }}>{n.title}</div>
+                    {n.body && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                  </div>
+                  <span style={{ fontSize: 10, color: '#B0B8C4', whiteSpace: 'nowrap', flexShrink: 0 }}>{timeStr}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const contentPadding = isMobile ? '16px 16px 80px' : '36px 44px'
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#F0F2F5' }}>
@@ -288,34 +516,35 @@ export default function App() {
         user={user} view={view} setView={setView} onSignOut={signOut}
         events={events} onCreateEvent={handleCreateEvent} onDeleteEvent={handleDeleteEvent}
         notifications={notifications} onMarkRead={handleMarkRead} onMarkAllRead={handleMarkAllRead} onNavigate={handleNavigate}
-        requestConfirm={requestConfirm} unreadCount={unreadCount}
+        requestConfirm={requestConfirm} unreadCount={unreadCount} tcgGameActive={tcgGameActive}
+        reviewCount={tasks.filter(t => t.status === 'review').length}
       />
 
       {/* Main content */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {/* Storyboard gets full bleed — no padding, no maxWidth */}
-        {view === 'storyboard' ? (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <StoryboardPage />
+        {/* Full-bleed views: storyboard, pack — no padding, no maxWidth */}
+        {(view === 'storyboard' || view === 'pack') ? (
+          <div style={{ flex: 1, overflow: view === 'storyboard' ? 'hidden' : 'auto', ...(isMobile ? { paddingBottom: 64 } : {}) }}>
+            {view === 'storyboard' && <StoryboardPage />}
+            {view === 'pack' && (isAdmin(user.role) || tcgGameActive) && (
+              <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
+            )}
           </div>
         ) : (
-          <div style={{ flex: 1, padding: '36px 44px', overflowY: 'auto', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
+          <div style={{ flex: 1, padding: contentPadding, overflowY: 'auto', ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto' }}>
             {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
-            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onSyncMiro={handleSyncMiro} addToast={addToast} requestConfirm={requestConfirm} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onAddComment={handleAddComment} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onSyncMiro={handleSyncMiro} onFixMiro={handleFixMiro} addToast={addToast} requestConfirm={requestConfirm} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'review' && isStaff(user.role) && <ReviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} onUpdateTask={handleUpdateTask} onUpdateReviewMeta={handleUpdateReviewMeta} addToast={addToast} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
-            {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} onNavigate={handleNavigate} />}
-            {view === 'pack' && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94A3B8', fontSize: 15 }}>
-                Pack — Coming soon
-              </div>
-            )}
+            {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} />}
+            {view === 'notifications' && renderMobileNotifications()}
           </div>
         )}
       </div>
 
-      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} dmUnreadCount={dmUnreadCount} onDmRead={refreshDmUnread} />
+      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} dmUnreadCount={dmUnreadCount} onDmRead={refreshDmUnread} isMobile={isMobile} />
     </div>
   )
 }

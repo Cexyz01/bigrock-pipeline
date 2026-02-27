@@ -24,16 +24,16 @@ export default function CreateTaskModal({ open, onClose, shots, students, user, 
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Nuovo Task">
+    <Modal open={open} onClose={onClose} title="New Task">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Input value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Titolo del task" />
-        <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Descrizione (opzionale)" multiline />
+        <Input value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Task title" />
+        <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Description (optional)" multiline />
         <Select value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))}
-          options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Seleziona dipartimento" />
+          options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" />
         <Select value={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
-          options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assegna a studente (opzionale)" />
+          options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assign to student (optional)" />
         <Select value={form.shot_id} onChange={v => setForm(f => ({ ...f, shot_id: v || null }))}
-          options={shots.map(s => ({ value: s.id, label: `${s.code} — ${s.description || s.sequence}` }))} placeholder="Collega a shot (opzionale)" />
+          options={shots.map(s => ({ value: s.id, label: `${s.code} — ${s.description || s.sequence}` }))} placeholder="Link to shot (optional)" />
 
         {/* Start immediately checkbox */}
         <label
@@ -50,14 +50,14 @@ export default function CreateTaskModal({ open, onClose, shots, students, user, 
             {form.startNow && <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✓</span>}
           </div>
           <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>
-            Inizia subito
+            Start immediately
             <span style={{ color: '#94A3B8', fontWeight: 400, marginLeft: 6, fontSize: 12 }}>
-              (imposta stato WIP invece di To Do)
+              (set status to WIP instead of To Do)
             </span>
           </span>
         </label>
 
-        <Btn variant="primary" onClick={handleCreate} disabled={!form.title || !form.department}>Crea Task</Btn>
+        <Btn variant="primary" onClick={handleCreate} disabled={!form.title || !form.department}>Create Task</Btn>
       </div>
     </Modal>
   )

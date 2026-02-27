@@ -33,3 +33,4 @@ export const IconActivity = (p) => <I {...p} d="M22 12h-4l-3 9L9 3l-3 9H2" />
 export const IconTarget = (p) => <I {...p} d={<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>} />
 export const IconZap = (p) => <I {...p} d="M13 2L3 14h9l-1 10 10-12h-9l1-10" />
 export const IconStar = (p) => <I {...p} d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+export const IconEye = (p) => <I {...p} d={<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>} />

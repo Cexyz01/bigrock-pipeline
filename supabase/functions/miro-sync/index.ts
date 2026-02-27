@@ -35,12 +35,20 @@ const ROW_H = 1000
 const CELL_PAD = 30   // padding inside each department cell
 const IMG_GAP = 10    // gap between task sub-cells and images
 
-// Calculate the max width so that an image with given dimensions
-// fits ENTIRELY within maxW × maxH (never cropped, only scaled).
-function calcFitWidth(imgW: number, imgH: number, maxW: number, maxH: number): number {
-  if (!imgW || !imgH) return maxW * 0.7  // fallback when no dimensions known
-  const scale = Math.min(maxW / imgW, maxH / imgH)
-  return Math.floor(imgW * scale)
+// Insert Cloudinary c_fit transformation into a Cloudinary URL.
+// This makes Cloudinary serve the image ALREADY resized to fit within w×h.
+// Miro then receives the image at the perfect size — no geometry needed.
+// f_jpg forces JPEG output — Miro does NOT support AVIF/WebP uploads.
+function cloudFitUrl(url: string, w: number, h: number): string {
+  // Cloudinary URL: .../upload/v1234/...  →  .../upload/c_fit,w_X,h_Y,f_jpg/v1234/...
+  if (url.includes("/upload/")) {
+    return url.replace("/upload/", `/upload/c_fit,w_${Math.floor(w)},h_${Math.floor(h)},f_jpg/`)
+  }
+  // Non-Cloudinary URL: use Cloudinary fetch to transform any external image
+  if (CLD_CLOUD) {
+    return `https://res.cloudinary.com/${CLD_CLOUD}/image/fetch/c_fit,w_${Math.floor(w)},h_${Math.floor(h)},f_jpg/${url}`
+  }
+  return url
 }
 
 const COLS = ["Shot", "Reference", "Concept", "Modeling", "Texturing", "Rigging", "Animation", "Comp"]
@@ -150,6 +158,46 @@ async function miroPatch(path: string, body: any) {
   return res.json()
 }
 
+// Upload image as FILE to Miro (multipart form-data) with retry.
+// Sends actual image bytes — more reliable than URL-based creation.
+async function miroPostImage(
+  imageUrl: string, metadata: any, maxRetries = 3,
+): Promise<any> {
+  // Fetch the image binary from Cloudinary/Supabase
+  const imgRes = await fetch(imageUrl)
+  if (!imgRes.ok) throw new Error(`Fetch image failed: ${imgRes.status}`)
+  const imgBytes = await imgRes.arrayBuffer()
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const fd = new FormData()
+    fd.append("resource", new Blob([imgBytes]), "image.jpg")
+    fd.append("data", JSON.stringify(metadata))
+
+    console.log(`[miro] POST /images (file upload, ${imgBytes.byteLength} bytes, attempt ${attempt + 1})`)
+    const res = await fetch(`${boardUrl}/images`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${MIRO_TOKEN}` },
+      body: fd,
+    })
+
+    if (res.ok) return res.json()
+
+    const t = await res.text()
+    console.error(`[miro] POST /images FAILED (attempt ${attempt + 1}): ${res.status} ${t}`)
+
+    // Retry on rate limit (429) or server errors (5xx)
+    if ((res.status === 429 || res.status >= 500) && attempt < maxRetries - 1) {
+      const delay = res.status === 429 ? 3000 : 1000 * (attempt + 1)
+      console.log(`[miro] Retrying in ${delay}ms...`)
+      await sleep(delay)
+      continue
+    }
+
+    throw new Error(`Miro file upload ${res.status}: ${t}`)
+  }
+  throw new Error("miroPostImage: max retries exceeded")
+}
+
 async function miroDelete(itemId: string): Promise<boolean> {
   try {
     const res = await fetch(`${boardUrl}/items/${itemId}`, {
@@ -157,7 +205,7 @@ async function miroDelete(itemId: string): Promise<boolean> {
       headers: { "Authorization": `Bearer ${MIRO_TOKEN}` },
     })
     return res.ok || res.status === 404
-  } catch { return false }
+  } catch (_e) { return false }
 }
 
 async function findOurFrame(): Promise<string | null> {
@@ -167,7 +215,7 @@ async function findOurFrame(): Promise<string | null> {
       item.data?.title?.includes("BIGROCK PIPELINE")
     )
     return frame?.id || null
-  } catch { return null }
+  } catch (_e) { return null }
 }
 
 async function deleteFrameAndChildren(frameId: string): Promise<void> {
@@ -248,30 +296,35 @@ async function placeCellImages(
     )
   }
 
-  // 2. Get tasks for this shot+dept
-  const { data: tasks } = await supabase
+  // 2. Get tasks for this shot+dept — only review/approved show on Miro
+  const { data: allTasks } = await supabase
     .from("tasks").select("id, title, status")
     .eq("shot_id", shotId).eq("department", department)
+    .in("status", ["review", "approved"])
     .order("created_at")
 
-  if (!tasks?.length) return
+  const tasks = allTasks || []
+  if (!tasks.length) return
 
-  // 3. Get all images for these tasks (with dimensions)
+  // 3. Get all images for these visible tasks (with dimensions)
+  const taskIds = tasks.map((t: any) => t.id)
   const { data: allImages } = await supabase
     .from("miro_wip_images").select("id, task_id, image_url, image_order, img_width, img_height")
     .eq("shot_id", shotId).eq("department", department)
+    .in("task_id", taskIds)
     .not("image_url", "is", null)
     .order("image_order")
 
   const imagesByTask: Record<string, any[]> = {}
   for (const img of allImages || []) {
-    const tid = img.task_id || "_none"
-    if (!imagesByTask[tid]) imagesByTask[tid] = []
-    imagesByTask[tid].push(img)
+    if (!img.task_id) continue // skip orphaned images
+    if (!imagesByTask[img.task_id]) imagesByTask[img.task_id] = []
+    imagesByTask[img.task_id].push(img)
   }
 
-  // 4. Calculate task grid
-  const grid = calcTaskGrid(tasks.length)
+  // 4. Calculate task grid — only count tasks that actually have images
+  const tasksWithImages = tasks.filter((t: any) => imagesByTask[t.id]?.length > 0)
+  const grid = calcTaskGrid(tasksWithImages.length)
   if (grid.cols === 0) return
 
   const cellW = COL_W[colIndex]
@@ -288,8 +341,8 @@ async function placeCellImages(
   // 5. Place images for each task
   const placements: (() => Promise<void>)[] = []
 
-  for (let t = 0; t < tasks.length; t++) {
-    const task = tasks[t]
+  for (let t = 0; t < tasksWithImages.length; t++) {
+    const task = tasksWithImages[t]
     const gi = t % grid.cols
     const gj = Math.floor(t / grid.cols)
 
@@ -316,15 +369,13 @@ async function placeCellImages(
       const imgCX = imgX0 + mi * (slotW + 6) + slotW / 2
       const imgCY = imgY0 + mj * (slotH + 6) + slotH / 2
 
-      // Per-image smart sizing: uses actual dimensions if available
-      const miroW = calcFitWidth(img.img_width, img.img_height, slotW * 0.95, slotH * 0.95)
+      // Pre-resize via Cloudinary, then upload to Miro WITHOUT geometry
+      const fittedUrl = cloudFitUrl(img.image_url, slotW * 0.95, slotH * 0.95)
 
       placements.push(async () => {
         try {
-          const miroItem = await miroPost("/images", {
-            data: { url: img.image_url },
+          const miroItem = await miroPostImage(fittedUrl, {
             position: { x: imgCX, y: imgCY, origin: "center" },
-            geometry: { width: miroW },
             parent: { id: frameId },
           })
           await supabase.from("miro_wip_images")
@@ -339,7 +390,11 @@ async function placeCellImages(
 
   if (placements.length > 0) {
     console.log(`[placeCellImages] Placing ${placements.length} images for ${department}`)
-    await parallelLimit(placements, 3)
+    // Run sequentially with small delay to avoid Miro rate limits
+    for (const fn of placements) {
+      await fn()
+      await sleep(150)
+    }
   }
 }
 
@@ -380,7 +435,7 @@ async function cloudDeletePrefix(prefix: string): Promise<void> {
       `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/resources/image/upload?prefix=${encodeURIComponent(prefix)}&type=upload`,
       { method: "DELETE", headers: { "Authorization": `Basic ${auth}` } },
     )
-  } catch {}
+  } catch (_e) { /* ignore */ }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -412,6 +467,31 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
 async function handleFullSync(supabase: any) {
   console.log("[full_sync] ═══ Starting ═══")
+
+  // 0. Cleanup orphaned miro_wip_images (task_id IS NULL or task no longer exists)
+  const { data: orphaned } = await supabase
+    .from("miro_wip_images").select("id, task_id")
+    .is("task_id", null)
+  if (orphaned?.length) {
+    console.log(`[full_sync] Cleaning ${orphaned.length} orphaned miro_wip_images`)
+    await supabase.from("miro_wip_images").delete().is("task_id", null)
+  }
+
+  // Also remove images whose task no longer exists
+  const { data: allWipImages } = await supabase
+    .from("miro_wip_images").select("id, task_id")
+    .not("task_id", "is", null)
+  if (allWipImages?.length) {
+    const uniqueTaskIds = [...new Set(allWipImages.map((i: any) => i.task_id))]
+    const { data: existingTasks } = await supabase
+      .from("tasks").select("id").in("id", uniqueTaskIds)
+    const existingIds = new Set((existingTasks || []).map((t: any) => t.id))
+    const staleIds = uniqueTaskIds.filter((id: string) => !existingIds.has(id))
+    if (staleIds.length) {
+      console.log(`[full_sync] Removing ${staleIds.length} stale task references`)
+      await supabase.from("miro_wip_images").delete().in("task_id", staleIds)
+    }
+  }
 
   // 1. Delete existing frame + children
   const oldFrame = await findOurFrame()
@@ -469,17 +549,15 @@ async function handleFullSync(supabase: any) {
       shot_id: shot.id, row_index: r, frame_id: frameId, shot_code_item_id: cellId,
     })
 
-    // Reference image — use Cloudinary URL + stored dimensions for smart sizing
+    // Reference image — pre-resize via Cloudinary, upload to Miro without geometry
     const refUrl = shot.ref_cloud_url || shot.concept_image_url
     if (refUrl) {
       try {
         const maxW = COL_W[1] - 2 * CELL_PAD   // 2140
         const maxH = ROW_H - 2 * CELL_PAD       // 940
-        const miroW = calcFitWidth(shot.ref_img_width, shot.ref_img_height, maxW, maxH)
-        await miroPost("/images", {
-          data: { url: refUrl },
+        const fittedUrl = cloudFitUrl(refUrl, maxW, maxH)
+        await miroPostImage(fittedUrl, {
           position: { x: colX(1), y, origin: "center" },
-          geometry: { width: miroW },
           parent: { id: frameId },
         })
       } catch (e) {
@@ -581,6 +659,61 @@ async function handleDeleteShotRow(supabase: any, params: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// DELETE TASK IMAGES — Remove Miro items + Cloudinary for a task
+// ══════════════════════════════════════════════════════════════
+
+async function handleDeleteTaskImages(supabase: any, params: any) {
+  const { task_id } = params
+  if (!task_id) return err("task_id required")
+
+  // 1. Get task info (need shot_id + department for cell re-layout)
+  const { data: task } = await supabase
+    .from("tasks").select("shot_id, department").eq("id", task_id).single()
+
+  // 2. Delete Miro items for this task's images
+  const { data: miroImages } = await supabase
+    .from("miro_wip_images").select("id, miro_item_id")
+    .eq("task_id", task_id)
+    .not("miro_item_id", "is", null)
+
+  if (miroImages?.length) {
+    await parallelLimit(
+      miroImages
+        .filter((i: any) => i.miro_item_id && i.miro_item_id !== "pending")
+        .map((i: any) => () => miroDelete(i.miro_item_id)),
+      5,
+    )
+  }
+
+  // 3. Delete miro_wip_images DB rows for this task
+  await supabase.from("miro_wip_images").delete().eq("task_id", task_id)
+
+  // 4. Delete Cloudinary assets for WIP updates (bigrock-wip-updates/{task_id})
+  await cloudDeletePrefix(`bigrock-wip-updates/${task_id}`)
+
+  // 5. Delete Cloudinary assets for Miro images if task has shot+department
+  if (task?.shot_id && task?.department) {
+    // Note: we can't delete just this task's Miro cloud images without affecting other tasks
+    // in the same shot/dept, so we skip this. The Miro items are already deleted above.
+  }
+
+  // 6. Re-layout the Miro cell if task had a shot
+  if (task?.shot_id && task?.department) {
+    const frameId = await findOurFrame()
+    if (frameId) {
+      const ci = deptCol(task.department)
+      const { data: shotRow } = await supabase
+        .from("miro_shot_rows").select("row_index").eq("shot_id", task.shot_id).single()
+      if (shotRow && ci >= 0) {
+        await placeCellImages(frameId, task.shot_id, task.department, shotRow.row_index, ci, supabase)
+      }
+    }
+  }
+
+  return ok({ success: true, miro_items_deleted: miroImages?.length || 0 })
+}
+
+// ══════════════════════════════════════════════════════════════
 // UPLOAD REFERENCE — Cloudinary → Miro (incremental, full cell)
 // ══════════════════════════════════════════════════════════════
 
@@ -605,15 +738,13 @@ async function handleUploadReference(supabase: any, params: any) {
     .from("miro_shot_rows").select("row_index").eq("shot_id", shot_id).single()
   if (!shotRow) return err("Shot not synced", 404)
 
-  // Calculate width that fills max space while fitting entirely within the cell
+  // Pre-resize via Cloudinary, upload to Miro WITHOUT geometry
   const maxW = COL_W[1] - 2 * CELL_PAD   // 2140
   const maxH = ROW_H - 2 * CELL_PAD       // 940
-  const miroW = calcFitWidth(upload.width, upload.height, maxW, maxH)
+  const fittedUrl = cloudFitUrl(upload.url, maxW, maxH)
 
-  const img = await miroPost("/images", {
-    data: { url: upload.url },
+  const img = await miroPostImage(fittedUrl, {
     position: { x: colX(1), y: rowY(shotRow.row_index), origin: "center" },
-    geometry: { width: miroW },
     parent: { id: frameId },
   })
 
@@ -631,19 +762,28 @@ async function handleUploadWipImage(supabase: any, params: any) {
   const ci = deptCol(department)
   if (ci < 0) return err(`Invalid department: ${department}`)
 
+  // ── DEDUP: Remove existing miro_wip_images for this task ──
+  if (task_id) {
+    const { data: existing } = await supabase
+      .from("miro_wip_images").select("id, miro_item_id")
+      .eq("task_id", task_id)
+    if (existing?.length) {
+      console.log(`[upload_wip_image] Dedup: removing ${existing.length} old images for task ${task_id}`)
+      const toDelete = existing.filter((i: any) => i.miro_item_id && i.miro_item_id !== "pending")
+      if (toDelete.length) {
+        await parallelLimit(toDelete.map((i: any) => () => miroDelete(i.miro_item_id)), 5)
+      }
+      await supabase.from("miro_wip_images").delete().eq("task_id", task_id)
+    }
+  }
+
   const upload = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/${department}`)
   if (!upload) return err("Cloudinary upload failed", 500)
-
-  // Get max image_order for this task
-  const { data: existOrd } = await supabase
-    .from("miro_wip_images").select("image_order")
-    .eq("task_id", task_id).order("image_order", { ascending: false }).limit(1)
-  const nextOrder = (existOrd?.[0]?.image_order ?? -1) + 1
 
   await supabase.from("miro_wip_images").insert({
     shot_id, task_id: task_id || null, department,
     miro_item_id: "pending", uploaded_by: uploaded_by || null,
-    image_url: upload.url, image_order: nextOrder,
+    image_url: upload.url, image_order: 0,
     img_width: upload.width, img_height: upload.height,
   })
 
@@ -673,6 +813,24 @@ async function handleUploadWipImages(supabase: any, params: any) {
   const ci = deptCol(department)
   if (ci < 0) return err(`Invalid department: ${department}`)
 
+  // ── DEDUP: Remove existing miro_wip_images for this task ──
+  // Prevents duplicates when "Invia per Review" is called multiple times
+  if (task_id) {
+    const { data: existing } = await supabase
+      .from("miro_wip_images").select("id, miro_item_id")
+      .eq("task_id", task_id)
+    if (existing?.length) {
+      console.log(`[upload_wip_images] Dedup: removing ${existing.length} old images for task ${task_id}`)
+      // Delete their Miro items first
+      const toDelete = existing.filter((i: any) => i.miro_item_id && i.miro_item_id !== "pending")
+      if (toDelete.length) {
+        await parallelLimit(toDelete.map((i: any) => () => miroDelete(i.miro_item_id)), 5)
+      }
+      // Delete DB rows
+      await supabase.from("miro_wip_images").delete().eq("task_id", task_id)
+    }
+  }
+
   // Upload all to Cloudinary
   const uploads: CloudResult[] = []
   for (const b64 of images_base64) {
@@ -681,13 +839,8 @@ async function handleUploadWipImages(supabase: any, params: any) {
   }
   if (uploads.length === 0) return err("All uploads failed", 500)
 
-  // Get max image_order
-  const { data: existOrd } = await supabase
-    .from("miro_wip_images").select("image_order")
-    .eq("task_id", task_id).order("image_order", { ascending: false }).limit(1)
-  let nextOrder = (existOrd?.[0]?.image_order ?? -1) + 1
-
-  // Insert all with dimensions
+  // Insert all with dimensions (start from order 0 since we cleared old ones)
+  let nextOrder = 0
   for (const upload of uploads) {
     await supabase.from("miro_wip_images").insert({
       shot_id, task_id: task_id || null, department,
@@ -711,6 +864,151 @@ async function handleUploadWipImages(supabase: any, params: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// CLEANUP — Wipe all data from DB (uses service role, bypasses RLS)
+// ══════════════════════════════════════════════════════════════
+
+async function handleCleanup(supabase: any) {
+  console.log("[cleanup] ═══ Starting ═══")
+
+  // 1. Delete Miro frame and all children
+  const frameId = await findOurFrame()
+  if (frameId) {
+    await deleteFrameAndChildren(frameId)
+    await sleep(500)
+  }
+
+  // 2. Delete all rows from dependent tables first (foreign key order)
+  const tables = ["miro_wip_images", "miro_shot_rows", "comments", "tasks", "shots"]
+  const results: Record<string, number> = {}
+  for (const table of tables) {
+    const { data, error } = await supabase.from(table).delete().not("id", "is", null)
+    results[table] = error ? -1 : (data?.length ?? 0)
+    console.log(`[cleanup] ${table}: ${error ? "ERROR " + error.message : "OK"}`)
+  }
+
+  // 3. Delete Cloudinary assets
+  await cloudDeletePrefix("bigrock-wip")
+
+  console.log("[cleanup] ═══ Done ═══")
+  return ok({ success: true, deleted: results })
+}
+
+// ══════════════════════════════════════════════════════════════
+// CARD IMAGE UPLOAD — Generate signed Cloudinary upload params
+// ══════════════════════════════════════════════════════════════
+
+async function handleGetCardUploadSig(_supabase: any, params: any) {
+  const { card_number } = params
+  if (card_number == null || card_number === "") return err("Missing card_number")
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
+
+  const folder = "bigrock-cards"
+  const ts = Math.floor(Date.now() / 1000).toString()
+  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
+
+  return ok({
+    cloud_name: CLD_CLOUD,
+    api_key: CLD_KEY,
+    timestamp: ts,
+    signature: sig,
+    folder,
+  })
+}
+
+// ══════════════════════════════════════════════════════════════
+// WIP UPDATE IMAGE UPLOAD — Signed Cloudinary params (no Miro)
+// ══════════════════════════════════════════════════════════════
+
+async function handleGetWipUploadSig(_supabase: any, params: any) {
+  const { task_id } = params
+  if (!task_id) return err("Missing task_id")
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
+
+  const folder = `bigrock-wip-updates/${task_id}`
+  const ts = Math.floor(Date.now() / 1000).toString()
+  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
+
+  return ok({
+    cloud_name: CLD_CLOUD,
+    api_key: CLD_KEY,
+    timestamp: ts,
+    signature: sig,
+    folder,
+  })
+}
+
+// ══════════════════════════════════════════════════════════════
+// FIX SYNC — Incremental repair (only fix cells with missing images)
+// ══════════════════════════════════════════════════════════════
+
+async function handleFixSync(supabase: any) {
+  console.log("[fix_sync] ═══ Starting ═══")
+
+  const frameId = await findOurFrame()
+  if (!frameId) {
+    console.log("[fix_sync] No frame found, falling back to full_sync")
+    return await handleFullSync(supabase)
+  }
+
+  // Get all shot rows
+  const { data: shotRows } = await supabase
+    .from("miro_shot_rows").select("shot_id, row_index")
+    .order("row_index")
+
+  if (!shotRows?.length) {
+    console.log("[fix_sync] No shot rows, falling back to full_sync")
+    return await handleFullSync(supabase)
+  }
+
+  let cellsChecked = 0
+  let cellsFixed = 0
+  let imagesFixed = 0
+
+  for (const sr of shotRows) {
+    for (let d = 0; d < DEPTS.length; d++) {
+      const dept = DEPTS[d]
+      const ci = d + 2
+
+      // Get visible tasks (review/approved)
+      const { data: tasks } = await supabase
+        .from("tasks").select("id")
+        .eq("shot_id", sr.shot_id).eq("department", dept)
+        .in("status", ["review", "approved"])
+
+      if (!tasks?.length) continue
+
+      const taskIds = tasks.map((t: any) => t.id)
+
+      // Get miro_wip_images for these tasks
+      const { data: images } = await supabase
+        .from("miro_wip_images").select("id, miro_item_id, image_url")
+        .eq("shot_id", sr.shot_id).eq("department", dept)
+        .in("task_id", taskIds)
+        .not("image_url", "is", null)
+
+      if (!images?.length) continue
+      cellsChecked++
+
+      // Check which images are missing from Miro (pending or not placed)
+      const missingCount = images.filter((img: any) =>
+        !img.miro_item_id || img.miro_item_id === "pending"
+      ).length
+
+      if (missingCount > 0) {
+        console.log(`[fix_sync] Cell ${dept} shot_row ${sr.row_index}: ${missingCount}/${images.length} images missing — re-laying out`)
+        await placeCellImages(frameId, sr.shot_id, dept, sr.row_index, ci, supabase)
+        cellsFixed++
+        imagesFixed += missingCount
+        await sleep(200) // Small delay between cells to avoid rate limits
+      }
+    }
+  }
+
+  console.log(`[fix_sync] ═══ Done ═══ Checked ${cellsChecked} cells, fixed ${cellsFixed} cells, ${imagesFixed} images`)
+  return ok({ success: true, cells_checked: cellsChecked, cells_fixed: cellsFixed, images_fixed: imagesFixed })
+}
+
+// ══════════════════════════════════════════════════════════════
 // MAIN
 // ══════════════════════════════════════════════════════════════
 
@@ -729,12 +1027,17 @@ serve(async (req) => {
 
     switch (action) {
       case "full_sync":         return await handleFullSync(supabase)
+      case "fix_sync":          return await handleFixSync(supabase)
       case "create_shot_row":   return await handleCreateShotRow(supabase, params)
       case "delete_shot_row":   return await handleDeleteShotRow(supabase, params)
+      case "delete_task_images": return await handleDeleteTaskImages(supabase, params)
       case "upload_wip_image":  return await handleUploadWipImage(supabase, params)
       case "upload_wip_images": return await handleUploadWipImages(supabase, params)
       case "upload_reference":  return await handleUploadReference(supabase, params)
       case "init_board":        return await handleFullSync(supabase)
+      case "cleanup":           return await handleCleanup(supabase)
+      case "get_card_upload_sig": return await handleGetCardUploadSig(supabase, params)
+      case "get_wip_upload_sig": return await handleGetWipUploadSig(supabase, params)
       default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {

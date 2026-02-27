@@ -67,6 +67,14 @@ export async function uploadWipImagesToMiro(shotId, department, taskId, imagesBa
   })
 }
 
+// Delete all Miro images + Cloudinary assets for a task
+export async function deleteTaskMiroImages(taskId) {
+  return callMiroSync({
+    action: 'delete_task_images',
+    task_id: taskId,
+  })
+}
+
 // Upload a reference image to the Reference column on Miro
 export async function uploadReferenceToMiro(shotId, imageBase64) {
   return callMiroSync({
@@ -81,9 +89,27 @@ export async function fullSyncMiro() {
   return callMiroSync({ action: 'full_sync' })
 }
 
+// Fix sync — incremental repair (only fix cells with missing images)
+export async function fixSyncMiro() {
+  return callMiroSync({ action: 'fix_sync' })
+}
+
 // Initialize board (same as full sync)
 export async function initMiroBoard() {
   return callMiroSync({ action: 'init_board' })
+}
+
+// Cleanup — wipe all data (shots, tasks, images, Miro board, Cloudinary)
+export async function cleanupAll() {
+  return callMiroSync({ action: 'cleanup' })
+}
+
+// Get Cloudinary signed upload params for WIP images (same auth as all other edge calls)
+export async function getWipUploadSig(taskId) {
+  return callMiroSync({
+    action: 'get_wip_upload_sig',
+    task_id: taskId,
+  })
 }
 
 // Convert a File to base64 data URL string

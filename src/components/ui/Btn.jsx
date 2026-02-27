@@ -6,7 +6,9 @@ export default function Btn({ children, onClick, variant = 'default', style = {}
     default: { bg: '#F1F5F9', hbg: '#E2E8F0', color: '#475569', border: '#E2E8F0' },
     primary: { bg: '#6C5CE7', hbg: '#5A4BD1', color: '#fff', border: '#6C5CE7' },
     danger: { bg: '#FEF2F2', hbg: '#FEE2E2', color: '#EF4444', border: '#FECACA' },
+    warning: { bg: '#FFFBEB', hbg: '#FEF3C7', color: '#D97706', border: '#FDE68A' },
     success: { bg: '#ECFDF5', hbg: '#D1FAE5', color: '#059669', border: '#A7F3D0' },
+    info: { bg: '#EBF5FB', hbg: '#DBEAFE', color: '#2563EB', border: '#BFDBFE' },
   }[variant]
   const isDisabled = disabled || loading
   return (

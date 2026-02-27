@@ -40,9 +40,18 @@ export async function getAllProfiles() {
 }
 
 export async function updateProfileRole(userId, role, department) {
+  // Prevent changing a super_admin's role
+  const { data: existing } = await supabase.from('profiles').select('role').eq('id', userId).single()
+  if (existing?.role === 'super_admin') {
+    return { data: null, error: { message: 'The Super Admin role cannot be changed' } }
+  }
   const updates = { role }
   if (department !== undefined) updates.department = department
   const { data, error } = await supabase.from('profiles').update(updates).eq('id', userId).select().single()
+  // If RLS blocked the update, data is null without an explicit error
+  if (!data && !error) {
+    return { data: null, error: { message: 'Permission denied — make sure the admin_update_profiles RLS policy exists' } }
+  }
   return { data, error }
 }
 
@@ -114,6 +123,17 @@ export async function updateTask(id, updates) {
 
 export async function deleteTask(id) {
   return supabase.from('tasks').delete().eq('id', id)
+}
+
+// ── WIP Images ──
+
+export async function getTaskWipImages(taskId) {
+  const { data } = await supabase.from('miro_wip_images')
+    .select('id, image_url, image_order, created_at')
+    .eq('task_id', taskId)
+    .not('image_url', 'is', null)
+    .order('image_order')
+  return data || []
 }
 
 // ── Comments ──
@@ -266,6 +286,34 @@ export function subscribeToDMs(userId, callback) {
     .subscribe()
 }
 
+// ── App Settings ──
+
+export async function getProjectStartDate() {
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'project_start_date').single()
+  return data?.value || ''
+}
+
+export async function setProjectStartDate(date) {
+  const { data, error } = await supabase.from('app_settings')
+    .upsert({ key: 'project_start_date', value: date || '', updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .select()
+    .single()
+  return { data, error }
+}
+
+export async function getProjectEndDate() {
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'project_end_date').single()
+  return data?.value || ''
+}
+
+export async function setProjectEndDate(date) {
+  const { data, error } = await supabase.from('app_settings')
+    .upsert({ key: 'project_end_date', value: date || '', updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .select()
+    .single()
+  return { data, error }
+}
+
 // ── Storage ──
 
 export async function uploadConceptImage(shotId, file) {
@@ -295,6 +343,492 @@ export function subscribeToNotifications(userId, callback) {
       table: 'notifications',
       filter: `user_id=eq.${userId}`,
     }, callback)
+    .subscribe()
+}
+
+// ── Pack Admin Stats ──
+
+export async function getRecentRareFinds(cardNumbers, limit = 20) {
+  if (!cardNumbers?.length) return []
+  const { data } = await supabase.from('pack_user_cards')
+    .select('card_number, copy_number, obtained_at, user:profiles(id, full_name, avatar_url)')
+    .in('card_number', cardNumbers)
+    .order('obtained_at', { ascending: false })
+    .limit(limit)
+  return data || []
+}
+
+export async function getUserCardStats() {
+  const { data } = await supabase.from('pack_user_cards')
+    .select('card_number, user_id')
+  return data || []
+}
+
+export async function getTopCollectors(limit = 10) {
+  const { data } = await supabase.from('pack_user_cards')
+    .select('user_id, user:profiles(id, full_name, avatar_url)')
+  if (!data) return []
+  const counts = {}
+  for (const r of data) {
+    if (!counts[r.user_id]) counts[r.user_id] = { ...r.user, count: 0 }
+    counts[r.user_id].count++
+  }
+  return Object.values(counts).sort((a, b) => b.count - a.count).slice(0, limit)
+}
+
+// ── Collection Count (for debug/conditions) ──
+
+export async function getCollectionCount() {
+  const { count } = await supabase.from('pack_user_cards')
+    .select('*', { count: 'exact', head: true })
+  return count || 0
+}
+
+// ── Pack Cards ──
+
+export async function getPackCards() {
+  const { data } = await supabase.from('pack_cards').select('*').order('number')
+  return data || []
+}
+
+export async function getPackCardsByType(packType) {
+  const { data } = await supabase.from('pack_cards').select('*').eq('pack_type', packType).order('number')
+  return data || []
+}
+
+export async function getUserCards(userId) {
+  const { data } = await supabase.from('pack_user_cards').select('*').eq('user_id', userId).order('card_number')
+  return data || []
+}
+
+export async function grantCard(userId, cardNumber, obtainedVia = 'reward', copyNumber = null) {
+  const row = { user_id: userId, card_number: cardNumber, obtained_via: obtainedVia }
+  if (copyNumber != null) row.copy_number = copyNumber
+  const { data, error } = await supabase.from('pack_user_cards').insert(row).select().single()
+  return { data, error }
+}
+
+export async function revokeCard(userId, cardNumber) {
+  return supabase.from('pack_user_cards').delete().eq('user_id', userId).eq('card_number', cardNumber)
+}
+
+export async function updatePackCard(cardNumber, updates) {
+  const { data, error } = await supabase.from('pack_cards').update(updates).eq('number', cardNumber).select().single()
+  return { data, error }
+}
+
+export async function uploadCardImage(cardNumber, file) {
+  try {
+    // Validate inputs
+    if (cardNumber == null || cardNumber < 0) return { url: null, error: { message: 'Invalid card number' } }
+    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+    if (file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
+
+    // Step 1: Get signed upload params from Edge Function
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ action: 'get_card_upload_sig', card_number: cardNumber }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error in signature request: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let sigJson
+    try {
+      sigJson = await sigRes.json()
+    } catch (_) {
+      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
+    }
+    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
+    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
+      return { url: null, error: { message: 'Incomplete signature response — check the Cloudinary credentials in secrets' } }
+    }
+
+    // Step 2: Upload directly to Cloudinary
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    let cloudRes
+    try {
+      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, {
+        method: 'POST',
+        body: fd,
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Cloudinary upload network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let cloudJson
+    try {
+      cloudJson = await cloudRes.json()
+    } catch (_) {
+      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
+    }
+    if (!cloudRes.ok) {
+      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
+      return { url: null, error: { message: 'Cloudinary: ' + msg } }
+    }
+
+    const imageUrl = cloudJson.secure_url
+    if (!imageUrl) return { url: null, error: { message: 'Cloudinary did not return an image URL' } }
+
+    // Step 3: Save URL to database
+    const { error: dbErr } = await supabase
+      .from('pack_cards')
+      .update({ image_url: imageUrl })
+      .eq('number', cardNumber)
+    if (dbErr) return { url: imageUrl, error: { message: 'Image uploaded but DB save error: ' + dbErr.message } }
+
+    return { url: imageUrl, error: null }
+  } catch (err) {
+    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
+  }
+}
+
+// ── Pack Generation Config ──
+
+export async function getPackConfig() {
+  const { data } = await supabase.from('pack_generation_config').select('*').eq('id', 1).single()
+  return data
+}
+
+export async function savePackConfig(config) {
+  const { data, error } = await supabase.from('pack_generation_config')
+    .update({ ...config, updated_at: new Date().toISOString() })
+    .eq('id', 1).select().single()
+  return { data, error }
+}
+
+// ── Generated Packs ──
+
+export async function getPackStats() {
+  const [total, assigned, opened] = await Promise.all([
+    supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }),
+    supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).not('assigned_to', 'is', null),
+    supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).eq('opened', true),
+  ])
+  return {
+    total: total.count || 0,
+    assigned: assigned.count || 0,
+    opened: opened.count || 0,
+  }
+}
+
+export async function getPackStatsByType(packType) {
+  const [total, assigned, opened] = await Promise.all([
+    supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).eq('pack_type', packType),
+    supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).eq('pack_type', packType).not('assigned_to', 'is', null),
+    supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).eq('pack_type', packType).eq('opened', true),
+  ])
+  return {
+    total: total.count || 0,
+    assigned: assigned.count || 0,
+    opened: opened.count || 0,
+  }
+}
+
+export async function getPacksRemaining() {
+  // Count unassigned packs per type
+  const types = ['red', 'green', 'blue']
+  const results = await Promise.all(
+    types.map(t => supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).eq('pack_type', t).is('assigned_to', null))
+  )
+  return { red: results[0].count || 0, green: results[1].count || 0, blue: results[2].count || 0 }
+}
+
+export async function insertGeneratedPacks(packs) {
+  const BATCH = 500
+  for (let i = 0; i < packs.length; i += BATCH) {
+    const batch = packs.slice(i, i + BATCH)
+    const { error } = await supabase.from('pack_generated_packs').insert(batch)
+    if (error) return { error, inserted: i }
+  }
+  return { error: null, inserted: packs.length }
+}
+
+export async function deleteAllGeneratedPacks() {
+  return supabase.from('pack_generated_packs').delete().gte('pack_number', 1)
+}
+
+export async function deleteGeneratedPacksByType(packType) {
+  return supabase.from('pack_generated_packs').delete().eq('pack_type', packType).gte('pack_number', 1)
+}
+
+export async function getUserPacks(userId) {
+  const { data } = await supabase.from('pack_generated_packs')
+    .select('*')
+    .eq('assigned_to', userId)
+    .order('pack_number')
+  return data || []
+}
+
+// ── Pack User Timers ──
+
+export async function getUserTimer(userId) {
+  const { data } = await supabase.from('pack_user_timers').select('*').eq('user_id', userId).single()
+  return data
+}
+
+export async function upsertUserTimer(userId, updates) {
+  const { data, error } = await supabase.from('pack_user_timers')
+    .upsert({ user_id: userId, ...updates }, { onConflict: 'user_id' })
+    .select().single()
+  return { data, error }
+}
+
+// ── Pack Opening ──
+
+export async function claimAndOpenPack(userId, packType) {
+  // 1. Find an unassigned pack
+  const { data: pack, error: findErr } = await supabase
+    .from('pack_generated_packs')
+    .select('*')
+    .eq('pack_type', packType)
+    .is('assigned_to', null)
+    .limit(1)
+    .single()
+  if (findErr || !pack) return { error: findErr || { message: 'No packs available' } }
+
+  // 2. Claim it (race-safe: check assigned_to is still null)
+  const { data: claimed, error: claimErr } = await supabase
+    .from('pack_generated_packs')
+    .update({ assigned_to: userId, opened: true, opened_at: new Date().toISOString() })
+    .eq('id', pack.id)
+    .is('assigned_to', null)
+    .select()
+    .single()
+  if (claimErr || !claimed) return { error: claimErr || { message: 'Pack already taken, try again' } }
+
+  // 3. Insert cards into user collection (ignore duplicates)
+  const cards = claimed.cards || []
+  for (const entry of cards) {
+    await supabase.from('pack_user_cards')
+      .upsert(
+        { user_id: userId, card_number: entry.card, copy_number: entry.copy, obtained_via: 'pack' },
+        { onConflict: 'user_id,card_number', ignoreDuplicates: true }
+      )
+  }
+
+  // 4. Decrement available packs in timer
+  //    Only reset last_pack_at when user was at MAX (3/3)
+  //    Otherwise keep the timer running where it was
+  const timer = await getUserTimer(userId)
+  if (timer) {
+    const interval = 60 * 60 * 1000 // 60 min per pack
+    const elapsed = Date.now() - new Date(timer.last_pack_at).getTime()
+    const earned = Math.floor(elapsed / interval)
+    const currentTotal = Math.min(3, (timer.available_packs || 0) + earned)
+    const newTotal = Math.max(0, currentTotal - 1)
+
+    if (currentTotal >= 3) {
+      // Was at MAX — reset timer, countdown starts fresh from 60:00
+      await upsertUserTimer(userId, { available_packs: newTotal, last_pack_at: new Date().toISOString() })
+    } else {
+      // Timer was running — "consume" earned packs by advancing last_pack_at
+      // so the countdown keeps ticking from where it was
+      const newLastPackAt = new Date(new Date(timer.last_pack_at).getTime() + earned * interval).toISOString()
+      await upsertUserTimer(userId, { available_packs: newTotal, last_pack_at: newLastPackAt })
+    }
+  }
+
+  return { data: claimed, error: null }
+}
+
+// ── TCG Game State ──
+
+export async function getTcgGameActive() {
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'tcg_game_active').single()
+  return data?.value === 'true'
+}
+
+export async function setTcgGameActive(active) {
+  const { data, error } = await supabase.from('app_settings')
+    .upsert({ key: 'tcg_game_active', value: active ? 'true' : 'false', updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .select().single()
+  return { data, error }
+}
+
+export async function resetAllUserCards() {
+  const { error } = await supabase.from('pack_user_cards').delete().gte('card_number', 0)
+  return { error }
+}
+
+export async function resetAllUserTimers() {
+  const { error } = await supabase.from('pack_user_timers').delete().neq('user_id', '00000000-0000-0000-0000-000000000000')
+  return { error }
+}
+
+export async function resetAllOpenedPacks() {
+  const { error } = await supabase.from('pack_generated_packs')
+    .update({ assigned_to: null, opened: false, opened_at: null })
+    .gte('pack_number', 1)
+  return { error }
+}
+
+// ── WIP Updates ──
+
+export async function getWipUpdates(taskId) {
+  const { data } = await supabase.from('task_wip_updates')
+    .select('*, author:profiles(id, full_name, avatar_url, role)')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function createWipUpdate(taskId, userId, note, imageUrls) {
+  const { data, error } = await supabase.from('task_wip_updates')
+    .insert({
+      task_id: taskId,
+      user_id: userId,
+      note: note || null,
+      images: imageUrls || [],
+    })
+    .select('*, author:profiles(id, full_name, avatar_url, role)')
+    .single()
+  return { data, error }
+}
+
+// ── WIP Comments (per-WIP feedback from staff) ──
+
+export async function getWipComments(wipUpdateIds) {
+  if (!wipUpdateIds || wipUpdateIds.length === 0) return []
+  const { data } = await supabase.from('wip_comments')
+    .select('*, author:profiles(id, full_name, avatar_url, role)')
+    .in('wip_update_id', wipUpdateIds)
+    .order('created_at', { ascending: true })
+  return data || []
+}
+
+export async function addWipComment(wipUpdateId, authorId, body) {
+  const { data, error } = await supabase.from('wip_comments')
+    .insert({ wip_update_id: wipUpdateId, author_id: authorId, body })
+    .select('*, author:profiles(id, full_name, avatar_url, role)')
+    .single()
+  return { data, error }
+}
+
+// Upload a WIP image via Cloudinary (same pattern as uploadCardImage)
+export async function uploadWipImage(taskId, file) {
+  try {
+    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+    if (file.size > 4 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 4MB)' } }
+
+    // Step 1: Get signed upload params from Edge Function
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ action: 'get_wip_upload_sig', task_id: taskId }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error in signature request: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let sigJson
+    try {
+      sigJson = await sigRes.json()
+    } catch (_) {
+      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
+    }
+    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
+    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
+      return { url: null, error: { message: 'Incomplete signature response — check the Cloudinary credentials in secrets' } }
+    }
+
+    // Step 2: Upload directly to Cloudinary
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    let cloudRes
+    try {
+      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, {
+        method: 'POST',
+        body: fd,
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Cloudinary upload network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let cloudJson
+    try {
+      cloudJson = await cloudRes.json()
+    } catch (_) {
+      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
+    }
+    if (!cloudRes.ok) {
+      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
+      return { url: null, error: { message: 'Cloudinary: ' + msg } }
+    }
+
+    const imageUrl = cloudJson.secure_url
+    if (!imageUrl) return { url: null, error: { message: 'Cloudinary did not return an image URL' } }
+
+    return { url: imageUrl, error: null }
+  } catch (err) {
+    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
+  }
+}
+
+// ── WIP Views (badge system) ──
+
+export async function getWipViews(userId) {
+  const { data } = await supabase.from('task_wip_views')
+    .select('task_id, viewed_at')
+    .eq('user_id', userId)
+  return data || []
+}
+
+export async function markWipViewed(taskId, userId) {
+  const { data, error } = await supabase.from('task_wip_views')
+    .upsert(
+      { task_id: taskId, user_id: userId, viewed_at: new Date().toISOString() },
+      { onConflict: 'task_id,user_id' }
+    )
+    .select()
+    .single()
+  return { data, error }
+}
+
+// ── Review Metadata ──
+
+export async function updateReviewMeta(taskId, reviewTitle, reviewDescription) {
+  const { data, error } = await supabase.from('tasks')
+    .update({
+      review_title: reviewTitle || null,
+      review_description: reviewDescription || null,
+    })
+    .eq('id', taskId)
+    .select()
+    .single()
+  return { data, error }
+}
+
+// ── WIP Updates Realtime ──
+
+export function subscribeToWipUpdates(callback) {
+  return supabase
+    .channel('wip-updates-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'task_wip_updates' }, callback)
     .subscribe()
 }
 

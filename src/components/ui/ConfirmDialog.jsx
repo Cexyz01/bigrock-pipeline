@@ -27,11 +27,11 @@ export default function ConfirmDialog({ pending, onConfirm, onCancel }) {
         padding: 28, width: '90%', maxWidth: 400, animation: 'scaleIn 0.15s ease',
         boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
       }}>
-        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#1a1a2e' }}>Conferma</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#1a1a2e' }}>Confirm</div>
         <div style={{ fontSize: 14, color: '#64748B', marginBottom: 24, lineHeight: 1.6 }}>{pending.message}</div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <Btn onClick={onCancel}>Annulla</Btn>
-          <Btn variant="danger" onClick={onConfirm}>Elimina</Btn>
+          <Btn onClick={onCancel}>Cancel</Btn>
+          <Btn variant="danger" onClick={onConfirm}>Confirm</Btn>
         </div>
       </div>
     </div>

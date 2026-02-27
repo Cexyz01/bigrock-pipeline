@@ -1,9 +1,11 @@
 import { DEPTS, SHOT_STATUSES, isStaff } from '../../lib/constants'
+import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Bar from '../ui/Bar'
 
 export default function OverviewPage({ shots, tasks, profiles, user }) {
+  const isMobile = useIsMobile()
   const total = shots.length * DEPTS.length
   const done = shots.reduce((s, sh) => s + DEPTS.filter(d => sh[`status_${d.id}`] === 'approved').length, 0)
   const wip = shots.reduce((s, sh) => s + DEPTS.filter(d => sh[`status_${d.id}`] === 'in_progress').length, 0)
@@ -14,28 +16,28 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
   // Dept color map for stat cards
   const statCards = [
     { l: 'Shots', v: shots.length, c: '#60A5FA' },
-    { l: 'Completati', v: done, c: '#10B981' },
-    { l: 'In Corso', v: wip, c: '#F59E0B' },
-    { l: isStaff(user.role) ? 'Da Revisionare' : 'I Miei Task', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, c: '#6C5CE7' },
+    { l: 'Completed', v: done, c: '#10B981' },
+    { l: 'In Progress', v: wip, c: '#F59E0B' },
+    { l: isStaff(user.role) ? 'To Review' : 'My Tasks', v: isStaff(user.role) ? reviewTasks.length : myTasks.length, c: '#6C5CE7' },
   ]
 
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Ciao {user.full_name.split(' ')[0]} {user.mood_emoji || ''}</h1>
-        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Production Pipeline Overview</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Hi {user.full_name.split(' ')[0]} {user.mood_emoji || ''}</h1>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>BigRock Hub Overview</p>
       </Fade>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? 12 : 20, marginBottom: isMobile ? 20 : 32 }}>
         {statCards.map((s, i) => (
           <Fade key={s.l} delay={i * 50}>
             <div style={{
               background: '#fff', border: '1px solid #E8ECF1', borderRadius: 16,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', padding: 24,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', padding: isMobile ? 16 : 24,
               borderLeft: `4px solid ${s.c}`,
             }}>
-              <div style={{ fontSize: 13, color: '#64748B', marginBottom: 12 }}>{s.l}</div>
-              <div style={{ fontSize: 32, fontWeight: 700, color: s.c }}>{s.v}</div>
+              <div style={{ fontSize: isMobile ? 11 : 13, color: '#64748B', marginBottom: isMobile ? 6 : 12 }}>{s.l}</div>
+              <div style={{ fontSize: isMobile ? 24 : 32, fontWeight: 700, color: s.c }}>{s.v}</div>
             </div>
           </Fade>
         ))}
@@ -44,7 +46,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
       <Fade delay={200}>
         <Card style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>Progresso Pipeline</span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>Pipeline Progress</span>
             <span style={{ fontSize: 24, fontWeight: 700, color: '#6C5CE7' }}>{pct}%</span>
           </div>
           <Bar value={pct} h={8} />
@@ -65,7 +67,7 @@ export default function OverviewPage({ shots, tasks, profiles, user }) {
 
       <Fade delay={300}>
         <Card>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#1a1a2e' }}>Dipartimenti</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#1a1a2e' }}>Departments</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {DEPTS.map(dept => {
               const t = shots.length
