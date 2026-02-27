@@ -7,6 +7,7 @@ import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import EmptyState from '../ui/EmptyState'
 import ShotRow from '../shots/ShotRow'
+import { IconWrench, IconAlertTriangle, IconCamera, IconX } from '../ui/Icons'
 
 export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, onSyncMiro, onFixMiro, addToast, requestConfirm }) {
   const [showCreate, setShowCreate] = useState(false)
@@ -38,7 +39,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
   const cycleShotStatus = useCallback(async (shot, deptId) => {
     if (!staff) return
     const key = `status_${deptId}`
-    const order = ['not_started', 'in_progress', 'review', 'needs_revision', 'approved']
+    const order = ['not_started', 'in_progress', 'review', 'approved']
     const curr = order.indexOf(shot[key])
     const next = order[(curr + 1) % order.length]
     await onUpdateShot(shot.id, { [key]: next })
@@ -88,33 +89,35 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
   const seqs = [...new Set(shots.map(sh => sh.sequence))].sort()
 
   return (
-    <div>
+    <div style={{ maxWidth: '100%' }}>
       <Fade>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center',
+          marginBottom: isMobile ? 16 : 28, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 0,
+        }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Shot Tracker</h1>
-            <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
+            <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Shot Tracker</h1>
+            <p style={{ fontSize: isMobile ? 12 : 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Add Shot</Btn>}
-            {isAdmin(user.role) && <Btn variant="default" loading={fixing} onClick={handleFixMiro} style={{ fontSize: 12 }}>🔧 Fix Miro</Btn>}
-            {isAdmin(user.role) && <Btn variant="default" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12, background: '#FEE2E2', color: '#DC2626', borderColor: '#FECACA' }}>⚠️ Rebuild Miro</Btn>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Shot</Btn>}
+            {isAdmin(user.role) && <Btn variant="default" loading={fixing} onClick={handleFixMiro} style={{ fontSize: 12, ...(isMobile ? { padding: '6px 10px' } : {}), display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconWrench size={14} /> Fix Miro</Btn>}
+            {isAdmin(user.role) && <Btn variant="danger" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12, ...(isMobile ? { padding: '6px 10px' } : {}), display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconAlertTriangle size={14} /> Rebuild Miro</Btn>}
           </div>
         </div>
       </Fade>
 
       {/* Header */}
-      <div style={isMobile ? { overflowX: 'auto', WebkitOverflowScrolling: 'touch' } : {}}>
+      <div>
       <div style={{
-        display: 'grid', gridTemplateColumns: isMobile ? '140px repeat(6, 64px)' : '200px repeat(6, 80px)', gap: 3,
+        display: 'grid', gridTemplateColumns: isMobile ? '2.2fr repeat(6, 1fr)' : '200px repeat(6, 80px)', gap: isMobile ? 2 : 3,
         padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
         position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
-        minWidth: isMobile ? 'max-content' : undefined,
       }}>
-        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 8 }}>Shot</div>
+        <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Shot</div>
         {DEPTS.map(d => (
-          <div key={d.id} style={{ fontSize: isMobile ? 9 : 11, textAlign: 'center', color: '#64748B' }}>
-            <div style={{ fontSize: isMobile ? 9 : 10, marginTop: 2, fontWeight: 500 }}>{d.label}</div>
+          <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
           </div>
         ))}
       </div>
@@ -154,7 +157,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap' }}>
         {SHOT_STATUSES.map(st => (
           <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1.5px solid ${st.color}50` }} />
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `${st.id === 'review' ? '2.5px' : '1.5px'} solid ${st.id === 'review' ? '#2563EB' : `${st.color}50`}` }} />
             <span style={{ fontSize: 11, color: '#64748B' }}>{st.label}</span>
           </div>
         ))}
@@ -177,7 +180,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
                 <button
                   onClick={() => { setRefFile(null); setRefPreview(null); if (refInputRef.current) refInputRef.current.value = '' }}
                   style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >✕</button>
+                ><IconX size={14} /></button>
               </div>
             ) : (
               <div
@@ -186,7 +189,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
                 onMouseEnter={e => e.currentTarget.style.borderColor = ACCENT}
                 onMouseLeave={e => e.currentTarget.style.borderColor = '#CBD5E1'}
               >
-                📷 Click to select image
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><IconCamera size={16} /> Click to select image</span>
               </div>
             )}
           </div>

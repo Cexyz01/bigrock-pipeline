@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState } from 'react'
+import { IconCards } from '../ui/Icons'
 
 // ── Rarity visual config ──
 const RARITY_COLORS = {
-  common:  { border: '#64748B', glow: 'rgba(100,116,139,0.3)', label: 'Common',  bg: '#1E2530' },
+  common:  { border: '#64748B', glow: 'rgba(100,116,139,0.3)', label: 'Common',  bg: '#2d2d2d' },
   rare:    { border: '#22C55E', glow: 'rgba(34,197,94,0.35)',  label: 'Rare',    bg: '#14532D' },
   gold:    { border: '#F59E0B', glow: 'rgba(245,158,11,0.35)', label: 'Gold',    bg: '#422006' },
   diamond: { border: '#06B6D4', glow: 'rgba(6,182,212,0.35)',  label: 'Diamond', bg: '#083344' },
@@ -53,7 +54,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
       borderRadius: 16,
       overflow: hasAnimBorder ? 'visible' : 'hidden',
       border: hasAnimBorder ? '3px solid transparent' : `3px solid ${borderColor}`,
-      background: owned ? '#141820' : '#0F1218',
+      background: owned ? '#222222' : '#1a1a1a',
       textAlign: 'left',
     }}>
       {/* Rainbow animated border */}
@@ -63,7 +64,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
           background: 'linear-gradient(var(--rainbow-angle, 0deg), #EC4899, #F59E0B, #22C55E, #3B82F6, #8B5CF6, #EC4899)',
           zIndex: 0, opacity: owned ? 1 : 0.5,
         }}>
-          <div style={{ borderRadius: 16, width: '100%', height: '100%', background: owned ? '#141820' : '#0F1218' }} />
+          <div style={{ borderRadius: 16, width: '100%', height: '100%', background: owned ? '#222222' : '#1a1a1a' }} />
         </div>
       )}
 
@@ -74,7 +75,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
           background: 'conic-gradient(from var(--diamond-angle, 0deg), #06B6D4, #A5F3FC, #FFFFFF, #06B6D4, #164E63, #A5F3FC, #FFFFFF, #06B6D4)',
           zIndex: 0, opacity: owned ? 1 : 0.5,
         }}>
-          <div style={{ borderRadius: 16, width: '100%', height: '100%', background: owned ? '#141820' : '#0F1218' }} />
+          <div style={{ borderRadius: 16, width: '100%', height: '100%', background: owned ? '#222222' : '#1a1a1a' }} />
         </div>
       )}
 
@@ -88,8 +89,8 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
         <div style={{
           flex: isFullArt ? 1 : '0 0 55%',
           background: owned
-            ? (card.image_url ? undefined : `linear-gradient(135deg, ${r.bg}, #141820)`)
-            : '#0F1218',
+            ? (card.image_url ? undefined : `linear-gradient(135deg, ${r.bg}, #222222)`)
+            : '#1a1a1a',
           backgroundImage: owned && card.image_url ? `url(${card.image_url})` : undefined,
           backgroundPosition: owned && card.image_url && card.image_position
             ? `${card.image_position.x}% ${card.image_position.y}%` : 'center',
@@ -107,7 +108,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
             </svg>
           )}
           {owned && !card.image_url && (
-            <div style={{ fontSize: 48, opacity: 0.25 }}>🃏</div>
+            <div style={{ opacity: 0.25 }}><IconCards size={48} color="#94A3B8" /></div>
           )}
           {/* Rarity strip — hidden on FullArt */}
           {!isFullArt && (
@@ -129,11 +130,11 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
         } : {
           flex: 1, padding: '14px 18px',
           display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          background: owned ? '#141820' : '#0F1218',
+          background: owned ? '#222222' : '#1a1a1a',
         }}>
           <div>
             <div style={{
-              fontSize: 15, fontWeight: 700,
+              fontSize: 22, fontWeight: 700,
               color: owned ? '#F1F5F9' : '#64748B',
               lineHeight: 1.2,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -142,7 +143,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
               {owned ? cleanName(card.name) : '???'}
             </div>
             <div style={{
-              fontSize: 12, color: owned ? '#CBD5E1' : '#64748B',
+              fontSize: 14, color: owned ? '#CBD5E1' : '#64748B',
               lineHeight: 1.4, marginTop: 4,
               overflow: 'hidden',
               display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
@@ -155,7 +156,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10 }}>
             <div>
               <div style={{
-                fontSize: 12, fontWeight: 700,
+                fontSize: 14, fontWeight: 700,
                 color: owned ? r.border : `${r.border}80`,
                 textTransform: 'uppercase', letterSpacing: '0.5px',
                 textShadow: isFullArt ? '0 1px 4px rgba(0,0,0,0.7)' : 'none',
@@ -163,13 +164,13 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
                 {r.label}
               </div>
               {owned && copyInfo && (
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', fontFamily: 'monospace', marginTop: 2 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', fontFamily: 'monospace', marginTop: 2 }}>
                   #{copyInfo}{totalCopies ? '/' + totalCopies : ''}
                 </div>
               )}
             </div>
             <span style={{
-              fontSize: 18, fontWeight: 800,
+              fontSize: 21, fontWeight: 800,
               color: owned ? '#F1F5F9' : '#475569',
               fontFamily: 'monospace',
               textShadow: isFullArt ? '0 1px 6px rgba(0,0,0,0.8)' : 'none',

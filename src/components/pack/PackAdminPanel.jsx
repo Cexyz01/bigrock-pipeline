@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { getPackConfig, savePackConfig, getPackStats, getPackStatsByType, insertGeneratedPacks, deleteAllGeneratedPacks, getPackCards, getPacksRemaining, updatePackCard, uploadCardImage, setTcgGameActive, resetAllUserCards, resetAllUserTimers, resetAllOpenedPacks, getRecentRareFinds, getUserCardStats, getTopCollectors, getCollectionCount } from '../../lib/supabase'
 import { PACK_RARITIES, NON_COMMON_RARITIES, PACK_TYPES, PACKS_PER_POOL, CARDS_PER_PACK } from '../../lib/constants'
 
-const ACCENT = '#6C5CE7'
+const ACCENT = '#F28C28'
 const RARITY_COLORS = {
   rainbow: '#EC4899', diamond: '#06B6D4', gold: '#F59E0B', rare: '#3B82F6', common: '#64748B',
 }
@@ -24,15 +24,15 @@ function getTimeAgo(dateStr) {
 }
 
 const DARK = {
-  bg: '#0B0E14',
-  card: '#141820',
-  cardBorder: '#1E2530',
-  cardHover: '#1A2030',
+  bg: '#1a1a1a',
+  card: '#222222',
+  cardBorder: '#2d2d2d',
+  cardHover: '#2a2a2a',
   text: '#E2E8F0',
   muted: '#94A3B8',
   dim: '#64748B',
-  input: '#0F1218',
-  inputBorder: '#2A3040',
+  input: '#1a1a1a',
+  inputBorder: '#3a3a3a',
   danger: '#EF4444',
   success: '#22C55E',
 }
@@ -684,7 +684,7 @@ export default function PackAdminPanel({ addToast, requestConfirm, tcgGameActive
             <div style={{ marginTop: 12, height: 6, borderRadius: 3, background: DARK.cardBorder, overflow: 'hidden' }}>
               <div style={{
                 width: `${genProgress}%`, height: '100%', borderRadius: 3,
-                background: `linear-gradient(90deg, ${ACCENT}, #A29BFE)`,
+                background: `linear-gradient(90deg, ${ACCENT}, #F5B862)`,
                 transition: 'width 0.3s ease',
               }} />
             </div>

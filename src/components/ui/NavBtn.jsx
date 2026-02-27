@@ -11,8 +11,8 @@ export default function NavBtn({ icon, label, active, onClick, badge }) {
         display: 'flex', alignItems: 'center',
         height: 44,
         cursor: 'pointer', userSelect: 'none', position: 'relative',
-        background: active ? 'rgba(108,92,231,0.08)' : h ? '#F1F5F9' : 'transparent',
-        color: active ? '#6C5CE7' : h ? '#334155' : '#64748B',
+        background: active ? 'rgba(242,140,40,0.12)' : h ? 'rgba(255,255,255,0.06)' : 'transparent',
+        color: active ? '#F28C28' : h ? '#d4d4d8' : '#71717a',
         transition: 'background 0.15s ease, color 0.15s ease',
         margin: '2px 0',
       }}

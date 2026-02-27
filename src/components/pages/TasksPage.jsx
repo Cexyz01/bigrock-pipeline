@@ -6,6 +6,7 @@ import Btn from '../ui/Btn'
 import Pill from '../ui/Pill'
 import Select from '../ui/Select'
 import EmptyState from '../ui/EmptyState'
+import { IconClipboard } from '../ui/Icons'
 import TaskCard from '../tasks/TaskCard'
 import CreateTaskModal from '../tasks/CreateTaskModal'
 import TaskDetailModal from '../tasks/TaskDetailModal'
@@ -57,7 +58,7 @@ export default function TasksPage({
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Tasks</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Tasks</h1>
             <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Manage all tasks' : 'Your tasks'}</p>
           </div>
           {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ New Task</Btn>}
@@ -85,7 +86,7 @@ export default function TasksPage({
 
       {/* Task grid */}
       {filteredTasks.length === 0 ? (
-        <EmptyState icon="📋" title="No tasks" sub={staff ? 'Create the first task' : 'No tasks assigned'} />
+        <EmptyState icon={<IconClipboard size={48} color="#94A3B8" />} title="No tasks" sub={staff ? 'Create the first task' : 'No tasks assigned'} />
       ) : (
         <div style={{
           display: 'grid',

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { getPackCards, getUserCards, grantCard as grantCardApi, getUserTimer, upsertUserTimer, getPacksRemaining, claimAndOpenPack, getPackConfig, subscribeToTable, supabase } from '../../lib/supabase'
 import { isStaff, isAdmin, PACK_TYPES, PACK_RARITIES } from '../../lib/constants'
@@ -7,13 +7,16 @@ import { ScaledCard } from '../pack/CardRenderer'
 import PackShop from '../pack/PackShop'
 import PackAdminPanel from '../pack/PackAdminPanel'
 import PackOpening from '../pack/PackOpening'
+import PackTrading from '../pack/PackTrading'
+import TradeSession from '../pack/TradeSession'
 import { IconX } from '../ui/Icons'
 import Fade from '../ui/Fade'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const D = {
-  bg: '#0B0E14',
-  card: '#141820',
-  border: '#1E2530',
+  bg: '#1a1a1a',
+  card: '#222222',
+  border: '#2d2d2d',
   text: '#F1F5F9',
   sub: '#CBD5E1',
   muted: '#94A3B8',
@@ -30,6 +33,7 @@ const TABS = [
 ]
 
 export default function PackPage({ user, profiles, addToast, requestConfirm, tcgGameActive, onGameStateChange }) {
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState('collection')
   const [cards, setCards] = useState([])
   const [userCards, setUserCards] = useState([])
@@ -43,10 +47,14 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [remaining, setRemaining] = useState({ red: 0, green: 0, blue: 0 })
   const [copiesPerRarity, setCopiesPerRarity] = useState({})
 
+  // Real-time trading
+  const [activeTradeId, setActiveTradeId] = useState(null)
+
   // Pack opening — optimistic render + fly transition
   const [openingPack, setOpeningPack] = useState(null) // { pack_type, cards: [...] } or null
   const [openingPackType, setOpeningPackType] = useState(null) // set immediately on click
   const [flyRect, setFlyRect] = useState(null) // bounding rect of clicked pack in shop
+  const [preOpenOwned, setPreOpenOwned] = useState(null) // snapshot of ownedSet before pack open
 
   // Staff grant
   const [grantOpen, setGrantOpen] = useState(false)
@@ -100,13 +108,35 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
   const ownedSet = useMemo(() => new Set(userCards.map(uc => uc.card_number)), [userCards])
 
-  const copyInfoMap = useMemo(() => {
+  // Group all copies per card_number, sorted by obtained_at ASC (first copy first)
+  const copiesMap = useMemo(() => {
     const m = {}
     for (const uc of userCards) {
-      if (uc.copy_number != null) m[uc.card_number] = String(uc.copy_number).padStart(3, '0')
+      if (!m[uc.card_number]) m[uc.card_number] = []
+      m[uc.card_number].push({ copy_number: uc.copy_number, obtained_at: uc.obtained_at, id: uc.id })
+    }
+    for (const key of Object.keys(m)) {
+      m[key].sort((a, b) => new Date(a.obtained_at) - new Date(b.obtained_at))
     }
     return m
   }, [userCards])
+
+  const copyCountMap = useMemo(() => {
+    const m = {}
+    for (const [cardNum, copies] of Object.entries(copiesMap)) m[cardNum] = copies.length
+    return m
+  }, [copiesMap])
+
+  // Display copy_number = first obtained copy (for grid display)
+  const copyInfoMap = useMemo(() => {
+    const m = {}
+    for (const [cardNum, copies] of Object.entries(copiesMap)) {
+      if (copies.length > 0 && copies[0].copy_number != null) {
+        m[cardNum] = String(copies[0].copy_number).padStart(3, '0')
+      }
+    }
+    return m
+  }, [copiesMap])
 
   const filteredCards = useMemo(() => {
     let filtered = cards
@@ -128,6 +158,8 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
       addToast(admin ? 'Admins cannot open packs during active game' : 'You cannot open packs right now', 'error')
       return
     }
+    // Snapshot owned cards BEFORE opening (for "NEW" badge)
+    setPreOpenOwned(new Set(ownedSet))
     // Optimistic render: show pack overlay immediately with fly animation
     setOpeningPackType(packType)
     setFlyRect(rect)
@@ -196,43 +228,44 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
   return (
     <>
-    <Fade>
+    <Fade style={{ height: '100%' }}>
       <div style={{
         background: D.bg,
-        minHeight: '100vh',
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
         userSelect: 'none',
         WebkitUserSelect: 'none',
       }}>
         {/* Top bar */}
         <div style={{
-          padding: '14px 28px',
+          padding: isMobile ? '12px 16px' : '14px 28px',
           borderBottom: `1px solid ${D.border}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: 12,
+          gap: isMobile ? 8 : 12,
           flexShrink: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 12 : 20 }}>
             <div>
-              <img src="/images/title_image_tcg.png" alt="BigRock TCG" draggable={false} style={{ height: 36, display: 'block' }} />
-              <p style={{ fontSize: 12, color: D.sub, margin: '4px 0 0' }}>
+              <img src="/images/title_image_tcg.png" alt="BigRock TCG" draggable={false} style={{ height: isMobile ? 28 : 36, display: 'block' }} />
+              <p style={{ fontSize: isMobile ? 10 : 12, color: D.sub, margin: '4px 0 0' }}>
                 {ownedCount}/{totalCount} cards collected
               </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 120, height: 6, borderRadius: 3, background: D.border, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: isMobile ? 80 : 120, height: 6, borderRadius: 3, background: D.border, overflow: 'hidden' }}>
                 <div style={{
                   width: `${totalCount ? (ownedCount / totalCount * 100) : 0}%`,
                   height: '100%', borderRadius: 3,
-                  background: 'linear-gradient(90deg, #6C5CE7, #A29BFE)',
+                  background: 'linear-gradient(90deg, #F28C28, #F5B862)',
                   transition: 'width 0.5s ease',
                 }} />
               </div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#A29BFE' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#F5B862' }}>
                 {totalCount ? Math.round(ownedCount / totalCount * 100) : 0}%
               </span>
             </div>
@@ -247,7 +280,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                   style={{
                     padding: '6px 16px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600,
                     cursor: 'pointer', transition: 'all 0.2s',
-                    background: tab === t.id ? '#6C5CE7' : 'transparent',
+                    background: tab === t.id ? '#F28C28' : 'transparent',
                     color: tab === t.id ? '#fff' : D.muted,
                   }}
                 >
@@ -260,111 +293,130 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
         {/* Main content */}
         {tab === 'collection' && (
-          <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-            {/* LEFT: Shop — wide */}
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, minHeight: 0 }}>
+            {/* LEFT/TOP: Shop */}
             <div style={{
-              width: '42%',
-              minWidth: 500,
-              maxWidth: 780,
-              borderRight: `1px solid ${D.border}`,
-              padding: '24px 32px',
-              display: 'flex',
-              flexDirection: 'column',
-              overflowY: 'auto',
-              flexShrink: 0,
+              ...(isMobile ? {
+                padding: '16px 16px 8px',
+                borderBottom: `1px solid ${D.border}`,
+                flexShrink: 0,
+              } : {
+                width: '42%',
+                minWidth: 500,
+                maxWidth: 780,
+                borderRight: `1px solid ${D.border}`,
+                padding: '24px 32px',
+                display: 'flex',
+                flexDirection: 'column',
+                overflowY: 'auto',
+                flexShrink: 0,
+              }),
             }}>
               <PackShop remaining={remaining} timer={timer} onOpenPack={handleOpenPack} isAdmin={admin} onResetPacks={handleResetPacks} canOpenPacks={canOpenPacks} />
+              <PackTrading user={user} profiles={profiles} addToast={addToast} onTradeSessionStart={(id) => setActiveTradeId(id)} />
             </div>
 
-            {/* RIGHT: Collection */}
+            {/* RIGHT/BOTTOM: Collection */}
             <div style={{
               flex: 1,
-              padding: '18px 24px',
-              overflowY: 'auto',
-              minWidth: 0,
+              display: 'flex', flexDirection: 'column',
+              minWidth: 0, minHeight: 0,
             }}>
-              {/* Pool filter */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: D.sub, marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pool:</span>
-                {POOL_FILTER.map(p => {
-                  const pt = PACK_TYPES.find(t => t.id === p)
-                  return (
+              {/* Sticky filters */}
+              <div style={{
+                padding: isMobile ? '12px 12px 0' : '18px 24px 0',
+                flexShrink: 0,
+              }}>
+                {/* Pool filter */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: D.sub, marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pool:</span>
+                  {POOL_FILTER.map(p => {
+                    const pt = PACK_TYPES.find(t => t.id === p)
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => setPoolFilter(p)}
+                        style={{
+                          padding: '4px 12px', borderRadius: 14, fontSize: 11, fontWeight: 600,
+                          cursor: 'pointer', transition: 'all 0.2s',
+                          background: poolFilter === p ? (pt ? pt.color : '#F28C28') : D.card,
+                          color: poolFilter === p ? '#fff' : D.sub,
+                          border: `1px solid ${poolFilter === p ? 'transparent' : D.border}`,
+                        }}
+                      >
+                        {p === 'all' ? 'All' : pt?.label}
+                        {p !== 'all' && (
+                          <span style={{ marginLeft: 3, opacity: 0.7 }}>({cards.filter(c => c.pack_type === p).length})</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Rarity filter */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: D.sub, marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Rarity:</span>
+                  {RARITIES.map(r => (
                     <button
-                      key={p}
-                      onClick={() => setPoolFilter(p)}
+                      key={r}
+                      onClick={() => setRarityFilter(r)}
                       style={{
                         padding: '4px 12px', borderRadius: 14, fontSize: 11, fontWeight: 600,
                         cursor: 'pointer', transition: 'all 0.2s',
-                        background: poolFilter === p ? (pt ? pt.color : '#6C5CE7') : D.card,
-                        color: poolFilter === p ? '#fff' : D.sub,
-                        border: `1px solid ${poolFilter === p ? 'transparent' : D.border}`,
+                        background: rarityFilter === r ? (RARITY_COLORS[r]?.border || '#F28C28') : D.card,
+                        color: rarityFilter === r ? '#fff' : D.sub,
+                        border: `1px solid ${rarityFilter === r ? 'transparent' : D.border}`,
                       }}
                     >
-                      {p === 'all' ? 'All' : pt?.label}
-                      {p !== 'all' && (
-                        <span style={{ marginLeft: 3, opacity: 0.7 }}>({cards.filter(c => c.pack_type === p).length})</span>
-                      )}
+                      {RARITY_LABELS[r]}
                     </button>
-                  )
-                })}
+                  ))}
+
+                  {admin && (
+                    <button
+                      onClick={() => setGrantOpen(true)}
+                      style={{
+                        marginLeft: 'auto', padding: '4px 14px', borderRadius: 14,
+                        border: '1.5px solid #F28C2840', fontSize: 11, fontWeight: 600,
+                        cursor: 'pointer', background: 'transparent', color: '#F5B862', transition: 'all 0.2s',
+                      }}
+                    >
+                      + Assign card
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* Rarity filter */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: D.sub, marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Rarity:</span>
-                {RARITIES.map(r => (
-                  <button
-                    key={r}
-                    onClick={() => setRarityFilter(r)}
-                    style={{
-                      padding: '4px 12px', borderRadius: 14, fontSize: 11, fontWeight: 600,
-                      cursor: 'pointer', transition: 'all 0.2s',
-                      background: rarityFilter === r ? (RARITY_COLORS[r]?.border || '#6C5CE7') : D.card,
-                      color: rarityFilter === r ? '#fff' : D.sub,
-                      border: `1px solid ${rarityFilter === r ? 'transparent' : D.border}`,
-                    }}
-                  >
-                    {RARITY_LABELS[r]}
-                  </button>
-                ))}
+              {/* Scrollable card grid */}
+              <div style={{
+                flex: 1, minHeight: 0,
+                overflowY: 'auto',
+                padding: isMobile ? '8px 12px 80px' : '12px 24px 24px',
+              }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? 'repeat(auto-fill, minmax(90px, 1fr))' : 'repeat(auto-fill, minmax(210px, 1fr))',
+                  gap: isMobile ? 8 : 12,
+                }}>
+                  {filteredCards.map(card => (
+                    <PackCard
+                      key={card.number}
+                      card={card}
+                      owned={ownedSet.has(card.number)}
+                      onClick={handleCardClick}
+                      copyInfo={copyInfoMap[card.number]}
+                      totalCopies={copiesPerRarity?.[card.rarity]}
+                      copyCount={copyCountMap[card.number] || 0}
+                    />
+                  ))}
+                </div>
 
-                {admin && (
-                  <button
-                    onClick={() => setGrantOpen(true)}
-                    style={{
-                      marginLeft: 'auto', padding: '4px 14px', borderRadius: 14,
-                      border: '1.5px solid #6C5CE740', fontSize: 11, fontWeight: 600,
-                      cursor: 'pointer', background: 'transparent', color: '#A29BFE', transition: 'all 0.2s',
-                    }}
-                  >
-                    + Assign card
-                  </button>
+                {filteredCards.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: 60, color: D.muted, fontSize: 14 }}>
+                    No cards in this category
+                  </div>
                 )}
               </div>
-
-              {/* Card Grid — 7 per row */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 12,
-              }}>
-                {filteredCards.map(card => (
-                  <PackCard
-                    key={card.number}
-                    card={card}
-                    owned={ownedSet.has(card.number)}
-                    onClick={handleCardClick}
-                    copyInfo={copyInfoMap[card.number]}
-                    totalCopies={copiesPerRarity?.[card.rarity]}
-                  />
-                ))}
-              </div>
-
-              {filteredCards.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 60, color: D.muted, fontSize: 14 }}>
-                  No cards in this category
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -398,30 +450,16 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
         onClick={() => setSelected(null)}
         style={{
           position: 'fixed', inset: 0, zIndex: 9000,
-          background: 'rgba(5,5,15,0.7)',
+          background: 'rgba(0,0,0,0.7)',
           backdropFilter: 'blur(10px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           userSelect: 'none', WebkitUserSelect: 'none',
         }}
       >
         <div onClick={e => e.stopPropagation()} style={{
-          background: D.card, border: `1px solid ${D.border}`, borderRadius: 20,
-          padding: 28, width: '90%', maxWidth: 420, maxHeight: '85vh', overflowY: 'auto',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-          animation: 'modalIn 0.2s ease',
+          padding: 28, animation: 'modalIn 0.2s ease',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: D.text, margin: 0, flex: 1, marginRight: 12 }}>
-              {selectedOwned ? (selected.name || '').replace(/\s*#\d+$/, '') : 'Unknown card'}
-            </h2>
-            <button onClick={() => setSelected(null)} style={{
-              background: '#1E2530', border: 'none', color: D.muted, borderRadius: 8,
-              width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            }}>
-              <IconX size={16} />
-            </button>
-          </div>
-          <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copyInfo={copyInfoMap[selected.number]} cards={cards} copiesPerRarity={copiesPerRarity} />
+          <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copies={copiesMap[selected.number] || []} cards={cards} copiesPerRarity={copiesPerRarity} />
         </div>
       </div>,
       document.body
@@ -433,7 +471,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
         onClick={() => setGrantOpen(false)}
         style={{
           position: 'fixed', inset: 0, zIndex: 9000,
-          background: 'rgba(5,5,15,0.7)',
+          background: 'rgba(0,0,0,0.7)',
           backdropFilter: 'blur(10px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           userSelect: 'none', WebkitUserSelect: 'none',
@@ -448,7 +486,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: D.text, margin: 0 }}>Assign card</h2>
             <button onClick={() => setGrantOpen(false)} style={{
-              background: '#1E2530', border: 'none', color: D.muted, borderRadius: 8,
+              background: '#2d2d2d', border: 'none', color: D.muted, borderRadius: 8,
               width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
             }}>
               <IconX size={16} />
@@ -476,7 +514,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
             </div>
             <button onClick={handleGrant} disabled={granting || !grantUser || grantNum === ''} style={{
               padding: '10px 0', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 700,
-              cursor: granting ? 'wait' : 'pointer', background: '#6C5CE7', color: '#fff',
+              cursor: granting ? 'wait' : 'pointer', background: '#F28C28', color: '#fff',
               opacity: (granting || !grantUser || grantNum === '') ? 0.5 : 1, transition: 'opacity 0.2s',
             }}>
               {granting ? 'Assigning...' : 'Assign'}
@@ -496,6 +534,20 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
         onClose={handleOpeningClose}
         copiesPerRarity={copiesPerRarity}
         flyRect={flyRect}
+        preOpenOwned={preOpenOwned}
+      />,
+      document.body
+    )}
+
+    {/* Trade Session overlay — portal to body */}
+    {activeTradeId && createPortal(
+      <TradeSession
+        tradeId={activeTradeId}
+        user={user}
+        cards={cards}
+        userCards={userCards}
+        addToast={addToast}
+        onClose={() => { setActiveTradeId(null); loadAll() }}
       />,
       document.body
     )}
@@ -504,45 +556,79 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   )
 }
 
-function CardDetail({ card, owned, rarity, copyInfo, cards, copiesPerRarity }) {
+function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity }) {
   const pt = PACK_TYPES.find(p => p.id === card.pack_type)
   const totalCopies = copiesPerRarity?.[card.rarity] || '?'
+  const hasMultiple = copies.length > 1
+
+  // Fan config: negative angle = opens to the left, pivot = bottom-left
+  // Max spread = 3 × 6° = 18° (equivalent to 4 cards). More copies → smaller angle per card.
+  const MAX_TOTAL_DEG = 18
+  const BASE_ANGLE = 6
+  const n = copies.length - 1 // number of cards behind the front one
+  const FAN_ANGLE = n <= 3 ? -BASE_ANGLE : -(MAX_TOTAL_DEG / n)
 
   return (
     <div style={{ textAlign: 'center' }}>
-      {/* Pool badge */}
-      {pt && (
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 12,
-          background: `${pt.color}20`, color: pt.color, fontSize: 11, fontWeight: 700, marginBottom: 14,
-        }}>
-          Pool {pt.label}
-        </div>
-      )}
-
-      {/* Card preview — unified ScaledCard */}
-      <div style={{ maxWidth: 240, margin: '0 auto 16px' }}>
-        <ScaledCard card={card} owned={owned} copyInfo={copyInfo} totalCopies={totalCopies} />
+      {/* Card fan — first card straight, others fanned to the left behind */}
+      <div style={{
+        position: 'relative', width: 360, margin: '0 auto 20px',
+        aspectRatio: '2.5 / 3.5',
+      }}>
+        {copies.map((copy, i) => {
+          const copyStr = copy.copy_number != null ? String(copy.copy_number).padStart(3, '0') : null
+          return (
+            <div key={copy.id || i} style={{
+              position: i === 0 ? 'relative' : 'absolute',
+              top: 0, left: 0, width: '100%',
+              transform: i === 0 ? 'none' : `rotateZ(${i * FAN_ANGLE}deg)`,
+              transformOrigin: 'bottom left',
+              zIndex: copies.length - i,
+              filter: i === 0 ? 'none' : `brightness(${Math.max(0.55, 1 - i * 0.12)})`,
+              transition: 'transform 0.3s ease',
+            }}>
+              <ScaledCard
+                card={card} owned={true}
+                copyInfo={copyStr}
+                totalCopies={totalCopies}
+              />
+            </div>
+          )
+        })}
       </div>
 
-      {/* Owned badge */}
-      {owned ? (
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20,
-          background: 'rgba(16,185,129,0.15)', color: '#10B981', fontSize: 12, fontWeight: 600,
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-          Owned
-        </div>
-      ) : (
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20,
-          background: '#1E2530', color: '#94A3B8', fontSize: 12, fontWeight: 600,
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
-          Not owned
+      {/* Pool badge — moved below card so fan doesn't cover it */}
+      {pt && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 12,
+            background: `${pt.color}20`, color: pt.color, fontSize: 11, fontWeight: 700,
+          }}>
+            Pool {pt.label}
+          </div>
         </div>
       )}
+
+      {/* Owned badge */}
+      <div>
+        {owned ? (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20,
+            background: 'rgba(16,185,129,0.15)', color: '#10B981', fontSize: 12, fontWeight: 600,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            Owned{copies.length > 1 ? ` (${copies.length} copies)` : ''}
+          </div>
+        ) : (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20,
+            background: '#2d2d2d', color: '#94A3B8', fontSize: 12, fontWeight: 600,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+            Not owned
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -46,7 +46,7 @@ export default function CrewPage({ profiles, user }) {
   return (
     <div>
       <Fade>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Crew</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Crew</h1>
         <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>{profiles.length} members</p>
       </Fade>
 
@@ -54,7 +54,7 @@ export default function CrewPage({ profiles, user }) {
         {sections.map((sec, si) => (
           <Fade key={sec.key} delay={si * 40}>
             <Card>
-              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', justifyContent: 'space-between', color: '#1a1a2e' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', justifyContent: 'space-between', color: '#1a1a1a' }}>
                 <span>{sec.label}</span>
                 <span style={{ fontSize: 12, color: '#94A3B8' }}>{sec.items.length}</span>
               </div>
@@ -103,7 +103,7 @@ function MemberRow({ member, admin, onEdit }) {
       }}>
       <Av name={member.full_name} size={36} url={member.avatar_url} mood={member.mood_emoji} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{member.full_name}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{member.full_name}</div>
         {/* #7: Staff don't show department */}
         <div style={{ fontSize: 11, color: '#94A3B8' }}>
           {displayRole(member.role)}
@@ -114,7 +114,7 @@ function MemberRow({ member, admin, onEdit }) {
         </div>
       </div>
       {admin && h && onEdit && (
-        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#6C5CE7', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Edit</button>
+        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#F28C28', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Edit</button>
       )}
     </div>
   )

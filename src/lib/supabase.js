@@ -397,13 +397,24 @@ export async function getPackCardsByType(packType) {
 }
 
 export async function getUserCards(userId) {
-  const { data } = await supabase.from('pack_user_cards').select('*').eq('user_id', userId).order('card_number')
+  const { data } = await supabase.from('pack_user_cards').select('*').eq('user_id', userId).order('card_number').order('obtained_at')
   return data || []
 }
 
 export async function grantCard(userId, cardNumber, obtainedVia = 'reward', copyNumber = null) {
   const row = { user_id: userId, card_number: cardNumber, obtained_via: obtainedVia }
-  if (copyNumber != null) row.copy_number = copyNumber
+  if (copyNumber != null) {
+    row.copy_number = copyNumber
+  } else {
+    // Auto-assign next available copy_number for this user+card
+    const { data: existing } = await supabase.from('pack_user_cards')
+      .select('copy_number')
+      .eq('user_id', userId)
+      .eq('card_number', cardNumber)
+      .order('copy_number', { ascending: false })
+      .limit(1)
+    row.copy_number = existing?.length > 0 ? (existing[0].copy_number + 1) : 0
+  }
   const { data, error } = await supabase.from('pack_user_cards').insert(row).select().single()
   return { data, error }
 }
@@ -616,7 +627,7 @@ export async function claimAndOpenPack(userId, packType) {
     await supabase.from('pack_user_cards')
       .upsert(
         { user_id: userId, card_number: entry.card, copy_number: entry.copy, obtained_via: 'pack' },
-        { onConflict: 'user_id,card_number', ignoreDuplicates: true }
+        { onConflict: 'user_id,card_number,copy_number', ignoreDuplicates: true }
       )
   }
 
@@ -677,6 +688,13 @@ export async function resetAllOpenedPacks() {
 }
 
 // ── WIP Updates ──
+
+export async function getAllWipUpdates() {
+  const { data } = await supabase.from('task_wip_updates')
+    .select('*, author:profiles(id, full_name, avatar_url, role), task:tasks(id, title, status, department, assigned_to)')
+    .order('created_at', { ascending: false })
+  return data || []
+}
 
 export async function getWipUpdates(taskId) {
   const { data } = await supabase.from('task_wip_updates')
@@ -840,6 +858,239 @@ export function subscribeToChatChannel(channel, callback) {
       schema: 'public',
       table: 'chat_messages',
       filter: `channel=eq.${channel}`,
+    }, callback)
+    .subscribe()
+}
+
+// ══════════════════════════════════════════
+// ── Trading System ──
+// ══════════════════════════════════════════
+
+// ── Trade Tokens ──
+
+export async function getTradeTokens(userId) {
+  // Fetch existing row
+  let { data } = await supabase.from('pack_trade_tokens').select('*').eq('user_id', userId).single()
+
+  // Auto-init if row doesn't exist
+  if (!data) {
+    const { data: created } = await supabase.from('pack_trade_tokens')
+      .upsert({ user_id: userId, tokens: 3, last_regenerated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+      .select().single()
+    data = created
+  }
+  if (!data) return { tokens: 3, last_regenerated_at: new Date().toISOString() }
+
+  // Auto-regenerate: +1 per midnight UTC crossed since last_regenerated_at, cap at 3
+  const last = new Date(data.last_regenerated_at)
+  const now = new Date()
+  // Count midnight crossings
+  const lastDay = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()))
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const daysCrossed = Math.floor((today - lastDay) / (24 * 60 * 60 * 1000))
+
+  if (daysCrossed > 0 && data.tokens < 3) {
+    const newTokens = Math.min(3, data.tokens + daysCrossed)
+    const { data: updated } = await supabase.from('pack_trade_tokens')
+      .update({ tokens: newTokens, last_regenerated_at: now.toISOString() })
+      .eq('user_id', userId).select().single()
+    return updated || { ...data, tokens: newTokens }
+  }
+
+  return data
+}
+
+export async function consumeTradeToken(userId) {
+  const tokenData = await getTradeTokens(userId)
+  if (!tokenData || tokenData.tokens <= 0) {
+    return { error: { message: 'Nessun token di scambio disponibile' } }
+  }
+  const { data, error } = await supabase.from('pack_trade_tokens')
+    .update({ tokens: tokenData.tokens - 1, last_regenerated_at: new Date().toISOString() })
+    .eq('user_id', userId).select().single()
+  return { data, error }
+}
+
+// ── Other Users' Cards ──
+
+export async function getOtherUserCards(userId) {
+  const { data } = await supabase.from('pack_user_cards')
+    .select('*')
+    .eq('user_id', userId)
+    .order('card_number')
+    .order('obtained_at')
+  return data || []
+}
+
+// ── Real-Time Trade Session ──
+
+export async function createTradeInvite(proposerId, targetId) {
+  const { data, error } = await supabase.from('pack_trades')
+    .insert({ proposer_id: proposerId, target_id: targetId, status: 'pending_invite' })
+    .select('*, proposer:profiles!pack_trades_proposer_id_fkey(id, full_name, avatar_url, role), target:profiles!pack_trades_target_id_fkey(id, full_name, avatar_url, role)')
+    .single()
+  return { data, error }
+}
+
+export async function acceptTradeInvite(tradeId) {
+  const { data, error } = await supabase.from('pack_trades')
+    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .eq('id', tradeId).eq('status', 'pending_invite')
+    .select('*').single()
+  return { data, error }
+}
+
+export async function declineTradeInvite(tradeId) {
+  const { data, error } = await supabase.from('pack_trades')
+    .update({ status: 'rejected', updated_at: new Date().toISOString() })
+    .eq('id', tradeId).eq('status', 'pending_invite')
+    .select('*').single()
+  return { data, error }
+}
+
+export async function selectTradeCard(tradeId, side, cardNumber) {
+  const col = side === 'proposer' ? 'proposer_card_number' : 'target_card_number'
+  const { data, error } = await supabase.from('pack_trades')
+    .update({
+      [col]: cardNumber,
+      proposer_accepted: false,
+      target_accepted: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tradeId).eq('status', 'active')
+    .select('*').single()
+  return { data, error }
+}
+
+export async function acceptTradeSelection(tradeId, side) {
+  const col = side === 'proposer' ? 'proposer_accepted' : 'target_accepted'
+  const { data, error } = await supabase.from('pack_trades')
+    .update({ [col]: true, updated_at: new Date().toISOString() })
+    .eq('id', tradeId).eq('status', 'active')
+    .select('*').single()
+  return { data, error }
+}
+
+export async function executeTrade(tradeId) {
+  // 1. Fetch trade
+  const { data: trade, error: fetchErr } = await supabase.from('pack_trades')
+    .select('*').eq('id', tradeId).single()
+  if (fetchErr || !trade) return { error: fetchErr || { message: 'Trade not found' } }
+  if (trade.status !== 'active') return { error: { message: 'Trade is not active' } }
+  if (!trade.proposer_accepted || !trade.target_accepted) return { error: { message: 'Both users must accept' } }
+  if (trade.proposer_card_number == null || trade.target_card_number == null) return { error: { message: 'Both must select a card' } }
+
+  // 2. Verify same rarity
+  const [{ data: propCard }, { data: targCard }] = await Promise.all([
+    supabase.from('pack_cards').select('rarity').eq('number', trade.proposer_card_number).single(),
+    supabase.from('pack_cards').select('rarity').eq('number', trade.target_card_number).single(),
+  ])
+  if (!propCard || !targCard || propCard.rarity !== targCard.rarity) {
+    return { error: { message: 'Le carte devono essere della stessa rarità' } }
+  }
+
+  // 3. Check tokens
+  const [proposerTokens, targetTokens] = await Promise.all([
+    getTradeTokens(trade.proposer_id),
+    getTradeTokens(trade.target_id),
+  ])
+  if (!proposerTokens || proposerTokens.tokens <= 0) return { error: { message: 'Proposer non ha token disponibili' } }
+  if (!targetTokens || targetTokens.tokens <= 0) return { error: { message: 'Target non ha token disponibili' } }
+
+  // 4. Verify ≥2 copies each
+  const [pCards, tCards] = await Promise.all([
+    supabase.from('pack_user_cards').select('id, obtained_at')
+      .eq('user_id', trade.proposer_id).eq('card_number', trade.proposer_card_number)
+      .order('obtained_at', { ascending: false }),
+    supabase.from('pack_user_cards').select('id, obtained_at')
+      .eq('user_id', trade.target_id).eq('card_number', trade.target_card_number)
+      .order('obtained_at', { ascending: false }),
+  ])
+  if (!pCards.data || pCards.data.length < 2) return { error: { message: 'Proposer non ha abbastanza copie' } }
+  if (!tCards.data || tCards.data.length < 2) return { error: { message: 'Target non ha abbastanza copie' } }
+
+  // 5. Delete most recent copy from each
+  await Promise.all([
+    supabase.from('pack_user_cards').delete().eq('id', pCards.data[0].id),
+    supabase.from('pack_user_cards').delete().eq('id', tCards.data[0].id),
+  ])
+
+  // 6. Grant swapped cards
+  await Promise.all([
+    grantCard(trade.proposer_id, trade.target_card_number, 'trade'),
+    grantCard(trade.target_id, trade.proposer_card_number, 'trade'),
+  ])
+
+  // 7. Consume tokens
+  await Promise.all([
+    consumeTradeToken(trade.proposer_id),
+    consumeTradeToken(trade.target_id),
+  ])
+
+  // 8. Mark completed
+  const { data: completed, error: completeErr } = await supabase.from('pack_trades')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', tradeId).select('*').single()
+  return { data: completed, error: completeErr }
+}
+
+export async function cancelTrade(tradeId) {
+  const { data, error } = await supabase.from('pack_trades')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', tradeId)
+    .in('status', ['pending_invite', 'active'])
+    .select('*').single()
+  return { data, error }
+}
+
+export async function getTradeById(tradeId) {
+  const { data, error } = await supabase.from('pack_trades')
+    .select('*, proposer:profiles!pack_trades_proposer_id_fkey(id, full_name, avatar_url, role), target:profiles!pack_trades_target_id_fkey(id, full_name, avatar_url, role)')
+    .eq('id', tradeId).single()
+  return { data, error }
+}
+
+export async function getPendingInvites(userId) {
+  const { data } = await supabase.from('pack_trades')
+    .select('*, proposer:profiles!pack_trades_proposer_id_fkey(id, full_name, avatar_url, role)')
+    .eq('target_id', userId)
+    .eq('status', 'pending_invite')
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function getActiveTrade(userId) {
+  const { data } = await supabase.from('pack_trades')
+    .select('*, proposer:profiles!pack_trades_proposer_id_fkey(id, full_name, avatar_url, role), target:profiles!pack_trades_target_id_fkey(id, full_name, avatar_url, role)')
+    .or(`proposer_id.eq.${userId},target_id.eq.${userId}`)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+  return data
+}
+
+// ── Trade Realtime ──
+
+export function subscribeToTradeInvites(userId, callback) {
+  return supabase
+    .channel(`trade-invites-${userId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'pack_trades',
+      filter: `target_id=eq.${userId}`,
+    }, callback)
+    .subscribe()
+}
+
+export function subscribeToTradeSession(tradeId, callback) {
+  return supabase
+    .channel(`trade-session-${tradeId}`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'pack_trades',
+      filter: `id=eq.${tradeId}`,
     }, callback)
     .subscribe()
 }

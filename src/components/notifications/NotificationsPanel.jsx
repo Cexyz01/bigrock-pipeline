@@ -1,24 +1,19 @@
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
+import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from '../ui/Icons'
 
 // ── Notification category config ──
 const NOTIF_CATEGORIES = {
-  // WIP updates — blue
-  wip_update:     { label: 'WIP',       color: '#0984E3', bg: '#EBF5FB', icon: '🎨' },
-  // Task lifecycle — purple
-  task_assigned:  { label: 'Assigned',    color: '#6C5CE7', bg: '#F3F0FF', icon: '📋' },
-  task_review:    { label: 'Review',      color: '#6C5CE7', bg: '#F3F0FF', icon: '👁' },
-  // Approved — green
-  task_approved:  { label: 'Approved',    color: '#00B894', bg: '#E8F8F5', icon: '✅' },
-  // Revision needed — orange/warning
-  task_revision:  { label: 'Revision',    color: '#E17055', bg: '#FFF0ED', icon: '⚠️' },
-  // Comments — warm amber
-  comment:        { label: 'Comment',     color: '#F39C12', bg: '#FFF8E7', icon: '💬' },
-  // DM / private messages — red
-  dm:             { label: 'Message',     color: '#D63031', bg: '#FFEDED', icon: '✉️' },
+  wip_update:     { label: 'WIP',       color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={16} /> },
+  task_assigned:  { label: 'Assigned',    color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={16} /> },
+  task_review:    { label: 'Review',      color: '#F28C28', bg: '#FFF4E6', icon: <IconEye size={16} /> },
+  task_approved:  { label: 'Approved',    color: '#00B894', bg: '#E8F8F5', icon: <IconCheck size={16} /> },
+  task_revision:  { label: 'Revision',    color: '#E17055', bg: '#FFF0ED', icon: <IconAlertTriangle size={16} /> },
+  comment:        { label: 'Comment',     color: '#F39C12', bg: '#FFF8E7', icon: <IconMessageCircle size={16} /> },
+  dm:             { label: 'Message',     color: '#D63031', bg: '#FFEDED', icon: <IconMail size={16} /> },
 }
 
-const DEFAULT_CAT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: '🔔' }
+const DEFAULT_CAT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: <IconBell size={16} /> }
 
 function getCat(type) {
   return NOTIF_CATEGORIES[type] || DEFAULT_CAT
@@ -32,7 +27,7 @@ export default function NotificationsPanel({ notifications, onMarkRead, onMarkAl
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 6px', color: '#1a1a2e' }}>Notifications</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 6px', color: '#1a1a1a' }}>Notifications</h1>
             <p style={{ fontSize: 14, color: '#64748B' }}>{unread.length > 0 ? `${unread.length} unread` : 'All read'}</p>
           </div>
           {unread.length > 0 && (
@@ -118,7 +113,7 @@ export default function NotificationsPanel({ notifications, onMarkRead, onMarkAl
                       </div>
                       <div style={{
                         fontSize: 14, fontWeight: isUnread ? 600 : 400,
-                        color: '#1a1a2e', marginTop: 3,
+                        color: '#1a1a1a', marginTop: 3,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>{n.title}</div>
                       {n.body && (

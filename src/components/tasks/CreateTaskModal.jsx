@@ -49,7 +49,7 @@ export default function CreateTaskModal({ open, onClose, shots, students, user, 
           }}>
             {form.startNow && <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✓</span>}
           </div>
-          <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>
+          <span style={{ fontSize: 13, color: '#1a1a1a', fontWeight: 500 }}>
             Start immediately
             <span style={{ color: '#94A3B8', fontWeight: 400, marginLeft: 6, fontSize: 12 }}>
               (set status to WIP instead of To Do)

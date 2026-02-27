@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useEffect, memo, useMemo } from 'react'
 import { RARITY_COLORS } from './PackCard'
 import { ScaledCard } from './CardRenderer'
+import useIsMobile from '../../hooks/useIsMobile'
 
 const RARITY_RANK = { common: 0, rare: 1, gold: 2, diamond: 3, rainbow: 4 }
 
 // Particle & glow — SCREEN-WIDE effects
 const RARITY_FX = {
-  common:  { glow: '0 0 40px rgba(100,116,139,0.4)', particles: 0,  pSize: 0,  dist: 0,    bg: '#1E2530' },
+  common:  { glow: '0 0 40px rgba(100,116,139,0.4)', particles: 0,  pSize: 0,  dist: 0,    bg: '#2d2d2d' },
   rare:    { glow: '0 0 60px rgba(34,197,94,0.6), 0 0 120px rgba(34,197,94,0.2)',       particles: 24,  pSize: 8,  dist: 600,  bg: '#14532D' },
   gold:    { glow: '0 0 80px rgba(245,158,11,0.6), 0 0 160px rgba(245,158,11,0.25)',   particles: 36,  pSize: 10, dist: 800,  bg: '#422006' },
   diamond: { glow: '0 0 100px rgba(6,182,212,0.7), 0 0 200px rgba(6,182,212,0.3)',     particles: 50,  pSize: 12, dist: 1000, bg: '#083344' },
@@ -22,7 +23,8 @@ const ORB_TIERS = [
 ]
 const ORB_BURST_MS = 200
 
-export default function PackOpening({ pack, cards, onClose, packType, copiesPerRarity, flyRect }) {
+export default function PackOpening({ pack, cards, onClose, packType, copiesPerRarity, flyRect, preOpenOwned }) {
+  const isMobile = useIsMobile()
   const [currentIdx, setCurrentIdx] = useState(-1)
   const [phase, setPhase] = useState('idle')       // idle | entering | exiting | waiting | orb
   const [revealKey, setRevealKey] = useState(0)
@@ -163,7 +165,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
     }
   }
 
-  const pt = { red: '#EF4444', green: '#22C55E', blue: '#3B82F6' }[packType] || '#6C5CE7'
+  const pt = { red: '#EF4444', green: '#22C55E', blue: '#3B82F6' }[packType] || '#F28C28'
 
   return (
     <div
@@ -172,7 +174,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
       onMouseLeave={() => { setTiltX(0); setTiltY(0) }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(5,5,15,0.94)',
+        background: 'rgba(10,10,10,0.96)',
         backdropFilter: 'blur(16px)',
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
@@ -189,7 +191,8 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
               position: 'fixed',
               left: (isFlying && !flyAnimated) ? flyRect.left + flyRect.width / 2 : '50%',
               top: (isFlying && !flyAnimated) ? flyRect.top + flyRect.height / 2 : '50%',
-              width: (isFlying && !flyAnimated) ? flyRect.width : 380,
+              width: (isFlying && !flyAnimated) ? flyRect.width : (isMobile ? '65vw' : 380),
+              maxWidth: isMobile ? '65vw' : 380,
               transform: 'translate(-50%, -50%)',
               transition: isFlying
                 ? 'left 0.45s cubic-bezier(0.4,0,0.2,1), top 0.45s cubic-bezier(0.4,0,0.2,1), width 0.45s cubic-bezier(0.4,0,0.2,1)'
@@ -238,7 +241,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
         )
       })() : (
         /* ─── CARD REVEAL ─── */
-        <div style={{ position: 'relative', width: 320 }}>
+        <div style={{ position: 'relative', width: isMobile ? '70vw' : 320, maxWidth: isMobile ? '70vw' : 320 }}>
           {/* Progress dots — current dot colors only AFTER reveal (phase idle) */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
             {sortedCards.map((_, i) => {
@@ -250,8 +253,8 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
               return (
                 <div key={i} style={{
                   width: 10, height: 10, borderRadius: '50%',
-                  background: showColor ? rarityColor : isCurrent ? '#475569' : '#1E2530',
-                  border: showColor || isCurrent ? 'none' : '1px solid #2A3040',
+                  background: showColor ? rarityColor : isCurrent ? '#475569' : '#2d2d2d',
+                  border: showColor || isCurrent ? 'none' : '1px solid #3a3a3a',
                   transition: 'all 0.4s ease',
                   boxShadow: isRevealed
                     ? `0 0 12px ${rarityColor}80`
@@ -300,6 +303,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
                 entry={sortedCards[currentIdx]}
                 card={currentCard}
                 copiesPerRarity={copiesPerRarity}
+                isNew={currentCard && preOpenOwned ? !preOpenOwned.has(currentCard.number) : false}
               />
             </div>
           </div>
@@ -398,6 +402,10 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
         @keyframes poOrbFloat {
           0%, 100% { transform: translateY(0px); }
           50%      { transform: translateY(-6px); }
+        }
+        @keyframes newBadgePulse {
+          0%, 100% { box-shadow: 0 0 12px rgba(255,45,85,0.7), 0 0 24px rgba(255,45,85,0.4); }
+          50%      { box-shadow: 0 0 18px rgba(255,45,85,0.9), 0 0 36px rgba(255,45,85,0.6); }
         }
       `}</style>
     </div>
@@ -589,19 +597,38 @@ const ParticlesFX = memo(function ParticlesFX({ card }) {
 })
 
 /* ─── Card Reveal — uses unified ScaledCard renderer ─── */
-function CardReveal({ entry, card, copiesPerRarity }) {
+function CardReveal({ entry, card, copiesPerRarity, isNew }) {
   if (!entry || !card) return null
   const fx = RARITY_FX[card.rarity] || RARITY_FX.common
   const totalCopies = copiesPerRarity?.[card.rarity] || '?'
   const copyStr = entry.copy != null ? String(entry.copy).padStart(3, '0') : null
 
   return (
-    <ScaledCard
-      card={card}
-      owned={true}
-      copyInfo={copyStr}
-      totalCopies={totalCopies}
-      style={{ boxShadow: fx.glow }}
-    />
+    <div style={{ position: 'relative' }}>
+      <ScaledCard
+        card={card}
+        owned={true}
+        copyInfo={copyStr}
+        totalCopies={totalCopies}
+        style={{ boxShadow: fx.glow }}
+      />
+      {isNew && (
+        <div style={{
+          position: 'absolute', top: 14, right: -8, zIndex: 20,
+          transform: 'rotate(15deg)',
+          background: 'linear-gradient(135deg, #FF6B6B, #FF2D55)',
+          color: '#fff',
+          fontSize: 13, fontWeight: 900, letterSpacing: 1,
+          padding: '4px 16px',
+          borderRadius: 4,
+          boxShadow: '0 0 12px rgba(255,45,85,0.7), 0 0 24px rgba(255,45,85,0.4)',
+          textShadow: '0 1px 3px rgba(0,0,0,0.4)',
+          animation: 'newBadgePulse 1.5s ease-in-out infinite',
+          pointerEvents: 'none',
+        }}>
+          NEW!
+        </div>
+      )}
+    </div>
   )
 }

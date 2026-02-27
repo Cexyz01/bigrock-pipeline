@@ -14,8 +14,7 @@ export const DEPTS = [
 export const SHOT_STATUSES = [
   { id: 'not_started', label: 'To Do', color: '#94A3B8', bg: '#E2E8F0' },
   { id: 'in_progress', label: 'WIP', color: '#2563EB', bg: '#BFDBFE' },
-  { id: 'review', label: 'Review', color: '#D97706', bg: '#FDE68A' },
-  { id: 'needs_revision', label: 'Fix', color: '#DC2626', bg: '#FECACA' },
+  { id: 'review', label: 'Complete', color: '#2563EB', bg: '#A7F3D0' },
   { id: 'approved', label: 'Done', color: '#059669', bg: '#A7F3D0' },
 ]
 
@@ -70,7 +69,7 @@ export const PACK_TIMER_MINUTES = 60
 export const PACK_MAX_ACCUMULATED = 3
 
 // Design tokens
-export const ACCENT = '#6C5CE7'
-export const ACCENT_LIGHT = '#A29BFE'
-export const ACCENT_BG = 'rgba(108,92,231,0.06)'
-export const ACCENT_BORDER = 'rgba(108,92,231,0.15)'
+export const ACCENT = '#F28C28'
+export const ACCENT_LIGHT = '#F5B862'
+export const ACCENT_BG = 'rgba(242,140,40,0.06)'
+export const ACCENT_BORDER = 'rgba(242,140,40,0.15)'

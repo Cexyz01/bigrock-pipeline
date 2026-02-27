@@ -37,7 +37,7 @@ export default function TaskCard({ task, user, staff, onClick, wipViews }) {
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         background: h ? (statusHoverBg[task.status] || '#F8FAFC') : (statusBg[task.status] || '#fff'),
         border: `1px solid ${statusBorder[task.status] || '#E8ECF1'}`,
-        borderLeft: isOwner ? `3px solid #6C5CE7` : `3px solid ${statusBorder[task.status] || '#E8ECF1'}`,
+        borderLeft: isOwner ? `3px solid #F28C28` : `3px solid ${statusBorder[task.status] || '#E8ECF1'}`,
         transition: 'all 0.15s ease',
         transform: h ? 'translateY(-2px)' : 'none',
         boxShadow: h ? '0 8px 24px rgba(0,0,0,0.08)' : 'none',
@@ -58,7 +58,7 @@ export default function TaskCard({ task, user, staff, onClick, wipViews }) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: dept?.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 14, fontWeight: 700, flex: 1, lineHeight: 1.4, color: '#1a1a2e' }}>{task.title}</span>
+          <span style={{ fontSize: 14, fontWeight: 700, flex: 1, lineHeight: 1.4, color: '#1a1a1a' }}>{task.title}</span>
         </div>
         {task.description && (
           <div style={{

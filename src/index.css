@@ -18,15 +18,26 @@ p, .selectable, td, th, pre, code, blockquote {
   user-select: text;
 }
 
+html {
+  touch-action: manipulation;
+  height: 100%;
+  height: -webkit-fill-available;
+}
+
 body {
   font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #F0F2F5;
-  color: #1a1a2e;
+  color: #1a1a1a;
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  min-height: 100%;
+  min-height: -webkit-fill-available;
 }
+
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -35,7 +46,7 @@ body {
 
 input, textarea, select { font-family: inherit; font-size: inherit; }
 input::placeholder, textarea::placeholder { color: #94A3B8; }
-select option { background: #fff; color: #1a1a2e; }
+select option { background: #fff; color: #1a1a1a; }
 button { font-family: inherit; cursor: pointer; }
 
 /* Animations */
@@ -79,27 +90,27 @@ button { font-family: inherit; cursor: pointer; }
   z-index: 60;
   writing-mode: vertical-lr;
   padding: 16px 9px;
-  background: linear-gradient(180deg, #6C5CE7, #A29BFE);
+  background: linear-gradient(180deg, #F28C28, #F5B862);
   color: #fff;
   font-weight: 600;
   font-size: 12px;
   border-radius: 12px 0 0 12px;
   cursor: pointer;
   letter-spacing: 0.5px;
-  box-shadow: -2px 0 16px rgba(108,92,231,0.25);
+  box-shadow: -2px 0 16px rgba(242,140,40,0.25);
   transition: all 0.2s ease;
   border: none;
 }
 .chat-tab-handle:hover {
   padding-right: 13px;
-  box-shadow: -4px 0 24px rgba(108,92,231,0.4);
+  box-shadow: -4px 0 24px rgba(242,140,40,0.4);
 }
 
-/* Chat tab — unread pulse: purple ↔ red */
+/* Chat tab — unread pulse: orange ↔ red */
 @keyframes chatPulse {
   0%, 100% {
-    background: linear-gradient(180deg, #6C5CE7, #A29BFE);
-    box-shadow: -2px 0 16px rgba(108,92,231,0.3);
+    background: linear-gradient(180deg, #F28C28, #F5B862);
+    box-shadow: -2px 0 16px rgba(242,140,40,0.3);
   }
   50% {
     background: linear-gradient(180deg, #E74C3C, #FF6B6B);
@@ -126,8 +137,31 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer; transition: all 0.12s ease;
 }
 .emoji-picker-grid button:hover {
-  background: rgba(108,92,231,0.08);
+  background: rgba(242,140,40,0.08);
   transform: scale(1.2);
+}
+
+/* ── Admin Console Effects ── */
+@keyframes adminShake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  20% { transform: translateX(-6px) rotate(-1.5deg); }
+  40% { transform: translateX(6px) rotate(1.5deg); }
+  60% { transform: translateX(-4px) rotate(-1deg); }
+  80% { transform: translateX(4px) rotate(1deg); }
+}
+@keyframes disco {
+  0%   { background: rgba(255,0,0,0.9); }
+  16%  { background: rgba(255,136,0,0.9); }
+  33%  { background: rgba(255,255,0,0.9); }
+  50%  { background: rgba(0,255,0,0.9); }
+  66%  { background: rgba(0,136,255,0.9); }
+  83%  { background: rgba(136,0,255,0.9); }
+  100% { background: rgba(255,0,0,0.9); }
+}
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 /* ── Mobile ── */
@@ -142,10 +176,18 @@ button { font-family: inherit; cursor: pointer; }
   .emoji-picker-grid button { width: 38px; height: 38px; }
 }
 
-/* Safe area for notched phones */
+/* Safe area for notched phones & PWA standalone */
 @supports (padding: env(safe-area-inset-bottom)) {
-  .mobile-bottom-bar { padding-bottom: calc(8px + env(safe-area-inset-bottom)) !important; }
+  .mobile-bottom-bar {
+    padding-bottom: calc(4px + env(safe-area-inset-bottom)) !important;
+    height: calc(64px + env(safe-area-inset-bottom)) !important;
+  }
   .mobile-chat-fab { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+}
+@supports (padding: env(safe-area-inset-top)) {
+  .mobile-safe-top {
+    padding-top: env(safe-area-inset-top) !important;
+  }
 }
 
 /* Lock scroll when mobile overlay open */

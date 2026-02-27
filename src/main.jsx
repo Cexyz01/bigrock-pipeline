@@ -9,11 +9,26 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 )
 
+// ── Disable browser zoom (keep at 100%) ──
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
+    e.preventDefault()
+  }
+})
+document.addEventListener('wheel', (e) => {
+  if (e.ctrlKey || e.metaKey) e.preventDefault()
+}, { passive: false })
+
 // ── PWA: Register Service Worker ──
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   })
+}
+
+// ── PWA: Lock portrait orientation on mobile only ──
+if (window.innerWidth < 768 && screen.orientation && screen.orientation.lock) {
+  screen.orientation.lock('portrait').catch(() => {})
 }
 
 // ── PWA: Install Banner ──
@@ -34,15 +49,15 @@ window.addEventListener('beforeinstallprompt', (e) => {
   banner.id = 'pwa-banner'
   banner.innerHTML = `
     <div style="position:fixed;bottom:72px;left:12px;right:12px;z-index:999;
-      background:linear-gradient(135deg,#6C5CE7,#A29BFE);color:#fff;
+      background:linear-gradient(135deg,#F28C28,#F5B862);color:#fff;
       border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;
-      box-shadow:0 8px 32px rgba(108,92,231,0.4);animation:slideInUp 0.3s ease">
+      box-shadow:0 8px 32px rgba(242,140,40,0.4);animation:slideInUp 0.3s ease">
       <div style="font-size:28px">📱</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:700">Aggiungi alla Home</div>
         <div style="font-size:11px;opacity:0.85">Accedi rapidamente a BigRock Hub</div>
       </div>
-      <button id="pwa-install" style="background:#fff;color:#6C5CE7;border:none;
+      <button id="pwa-install" style="background:#fff;color:#F28C28;border:none;
         border-radius:10px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;
         white-space:nowrap">Installa</button>
       <button id="pwa-close" style="background:none;border:none;color:#fff;

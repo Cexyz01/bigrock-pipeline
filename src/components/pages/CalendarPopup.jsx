@@ -4,6 +4,7 @@ import Card from '../ui/Card'
 import Btn from '../ui/Btn'
 import Input from '../ui/Input'
 import Modal from '../ui/Modal'
+import { IconCheck, IconX } from '../ui/Icons'
 
 export default function CalendarPopup({ events, user, onCreate, onDelete, requestConfirm }) {
   const [showCreate, setShowCreate] = useState(false)
@@ -27,7 +28,7 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>Calendar</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Calendar</h2>
         {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={{ padding: '6px 14px', fontSize: 12 }}>+ Event</Btn>}
       </div>
 
@@ -45,10 +46,10 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
                     position: 'absolute', left: -20, width: 14, height: 14, borderRadius: '50%', zIndex: 1,
                     background: past ? '#10B981' : '#F1F5F9', border: past ? '2px solid rgba(16,185,129,0.3)' : '2px solid #E2E8F0',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff',
-                  }}>{past ? '✓' : ''}</div>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: past ? '#10B981' : '#1a1a2e' }}>{ms.title}</span>
+                  }}>{past ? <IconCheck size={8} color="#fff" /> : ''}</div>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: past ? '#10B981' : '#1a1a1a' }}>{ms.title}</span>
                   <span style={{ fontSize: 11, color: '#94A3B8' }}>{new Date(ms.event_date).toLocaleDateString('en', { day: 'numeric', month: 'short' })}</span>
-                  {staff && <button onClick={() => handleDelete(ms)} style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 11, cursor: 'pointer', opacity: 0.4 }}>✕</button>}
+                  {staff && <button onClick={() => handleDelete(ms)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', opacity: 0.4, display: 'flex', alignItems: 'center' }}><IconX size={14} /></button>}
                 </div>
               )
             })}
@@ -68,14 +69,14 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
                 width: 40, height: 40, borderRadius: 8, background: '#F1F5F9',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#6C5CE7' }}>{new Date(ev.event_date).getDate()}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#F28C28' }}>{new Date(ev.event_date).getDate()}</span>
                 <span style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase' }}>{new Date(ev.event_date).toLocaleDateString('en', { month: 'short' })}</span>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{ev.title}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{ev.title}</div>
                 {ev.event_time && <div style={{ fontSize: 11, color: '#64748B', marginTop: 1 }}>{ev.event_time.slice(0, 5)}</div>}
               </div>
-              {staff && <button onClick={() => handleDelete(ev)} style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 11, cursor: 'pointer', opacity: 0.4 }}>✕</button>}
+              {staff && <button onClick={() => handleDelete(ev)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', opacity: 0.4, display: 'flex', alignItems: 'center' }}><IconX size={14} /></button>}
             </div>
           ))}
         </div>

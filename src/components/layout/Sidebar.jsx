@@ -3,27 +3,29 @@ import { isStaff, isAdmin, displayRole } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 
 // ── Notification category colors ──
+import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards } from '../ui/Icons'
 const NOTIF_CAT = {
-  wip_update:    { label: 'WIP',       color: '#0984E3', bg: '#EBF5FB', icon: '🎨' },
-  task_assigned: { label: 'Assigned',  color: '#6C5CE7', bg: '#F3F0FF', icon: '📋' },
-  task_review:   { label: 'Review',    color: '#6C5CE7', bg: '#F3F0FF', icon: '👁' },
-  task_approved: { label: 'Approved',  color: '#00B894', bg: '#E8F8F5', icon: '✅' },
-  task_revision: { label: 'Revision',  color: '#E17055', bg: '#FFF0ED', icon: '⚠️' },
-  comment:       { label: 'Comment',   color: '#F39C12', bg: '#FFF8E7', icon: '💬' },
-  dm:            { label: 'Message',   color: '#D63031', bg: '#FFEDED', icon: '✉️' },
+  wip_update:    { label: 'WIP',       color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={15} /> },
+  task_assigned: { label: 'Assigned',  color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={15} /> },
+  task_review:   { label: 'Review',    color: '#F28C28', bg: '#FFF4E6', icon: <IconEye size={15} /> },
+  task_approved: { label: 'Approved',  color: '#00B894', bg: '#E8F8F5', icon: <IconCheck size={15} /> },
+  task_revision: { label: 'Revision',  color: '#E17055', bg: '#FFF0ED', icon: <IconAlertTriangle size={15} /> },
+  comment:       { label: 'Comment',   color: '#F39C12', bg: '#FFF8E7', icon: <IconMessageCircle size={15} /> },
+  dm:            { label: 'Message',   color: '#D63031', bg: '#FFEDED', icon: <IconMail size={15} /> },
 }
-const NOTIF_DEFAULT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: '🔔' }
+const NOTIF_DEFAULT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: <IconBell size={15} /> }
 const getNotifCat = (type) => NOTIF_CAT[type] || NOTIF_DEFAULT
-import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye } from '../ui/Icons'
 import NavBtn from '../ui/NavBtn'
 import Av from '../ui/Av'
 import Btn from '../ui/Btn'
 import CalendarPopup from '../pages/CalendarPopup'
-import houstonLogo from '../../../Images/bigrock.png'
+import bigrockTitle from '../../../Images/titolo_bigrock.png'
+import hubBadge from '../../../Images/hub_bianca_sidebar.png'
 import packIcon from '../../../Images/pack-bigrock.png'
 
 const RAIL_W = 72
 const EXPANDED_W = 230
+
 
 export default function Sidebar({
   user, view, setView, onSignOut,
@@ -92,7 +94,7 @@ export default function Sidebar({
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 2, background: 'none', border: 'none', cursor: 'pointer',
                 padding: '6px 0', minWidth: 56, position: 'relative',
-                color: active ? '#6C5CE7' : '#94A3B8',
+                color: active ? '#F28C28' : '#94A3B8',
                 transition: 'color 0.15s ease',
               }}>
                 {n.icon}
@@ -113,7 +115,7 @@ export default function Sidebar({
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 2, background: 'none', border: 'none', cursor: 'pointer',
             padding: '6px 0', minWidth: 56,
-            color: showMore ? '#6C5CE7' : '#94A3B8',
+            color: showMore ? '#F28C28' : '#94A3B8',
             transition: 'color 0.15s ease',
           }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -140,7 +142,7 @@ export default function Sidebar({
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px 16px', borderBottom: '1px solid #F1F5F9' }}>
                 <Av name={user.full_name} size={36} url={user.avatar_url} mood={user.mood_emoji} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{user.full_name}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{user.full_name}</div>
                   <div style={{ fontSize: 11, color: '#94A3B8' }}>{displayRole(user.role)}</div>
                 </div>
               </div>
@@ -153,7 +155,7 @@ export default function Sidebar({
                   { id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount, show: true },
                 ] : []),
                 { id: 'calendar', icon: <IconCalendar size={20} />, label: 'Calendar', show: true, action: () => { setShowCalendar(true); setShowMore(false) } },
-                ...(showTcg ? [{ id: 'pack', icon: <span style={{ fontSize: 20 }}>🎴</span>, label: 'Pack', show: true }] : []),
+                ...(showTcg ? [{ id: 'pack', icon: <IconCards size={20} />, label: 'Pack', show: true }] : []),
                 { id: 'crew', icon: <IconUsers size={20} />, label: 'Crew', show: true },
                 { id: 'profile', icon: <Av name={user.full_name} size={20} url={user.avatar_url} />, label: 'Profile', show: true },
               ].filter(i => i.show).map(item => (
@@ -162,16 +164,16 @@ export default function Sidebar({
                   setView(item.id); setShowMore(false)
                 }} style={{
                   display: 'flex', alignItems: 'center', gap: 14, width: '100%',
-                  padding: '14px 20px', background: view === item.id ? 'rgba(108,92,231,0.06)' : 'none',
-                  border: 'none', cursor: 'pointer', color: view === item.id ? '#6C5CE7' : '#1a1a2e',
+                  padding: '14px 20px', background: view === item.id ? 'rgba(242,140,40,0.06)' : 'none',
+                  border: 'none', cursor: 'pointer', color: view === item.id ? '#F28C28' : '#1a1a1a',
                   fontSize: 14, fontWeight: view === item.id ? 600 : 400, position: 'relative',
                   transition: 'background 0.1s ease',
                 }}>
-                  <span style={{ width: 24, display: 'flex', justifyContent: 'center', color: view === item.id ? '#6C5CE7' : '#64748B' }}>{item.icon}</span>
+                  <span style={{ width: 24, display: 'flex', justifyContent: 'center', color: view === item.id ? '#F28C28' : '#64748B' }}>{item.icon}</span>
                   {item.label}
                   {item.badge > 0 && (
                     <span style={{
-                      fontSize: 9, fontWeight: 700, background: '#6C5CE7', color: '#fff',
+                      fontSize: 9, fontWeight: 700, background: '#F28C28', color: '#fff',
                       padding: '2px 7px', borderRadius: 8, marginLeft: 'auto',
                     }}>{item.badge}</span>
                   )}
@@ -205,12 +207,12 @@ export default function Sidebar({
               maxHeight: '80vh', overflowY: 'auto', padding: 20,
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>Calendar</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Calendar</span>
                 <button onClick={() => setShowCalendar(false)} style={{
                   background: '#F1F5F9', border: 'none', borderRadius: 8, width: 32, height: 32,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   cursor: 'pointer', color: '#64748B', fontSize: 18,
-                }}>✕</button>
+                }}><IconX size={18} /></button>
               </div>
               <CalendarPopup events={events} user={user} onCreate={onCreateEvent} onDelete={onDeleteEvent} requestConfirm={requestConfirm} />
             </div>
@@ -233,7 +235,7 @@ export default function Sidebar({
         style={{
           position: 'fixed', left: 0, top: 0, bottom: 0,
           width: hovered ? EXPANDED_W : RAIL_W,
-          background: '#fff', borderRight: '1px solid #E8ECF1',
+          background: '#1a1a1a', borderRight: '1px solid #2d2d2d',
           display: 'flex', flexDirection: 'column',
           transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
           zIndex: 30,
@@ -241,21 +243,28 @@ export default function Sidebar({
         }}
       >
         {/* Logo */}
-        <div style={{ height: 68, display: 'flex', alignItems: 'center', borderBottom: '1px solid #F1F5F9', overflow: 'hidden' }}>
+        <div style={{ height: 68, display: 'flex', alignItems: 'center', borderBottom: '1px solid #2d2d2d', overflow: 'hidden' }}>
           <div style={{ width: RAIL_W, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <img
-              src={houstonLogo}
+              src={bigrockTitle}
               alt="BigRock"
-              style={{ height: 38, width: 'auto', objectFit: 'contain', maxWidth: RAIL_W - 16 }}
+              style={{
+                height: 22, width: 'auto', objectFit: 'contain', maxWidth: RAIL_W - 16,
+                opacity: hovered ? 0 : 1,
+                transition: 'opacity 0.15s ease',
+              }}
             />
           </div>
-          <span style={{
-            fontSize: 13, fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap',
-            background: '#000000', borderRadius: 8, padding: '4px 14px',
-            opacity: hovered ? 1 : 0,
-            transition: 'opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-            letterSpacing: 0.8, textAlign: 'center',
-          }}>Hub</span>
+          <img
+            src={hubBadge}
+            alt="Hub"
+            style={{
+              height: 24, width: 'auto', objectFit: 'contain',
+              opacity: hovered ? 1 : 0,
+              transition: 'opacity 0.15s ease 0.08s',
+              marginLeft: 4,
+            }}
+          />
         </div>
 
         {/* Notifications */}
@@ -280,14 +289,14 @@ export default function Sidebar({
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #F1F5F9' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>Notifications</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Notifications</span>
                     {unreadCount > 0 && (
-                      <span style={{ fontSize: 10, fontWeight: 700, background: '#6C5CE7', color: '#fff', padding: '2px 7px', borderRadius: 8, minWidth: 18, textAlign: 'center' }}>{unreadCount}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, background: '#F28C28', color: '#fff', padding: '2px 7px', borderRadius: 8, minWidth: 18, textAlign: 'center' }}>{unreadCount}</span>
                     )}
                   </div>
                   {unreadCount > 0 && (
                     <button onClick={onMarkAllRead}
-                      style={{ fontSize: 11, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: '2px 4px' }}
+                      style={{ fontSize: 11, color: '#F28C28', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: '2px 4px' }}
                       onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
                       onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
                     >Mark all read</button>
@@ -344,7 +353,7 @@ export default function Sidebar({
                             }}>{cat.label}</span>
                             {unread && <span style={{ width: 5, height: 5, borderRadius: '50%', background: cat.color }} />}
                           </div>
-                          <div style={{ fontSize: 12, fontWeight: unread ? 600 : 400, color: '#1a1a2e', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</div>
+                          <div style={{ fontSize: 12, fontWeight: unread ? 600 : 400, color: '#1a1a1a', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</div>
                           {n.body && <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
                         </div>
                         {/* Time */}
@@ -367,7 +376,7 @@ export default function Sidebar({
 
         {/* Pack Section — visible to admins always, others when game active */}
         {showTcg && (
-          <div style={{ borderTop: '1px solid #F1F5F9', borderBottom: '1px solid #F1F5F9', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ borderTop: '1px solid #2d2d2d', borderBottom: '1px solid #2d2d2d', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -396,6 +405,7 @@ export default function Sidebar({
                   borderRadius: 12,
                   transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                   pointerEvents: 'none',
+                  filter: 'none',
                 }}
               />
             </div>
@@ -403,7 +413,7 @@ export default function Sidebar({
         )}
 
         {/* Bottom: Calendar, Crew, User */}
-        <div style={{ borderTop: '1px solid #F1F5F9', padding: '8px 0' }}>
+        <div style={{ borderTop: '1px solid #2d2d2d', padding: '8px 0' }}>
           <div style={{ position: 'relative' }}>
             <NavBtn icon={<IconCalendar size={20} />} label="Calendar" active={showCalendar} onClick={() => { setShowCalendar(!showCalendar); setShowNotifs(false) }} />
             {showCalendar && (
@@ -425,30 +435,30 @@ export default function Sidebar({
           <NavBtn icon={<IconUsers size={20} />} label="Crew" active={view === 'crew'} onClick={() => setView('crew')} />
 
           {/* User area */}
-          <div style={{ borderTop: '1px solid #F1F5F9', marginTop: 4, padding: '8px 0 12px' }}>
+          <div style={{ borderTop: '1px solid #2d2d2d', marginTop: 4, padding: '8px 0 12px' }}>
             <div
               style={{
                 display: 'flex', alignItems: 'center', height: 44,
                 cursor: 'pointer', transition: 'background 0.15s ease',
               }}
               onClick={() => setView('profile')}
-              onMouseEnter={e => e.currentTarget.style.background = '#F1F5F9'}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <div style={{ width: RAIL_W, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Av name={user.full_name} size={30} url={user.avatar_url} mood={user.mood_emoji} />
               </div>
               <div style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, textOverflow: 'ellipsis', overflow: 'hidden', color: '#1a1a2e' }}>{user.full_name}</div>
-                <div style={{ fontSize: 10, color: '#94A3B8' }}>{displayRole(user.role)}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, textOverflow: 'ellipsis', overflow: 'hidden', color: '#d4d4d8' }}>{user.full_name}</div>
+                <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(user.role)}</div>
               </div>
             </div>
 
             <div style={{ overflow: 'hidden', maxHeight: hovered ? 40 : 0, transition: 'max-height 0.25s ease', padding: '0 12px' }}>
               <button onClick={onSignOut}
-                style={{ width: '100%', background: '#F8FAFC', border: '1px solid #E8ECF1', borderRadius: 8, padding: '6px 0', color: '#94A3B8', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s ease', marginTop: 4 }}
-                onMouseEnter={e => e.currentTarget.style.background = '#FEF2F2'}
-                onMouseLeave={e => e.currentTarget.style.background = '#F8FAFC'}
+                style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid #2d2d2d', borderRadius: 8, padding: '6px 0', color: '#94A3B8', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s ease', marginTop: 4 }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
               >
                 <IconLogOut size={14} /> Sign Out
               </button>

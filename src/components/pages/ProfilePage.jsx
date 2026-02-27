@@ -54,7 +54,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   return (
     <div style={{ maxWidth: 640 }}>
       <Fade>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Profile</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Profile</h1>
         <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Customize your profile</p>
       </Fade>
 
@@ -66,7 +66,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
               <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
             </div>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, color: '#1a1a2e' }}>{user.full_name}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, color: '#1a1a1a' }}>{user.full_name}</div>
               <div style={{ fontSize: 13, color: '#64748B' }}>{user.email}</div>
               <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                 <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
@@ -97,15 +97,15 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
       <Fade delay={200}>
         <Card>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#1a1a2e' }}>Mood of the Day</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#1a1a1a' }}>Mood of the Day</div>
           <div style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>Choose an emoji that represents how you feel today</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {MOOD_EMOJIS.map(e => (
               <button key={e} onClick={() => handleMood(e)}
                 style={{
                   width: 48, height: 48, borderRadius: 16, fontSize: 22,
-                  background: user.mood_emoji === e ? 'rgba(108,92,231,0.08)' : '#F8FAFC',
-                  border: user.mood_emoji === e ? '2px solid #6C5CE7' : '1px solid #E2E8F0',
+                  background: user.mood_emoji === e ? 'rgba(242,140,40,0.08)' : '#F8FAFC',
+                  border: user.mood_emoji === e ? '2px solid #F28C28' : '1px solid #E2E8F0',
                   cursor: 'pointer', transition: 'all 0.12s ease',
                   transform: user.mood_emoji === e ? 'scale(1.1)' : 'none',
                 }}>{e}</button>
@@ -121,7 +121,7 @@ function InfoField({ label, value }) {
   return (
     <div style={{ padding: '12px 16px', background: '#F8FAFC', borderRadius: 16, border: '1px solid #E2E8F0' }}>
       <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{value}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{value}</div>
     </div>
   )
 }

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { isStaff, isAdmin, SUPER_ADMIN_EMAIL } from './lib/constants'
+import AdminConsole from './components/admin/AdminConsole'
+import AdminEffects from './components/admin/AdminEffects'
 import useIsMobile from './hooks/useIsMobile'
 import {
   supabase, signOut,
@@ -22,6 +24,7 @@ import Sidebar from './components/layout/Sidebar'
 import ChatPanel from './components/layout/ChatPanel'
 import ToastContainer, { useToast } from './components/ui/Toast'
 import ConfirmDialog, { useConfirm } from './components/ui/ConfirmDialog'
+import InstallBanner from './components/ui/InstallBanner'
 
 import LoginPage from './components/pages/LoginPage'
 import OverviewPage from './components/pages/OverviewPage'
@@ -34,6 +37,7 @@ import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
 import PackPage from './components/pages/PackPage'
 import ReviewPage from './components/pages/ReviewPage'
 import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fixSyncMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
+import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
 export default function App() {
   const isMobile = useIsMobile()
@@ -51,6 +55,10 @@ export default function App() {
   const [dmUnreadCount, setDmUnreadCount] = useState(0)
   const [tcgGameActive, setTcgGameActive] = useState(false)
   const [wipViews, setWipViews] = useState([])
+  const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
+  const [matrixMode, setMatrixMode] = useState(false)
+  const [adminFx, setAdminFx] = useState({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0 })
+  const adminChRef = useRef(null)
   const dmToastedRef = useRef(new Set())
   const chatOpenRef = useRef(false)
   const { toasts, addToast, removeToast } = useToast()
@@ -107,6 +115,56 @@ export default function App() {
 
   // Keep chatOpenRef in sync so realtime callback can read it without re-subscribing
   useEffect(() => { chatOpenRef.current = chatOpen }, [chatOpen])
+
+  // Admin Console – Ctrl+Shift+D (desktop) or triple-tap (mobile)
+  const tapTimesRef = useRef([])
+  useEffect(() => {
+    if (!user || !isAdmin(user.role)) return
+    const onKey = (e) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault()
+        setAdminConsoleOpen(p => !p)
+      }
+    }
+    const onTap = (e) => {
+      // ignore taps inside the console itself or on inputs
+      if (e.target.closest('[data-admin-console]') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      const now = Date.now()
+      tapTimesRef.current = [...tapTimesRef.current.filter(t => now - t < 600), now]
+      if (tapTimesRef.current.length >= 3) {
+        tapTimesRef.current = []
+        setAdminConsoleOpen(p => !p)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('touchend', onTap)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('touchend', onTap) }
+  }, [user])
+
+  // Admin effects broadcast channel (all users receive)
+  useEffect(() => {
+    if (!user) return
+    const ch = supabase.channel('admin-fx')
+      .on('broadcast', { event: 'admin-fx' }, ({ payload }) => {
+        if (!payload) return
+        const meTargeted = !payload.targetId || payload.targetId === user.id
+        if (!meTargeted) return
+        switch (payload.type) {
+          case 'broadcast': setAdminFx(p => ({ ...p, broadcastMsg: payload })); break
+          case 'ban': setAdminFx(p => ({ ...p, banInfo: payload })); break
+          case 'shake': setAdminFx(p => ({ ...p, shaking: payload.duration })); break
+          case 'disco': setAdminFx(p => ({ ...p, disco: payload.duration })); break
+          case 'flip': setAdminFx(p => ({ ...p, flipped: payload.duration })); break
+        }
+      })
+      .subscribe()
+    adminChRef.current = ch
+    return () => supabase.removeChannel(ch)
+  }, [user])
+
+  const clearAdminFx = useCallback((key) => {
+    setAdminFx(p => ({ ...p, [key]: key === 'shaking' || key === 'disco' || key === 'flipped' ? 0 : null }))
+  }, [])
 
   // Realtime
   useEffect(() => {
@@ -423,14 +481,12 @@ export default function App() {
 
   // Loading screen
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F0F2F5' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F0F2F5' }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{
+        <img src="/icons/icon-app.png" alt="BigRock Hub" style={{
           width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
-          background: 'linear-gradient(135deg, #6C5CE7, #A29BFE)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, fontWeight: 800, color: '#fff', animation: 'pulse 1.5s ease infinite',
-        }}>BR</div>
+          animation: 'pulse 1.5s ease infinite',
+        }} />
         <div style={{ color: '#94A3B8', fontSize: 13 }}>Loading...</div>
       </div>
     </div>
@@ -442,23 +498,23 @@ export default function App() {
   // ── Notification rendering for mobile full-page view ──
   const renderMobileNotifications = () => {
     const NOTIF_CAT = {
-      wip_update: { label: 'WIP', color: '#0984E3', bg: '#EBF5FB', icon: '🎨' },
-      task_assigned: { label: 'Assigned', color: '#6C5CE7', bg: '#F3F0FF', icon: '📋' },
-      task_review: { label: 'Review', color: '#6C5CE7', bg: '#F3F0FF', icon: '👁' },
-      task_approved: { label: 'Approved', color: '#00B894', bg: '#E8F8F5', icon: '✅' },
-      task_revision: { label: 'Revision', color: '#E17055', bg: '#FFF0ED', icon: '⚠️' },
-      comment: { label: 'Comment', color: '#F39C12', bg: '#FFF8E7', icon: '💬' },
-      dm: { label: 'Message', color: '#D63031', bg: '#FFEDED', icon: '✉️' },
+      wip_update: { label: 'WIP', color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={16} /> },
+      task_assigned: { label: 'Assigned', color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={16} /> },
+      task_review: { label: 'Review', color: '#F28C28', bg: '#FFF4E6', icon: <IconEye size={16} /> },
+      task_approved: { label: 'Approved', color: '#00B894', bg: '#E8F8F5', icon: <IconCheck size={16} /> },
+      task_revision: { label: 'Revision', color: '#E17055', bg: '#FFF0ED', icon: <IconAlertTriangle size={16} /> },
+      comment: { label: 'Comment', color: '#F39C12', bg: '#FFF8E7', icon: <IconMessageCircle size={16} /> },
+      dm: { label: 'Message', color: '#D63031', bg: '#FFEDED', icon: <IconMail size={16} /> },
     }
-    const NOTIF_DEFAULT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: '🔔' }
+    const NOTIF_DEFAULT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: <IconBell size={16} /> }
     const getCat = (type) => NOTIF_CAT[type] || NOTIF_DEFAULT
 
     return (
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Notifications</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Notifications</h1>
           {unreadCount > 0 && (
-            <button onClick={handleMarkAllRead} style={{ fontSize: 12, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+            <button onClick={handleMarkAllRead} style={{ fontSize: 12, color: '#F28C28', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
               Mark all read
             </button>
           )}
@@ -492,7 +548,7 @@ export default function App() {
                       <span style={{ fontSize: 9, fontWeight: 700, color: cat.color, textTransform: 'uppercase', letterSpacing: '0.04em', background: `${cat.color}15`, padding: '1px 6px', borderRadius: 4 }}>{cat.label}</span>
                       {unread && <span style={{ width: 5, height: 5, borderRadius: '50%', background: cat.color }} />}
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: unread ? 600 : 400, color: '#1a1a2e', lineHeight: 1.3 }}>{n.title}</div>
+                    <div style={{ fontSize: 13, fontWeight: unread ? 600 : 400, color: '#1a1a1a', lineHeight: 1.3 }}>{n.title}</div>
                     {n.body && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
                   </div>
                   <span style={{ fontSize: 10, color: '#B0B8C4', whiteSpace: 'nowrap', flexShrink: 0 }}>{timeStr}</span>
@@ -508,9 +564,14 @@ export default function App() {
   const contentPadding = isMobile ? '16px 16px 80px' : '36px 44px'
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#F0F2F5' }}>
+    <div className={isMobile ? 'mobile-safe-top' : ''} style={{ display: 'flex', height: isMobile ? '100dvh' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
+      {isMobile && <InstallBanner />}
+      <AdminEffects effects={adminFx} userId={user.id} matrixMode={matrixMode} onClear={clearAdminFx} />
+      {adminConsoleOpen && isAdmin(user.role) && (
+        <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} onMatrixToggle={() => setMatrixMode(p => !p)} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
+      )}
 
       <Sidebar
         user={user} view={view} setView={setView} onSignOut={signOut}
@@ -524,14 +585,14 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Full-bleed views: storyboard, pack — no padding, no maxWidth */}
         {(view === 'storyboard' || view === 'pack') ? (
-          <div style={{ flex: 1, overflow: view === 'storyboard' ? 'hidden' : 'auto', ...(isMobile ? { paddingBottom: 64 } : {}) }}>
+          <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 64 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage />}
             {view === 'pack' && (isAdmin(user.role) || tcgGameActive) && (
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
             )}
           </div>
         ) : (
-          <div style={{ flex: 1, padding: contentPadding, overflowY: 'auto', ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto' }}>
+          <div style={{ flex: 1, padding: contentPadding, overflowY: 'auto', ...(isMobile ? { overflowX: 'hidden' } : { maxWidth: 1400 }), width: '100%', margin: '0 auto' }}>
             {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onSyncMiro={handleSyncMiro} onFixMiro={handleFixMiro} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}

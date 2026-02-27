@@ -7,7 +7,7 @@ import Av from '../ui/Av'
 import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
-import { IconX, IconImage, IconSend } from '../ui/Icons'
+import { IconX, IconImage, IconSend, IconCheck } from '../ui/Icons'
 
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
@@ -184,7 +184,7 @@ export default function TaskDetailModal({
         {task.assigned_user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Av name={task.assigned_user.full_name} size={22} url={task.assigned_user.avatar_url} />
-            <span style={{ fontSize: 12, color: '#1a1a2e', fontWeight: 500 }}>{task.assigned_user.full_name}</span>
+            <span style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 500 }}>{task.assigned_user.full_name}</span>
           </div>
         ) : (
           <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
@@ -237,9 +237,9 @@ export default function TaskDetailModal({
                 <Av name={c.author?.full_name} size={20} url={c.author?.avatar_url} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#1a1a2e' }}>{c.author?.full_name}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#1a1a1a' }}>{c.author?.full_name}</span>
                     {c.author?.role !== 'studente' && (
-                      <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '1px 5px', borderRadius: 4 }}>{displayRole(c.author?.role)}</span>
+                      <span style={{ fontSize: 9, color: '#F28C28', background: 'rgba(242,140,40,0.08)', padding: '1px 5px', borderRadius: 4 }}>{displayRole(c.author?.role)}</span>
                     )}
                     <span style={{ fontSize: 10, color: '#B0B8C4' }}>
                       {new Date(c.created_at).toLocaleDateString('en', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -284,21 +284,21 @@ export default function TaskDetailModal({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {wipUpdates.map((update, idx) => (
-              <div key={update.id} style={{ padding: isMobile ? 12 : 16, borderRadius: 14, background: '#F8FAFC', border: idx === 0 ? '1px solid #6C5CE720' : '1px solid #E8ECF1' }}>
+              <div key={update.id} style={{ padding: isMobile ? 12 : 16, borderRadius: 14, background: '#F8FAFC', border: idx === 0 ? '1px solid #F28C2820' : '1px solid #E8ECF1' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <Av name={update.author?.full_name} size={26} url={update.author?.avatar_url} />
                   <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{update.author?.full_name}</span>
-                    {idx === 0 && <span style={{ fontSize: 10, fontWeight: 600, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>Latest</span>}
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{update.author?.full_name}</span>
+                    {idx === 0 && <span style={{ fontSize: 10, fontWeight: 600, color: '#F28C28', background: 'rgba(242,140,40,0.08)', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>Latest</span>}
                   </div>
                   <span style={{ fontSize: 11, color: '#94A3B8' }}>{new Date(update.created_at).toLocaleDateString('en', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 {/* WIP note — displayed as "✅ Done:" */}
                 {update.note && (
-                  <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.5, margin: '0 0 10px' }}>
-                    <span style={{ fontWeight: 600, color: '#059669' }}>✅ Done: </span>
-                    {update.note}
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', lineHeight: 1.5, margin: '0 0 10px' }}>
+                    <span style={{ fontWeight: 600, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><IconCheck size={14} color="#059669" /> Done:</span>
+                    <span style={{ marginTop: -1 }}>{update.note}</span>
+                  </div>
                 )}
                 {update.images && update.images.length > 0 && (
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 6 }}>
@@ -372,7 +372,7 @@ export default function TaskDetailModal({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #E8ECF1', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
                 {dept && <span style={{ width: 10, height: 10, borderRadius: '50%', background: dept.color, flexShrink: 0 }} />}
-                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</h2>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</h2>
                 <StatusBadge status={task.status} type="task" />
               </div>
               <button onClick={onClose} style={{ background: '#F1F5F9', border: 'none', color: '#64748B', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><IconX size={16} /></button>
@@ -382,8 +382,8 @@ export default function TaskDetailModal({
               {[{ k: 'info', l: 'Info' }, { k: 'wip', l: `WIP${wipUpdates.length > 0 ? ` (${wipUpdates.length})` : ''}` }].map(t => (
                 <button key={t.k} onClick={() => setMobileTab(t.k)} style={{
                   flex: 1, padding: '11px 0', fontSize: 12, fontWeight: mobileTab === t.k ? 700 : 500,
-                  color: mobileTab === t.k ? '#6C5CE7' : '#64748B', background: 'none', border: 'none', cursor: 'pointer',
-                  borderBottom: mobileTab === t.k ? '2px solid #6C5CE7' : '2px solid transparent',
+                  color: mobileTab === t.k ? '#F28C28' : '#64748B', background: 'none', border: 'none', cursor: 'pointer',
+                  borderBottom: mobileTab === t.k ? '2px solid #F28C28' : '2px solid transparent',
                 }}>{t.l}</button>
               ))}
             </div>
@@ -432,7 +432,7 @@ export default function TaskDetailModal({
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
               {dept && <span style={{ width: 10, height: 10, borderRadius: '50%', background: dept.color, flexShrink: 0 }} />}
               <h2 style={{
-                fontSize: 16, fontWeight: 700, color: '#1a1a2e', margin: 0,
+                fontSize: 16, fontWeight: 700, color: '#1a1a1a', margin: 0,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>{task.title}</h2>
               <StatusBadge status={task.status} type="task" />

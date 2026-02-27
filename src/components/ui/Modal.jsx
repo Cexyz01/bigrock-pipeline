@@ -21,7 +21,7 @@ export default function Modal({ open, onClose, title, children, width }) {
           {/* Drag handle */}
           <div style={{ width: 36, height: 4, borderRadius: 2, background: '#CBD5E1', margin: '0 auto 14px' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>{title}</h2>
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: '#1a1a1a' }}>{title}</h2>
             <button onClick={onClose} style={{ background: '#F1F5F9', border: 'none', color: '#64748B', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
               <IconX size={16} />
             </button>
@@ -45,7 +45,7 @@ export default function Modal({ open, onClose, title, children, width }) {
         animation: 'scaleIn 0.2s ease',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1a1a2e' }}>{title}</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1a1a1a' }}>{title}</h2>
           <button onClick={onClose} style={{ background: '#F1F5F9', border: 'none', color: '#64748B', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <IconX size={16} />
           </button>

@@ -8,7 +8,7 @@ import Btn from '../ui/Btn'
 import Av from '../ui/Av'
 import StatusBadge from '../ui/StatusBadge'
 import EmptyState from '../ui/EmptyState'
-import { IconEdit, IconCheck, IconX } from '../ui/Icons'
+import { IconEdit, IconCheck, IconX, IconEye } from '../ui/Icons'
 
 export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask, onUpdateReviewMeta, addToast }) {
   const isMobile = useIsMobile()
@@ -65,7 +65,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
           title: t.review_title || t.title,
           description: t.review_description || t.description || '',
           department: dept?.label || '',
-          deptColor: dept?.color || '#6C5CE7',
+          deptColor: dept?.color || '#F28C28',
           student: student?.full_name || 'Unassigned',
           images,
         }
@@ -133,10 +133,10 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
       const cardW = (W - 2 * MX - 3 * 8) / 4
       const cardH = 36
       const statsData = [
-        { value: shots.length, label: 'Shots', color: '#60A5FA' },
+        { value: shots.length, label: 'Shots', color: '#1a1a1a' },
         { value: doneSlots, label: 'Completed', color: '#10B981' },
-        { value: wipSlots, label: 'In Progress', color: '#F59E0B' },
-        { value: reviewSlots, label: 'To Review', color: '#6C5CE7' },
+        { value: wipSlots, label: 'In Progress', color: '#2563EB' },
+        { value: reviewSlots, label: 'To Review', color: '#F28C28' },
       ]
 
       statsData.forEach((stat, idx) => {
@@ -171,7 +171,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
       pdf.setTextColor(248, 250, 252)
       pdf.text('Pipeline Progress', MX, barY)
       pdf.setFontSize(14)
-      pdf.setTextColor(108, 92, 231)
+      pdf.setTextColor(242, 140, 40)
       pdf.text(`${pipelinePct}%`, MX + barW, barY, { align: 'right' })
 
       // Progress bar track
@@ -179,9 +179,9 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
       const barTrackH = 7
       pdf.setFillColor(30, 41, 59)
       pdf.roundedRect(MX, barTrackY, barW, barTrackH, 2, 2, 'F')
-      // Filled portion — accent purple
+      // Filled portion — accent orange
       if (pipelinePct > 0) {
-        pdf.setFillColor(108, 92, 231)
+        pdf.setFillColor(242, 140, 40)
         pdf.roundedRect(MX, barTrackY, Math.max(barW * (pipelinePct / 100), 3), barTrackH, 2, 2, 'F')
       }
 
@@ -395,7 +395,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
       <Fade>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a2e' }}>Review</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Review</h1>
             <p style={{ fontSize: 14, color: '#64748B' }}>
               {reviewTasks.length} tasks in review
             </p>
@@ -409,7 +409,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
       </Fade>
 
       {reviewTasks.length === 0 ? (
-        <EmptyState icon="👁" title="No tasks in review" sub="Tasks submitted for review will appear here" />
+        <EmptyState icon={<IconEye size={48} color="#94A3B8" />} title="No tasks in review" sub="Tasks submitted for review will appear here" />
       ) : (
         <div style={{
           display: 'grid',
@@ -429,7 +429,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                   border: '1px solid #E8ECF1',
                   overflow: 'hidden',
                   transition: 'box-shadow 0.2s ease',
-                  boxShadow: isEditing ? '0 8px 32px rgba(108,92,231,0.12)' : 'none',
+                  boxShadow: isEditing ? '0 8px 32px rgba(242,140,40,0.12)' : 'none',
                 }}>
                   {/* Image preview */}
                   {images.length > 0 ? (
@@ -462,8 +462,8 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                     {/* Header: dept badge + student */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                       <span style={{
-                        fontSize: 11, fontWeight: 600, color: dept?.color || '#6C5CE7',
-                        background: `${dept?.color || '#6C5CE7'}15`, padding: '3px 10px',
+                        fontSize: 11, fontWeight: 600, color: dept?.color || '#F28C28',
+                        background: `${dept?.color || '#F28C28'}15`, padding: '3px 10px',
                         borderRadius: 6,
                       }}>{dept?.label || ''}</span>
                       {student && (
@@ -482,11 +482,11 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                           onChange={e => setEditTitle(e.target.value)}
                           placeholder="Presentation title..."
                           style={{
-                            fontSize: 16, fontWeight: 700, color: '#1a1a2e',
+                            fontSize: 16, fontWeight: 700, color: '#1a1a1a',
                             border: '1px solid #E2E8F0', borderRadius: 10,
                             padding: '10px 14px', outline: 'none',
                           }}
-                          onFocus={e => e.target.style.borderColor = '#6C5CE7'}
+                          onFocus={e => e.target.style.borderColor = '#F28C28'}
                           onBlur={e => e.target.style.borderColor = '#E2E8F0'}
                           autoFocus
                         />
@@ -501,7 +501,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                             padding: '10px 14px', outline: 'none', resize: 'vertical',
                             fontFamily: 'inherit',
                           }}
-                          onFocus={e => e.target.style.borderColor = '#6C5CE7'}
+                          onFocus={e => e.target.style.borderColor = '#F28C28'}
                           onBlur={e => e.target.style.borderColor = '#E2E8F0'}
                         />
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -517,7 +517,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <h3 style={{
-                            fontSize: 16, fontWeight: 700, color: '#1a1a2e', margin: 0, flex: 1,
+                            fontSize: 16, fontWeight: 700, color: '#1a1a1a', margin: 0, flex: 1,
                           }}>{task.review_title || task.title}</h3>
                           <button
                             onClick={() => startEdit(task)}
@@ -528,7 +528,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                               color: '#64748B', transition: 'all 0.15s ease',
                               flexShrink: 0,
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#E2E8F0'; e.currentTarget.style.color = '#6C5CE7' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#E2E8F0'; e.currentTarget.style.color = '#F28C28' }}
                             onMouseLeave={e => { e.currentTarget.style.background = '#F1F5F9'; e.currentTarget.style.color = '#64748B' }}
                             title="Edit for presentation"
                           >

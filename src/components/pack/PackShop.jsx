@@ -93,7 +93,7 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
                         ? `saturate(1.3) brightness(1.15) drop-shadow(0 0 24px ${pack.color}60)`
                         : 'saturate(0.5) brightness(0.65)',
                     animation: isH
-                      ? 'packPendulum 1.8s ease-in-out infinite'
+                      ? 'packPendulumEntry 0.2s ease-out forwards, packPendulum 0.8s ease-in-out 0.2s infinite'
                       : isSettling
                         ? 'packSettle 0.6s ease-out forwards'
                         : 'none',
@@ -163,8 +163,8 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
               borderRadius: i === 0 ? '4px 0 0 4px' : i === 2 ? '0 4px 4px 0' : 0,
               background: i < availablePacks
                 ? 'linear-gradient(135deg, #22C55E, #16A34A)'
-                : '#1E2530',
-              border: i < availablePacks ? 'none' : '1px solid #2A3040',
+                : '#2d2d2d',
+              border: i < availablePacks ? 'none' : '1px solid #3a3a3a',
               transition: 'all 0.4s ease',
               boxShadow: i < availablePacks ? '0 0 8px rgba(34,197,94,0.3)' : 'none',
             }} />
@@ -188,12 +188,12 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
               onClick={(e) => { e.stopPropagation(); onResetPacks() }}
               style={{
                 padding: '4px 12px', borderRadius: 8,
-                border: '1px solid #6C5CE740', background: 'transparent',
-                color: '#A29BFE', fontSize: 10, fontWeight: 600,
+                border: '1px solid #F28C2840', background: 'transparent',
+                color: '#F5B862', fontSize: 10, fontWeight: 600,
                 cursor: 'pointer', transition: 'all 0.2s',
               }}
-              onMouseEnter={e => { e.target.style.background = '#6C5CE720'; e.target.style.borderColor = '#6C5CE7' }}
-              onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.borderColor = '#6C5CE740' }}
+              onMouseEnter={e => { e.target.style.background = '#F28C2820'; e.target.style.borderColor = '#F28C28' }}
+              onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.borderColor = '#F28C2840' }}
             >
               ↻ Reset Pack
             </button>
@@ -223,11 +223,14 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
           font-style: normal;
           font-display: swap;
         }
-        @keyframes packPendulum {
+        @keyframes packPendulumEntry {
           0%   { transform: rotate(0deg); }
-          25%  { transform: rotate(7deg); }
-          75%  { transform: rotate(-7deg); }
-          100% { transform: rotate(0deg); }
+          100% { transform: rotate(7deg); }
+        }
+        @keyframes packPendulum {
+          0%   { transform: rotate(7deg); }
+          50%  { transform: rotate(-7deg); }
+          100% { transform: rotate(7deg); }
         }
         @keyframes packIdle {
           0%, 100% { transform: translateY(0px); }

@@ -33,7 +33,7 @@ function ToastItem({ toast, onRemove }) {
   const [visible, setVisible] = useState(false)
   useEffect(() => { requestAnimationFrame(() => setVisible(true)) }, [])
 
-  const accent = toast.type === 'success' ? '#10B981' : toast.type === 'error' ? '#EF4444' : '#6C5CE7'
+  const accent = toast.type === 'success' ? '#10B981' : toast.type === 'error' ? '#EF4444' : '#F28C28'
 
   return (
     <div
@@ -50,7 +50,7 @@ function ToastItem({ toast, onRemove }) {
         transition: 'all 0.25s ease',
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{toast.message}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{toast.message}</div>
       {toast.body && <div style={{ fontSize: 12, color: '#64748B', marginTop: 3 }}>{toast.body}</div>}
     </div>
   )

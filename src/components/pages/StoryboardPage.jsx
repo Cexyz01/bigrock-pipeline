@@ -26,7 +26,7 @@ export default function StoryboardPage() {
               }}>
               <div style={{
                 background: '#fff', border: '1px solid #E8ECF1', borderRadius: 24,
-                padding: '22px 36px', fontSize: 16, fontWeight: 600, color: '#1a1a2e',
+                padding: '22px 36px', fontSize: 16, fontWeight: 600, color: '#1a1a1a',
                 boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
               }}>
                 Clicca per attivare la board Miro
