@@ -33,24 +33,41 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
   const [tiltY, setTiltY] = useState(0)
   const [orbTier, setOrbTier] = useState(null)     // null | 'rare' | 'gold' | 'diamond' | 'rainbow'
   const [orbBurst, setOrbBurst] = useState(false)
+  const [orbPrePop, setOrbPrePop] = useState(false)
   const [showParticles, setShowParticles] = useState(false)
   const [packClicked, setPackClicked] = useState(false)
   const [flyPhase, setFlyPhase] = useState(flyRect ? 'flying' : 'landed') // flying → landed
   const [flyAnimated, setFlyAnimated] = useState(false) // triggers transition to center
   const cardRef = useRef(null)
+  const enterStartRef = useRef(0)
+  const enterTimerRef = useRef(null)
+  const preClickRef = useRef(null)
+  const queuedOpenRef = useRef(false)
 
-  // Fly transition: start at source rect, animate to center
+  // Fly transition: start at source rect, animate to center (350ms)
   useEffect(() => {
     if (flyPhase === 'flying') {
-      // Trigger transition on next frame
       requestAnimationFrame(() => {
         requestAnimationFrame(() => setFlyAnimated(true))
       })
-      // After fly animation completes, land
-      const t = setTimeout(() => setFlyPhase('landed'), 500)
+      const t = setTimeout(() => setFlyPhase('landed'), 350)
       return () => clearTimeout(t)
     }
   }, [flyPhase])
+
+  // Queued open: if user clicked during fly, auto-open when fly done + pack loaded
+  useEffect(() => {
+    if (!queuedOpenRef.current) return
+    if (flyPhase === 'flying' || !pack || packClicked || currentIdx !== -1) return
+    queuedOpenRef.current = false
+    setPackClicked(true)
+    setTimeout(() => {
+      setPackClicked(false)
+      setCurrentIdx(0)
+      const nextRarity = getCardRarity(sortedCards[0]?.card, cards)
+      startOrbSequence(nextRarity)
+    }, 250)
+  }, [flyPhase, pack])
 
   const sortedCards = [...(pack?.cards || [])].sort(
     (a, b) => (RARITY_RANK[getCardRarity(a.card, cards)] || 0) - (RARITY_RANK[getCardRarity(b.card, cards)] || 0)
@@ -65,9 +82,16 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
   // Current card object for particle FX
   const currentCard = currentIdx >= 0 ? cards.find(c => c.number === sortedCards[currentIdx]?.card) : null
 
-  // Mouse tilt — card follows cursor using VIEWPORT center as reference
+  // Desktop: tilt always follows mouse (no click needed)
+  // Mobile: tilt only while finger is dragging, resets on release
+  const touchActiveRef = useRef(false)
+  const tiltRafRef = useRef(null)
+  const touchStartRef = useRef(null)
+
+  // Mouse tilt — always follows cursor (desktop behavior)
   const handleMouseMove = useCallback((e) => {
-    if (currentIdx < 0 || phase !== 'idle') { setTiltX(0); setTiltY(0); return }
+    if (touchActiveRef.current) return // ignore mouse compat events during/after touch
+    if (flyPhase === 'flying') return
     const vcx = window.innerWidth / 2
     const vcy = window.innerHeight / 2
     const nx = (e.clientX - vcx) / vcx
@@ -75,23 +99,49 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
     setTiltY(clamp(nx * 25, -25, 25))
     setTiltX(clamp(ny * -20, -20, 20))
-  }, [currentIdx, phase])
+  }, [flyPhase])
+
+  // Touch tilt — drag to tilt, release resets (RAF-throttled)
+  const handleTouchStart = useCallback((e) => {
+    touchActiveRef.current = true
+    const t = e.touches[0]
+    touchStartRef.current = { x: t.clientX, y: t.clientY }
+  }, [])
+  const handleTouchMove = useCallback((e) => {
+    if (flyPhase === 'flying' || !touchStartRef.current) return
+    const t = e.touches[0]
+    const dx = t.clientX - touchStartRef.current.x
+    const dy = t.clientY - touchStartRef.current.y
+    if (tiltRafRef.current) return
+    tiltRafRef.current = requestAnimationFrame(() => {
+      tiltRafRef.current = null
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+      setTiltY(clamp(dx * 0.15, -25, 25))
+      setTiltX(clamp(dy * -0.15, -20, 20))
+    })
+  }, [flyPhase])
+  const handleTouchEnd = useCallback(() => {
+    touchStartRef.current = null
+    if (tiltRafRef.current) { cancelAnimationFrame(tiltRafRef.current); tiltRafRef.current = null }
+    setTiltX(0); setTiltY(0)
+    // Keep touchActiveRef true briefly to block mouse compat events
+    setTimeout(() => { touchActiveRef.current = false }, 400)
+  }, [])
 
   // Orb sequence: escalate through rarity tiers, then reveal card
   function startOrbSequence(targetRarity) {
     const targetRank = RARITY_RANK[targetRarity] || 0
     setShowParticles(false) // Hide particles during orb
 
-    // Common cards skip orb — direct particles + reveal
+    // Common cards skip orb — instant flip, no pause
     if (targetRank === 0) {
       setShowParticles(true)
       setParticleKey(k => k + 1)
-      setPhase('waiting')
-      setTimeout(() => {
-        setRevealKey(k => k + 1)
-        setPhase('entering')
-        setTimeout(() => setPhase('idle'), 700)
-      }, 200)
+      setRevealKey(k => k + 1)
+      setPhase('entering')
+      enterStartRef.current = Date.now()
+      if (enterTimerRef.current) clearTimeout(enterTimerRef.current)
+      enterTimerRef.current = setTimeout(() => setPhase('idle'), 700)
       return
     }
 
@@ -99,49 +149,56 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
     setPhase('orb')
     let tierIdx = 0
 
+    const PRE_POP_MS = 300
+
     function stepTier() {
       const { tier, rank, duration } = ORB_TIERS[tierIdx]
       setOrbTier(tier)
       setOrbBurst(false)
+      setOrbPrePop(false)
 
       setTimeout(() => {
-        // If this tier matches the card's rarity → finish orb, reveal card
-        if (rank >= targetRank) {
-          finishOrb()
-          return
-        }
-        // Otherwise: burst flash then escalate to next tier
-        setOrbBurst(true)
+        // Pre-pop pulse before any transition
+        setOrbPrePop(true)
         setTimeout(() => {
-          tierIdx++
-          stepTier()
-        }, ORB_BURST_MS)
+          setOrbPrePop(false)
+          // If this tier matches the card's rarity → finish orb, reveal card
+          if (rank >= targetRank) {
+            finishOrb()
+            return
+          }
+          // Otherwise: burst flash then escalate to next tier
+          setOrbBurst(true)
+          setTimeout(() => {
+            tierIdx++
+            stepTier()
+          }, ORB_BURST_MS)
+        }, PRE_POP_MS)
       }, duration)
     }
 
     function finishOrb() {
       setOrbTier(null)
       setOrbBurst(false)
-      setShowParticles(true) // NOW show particles
+      setOrbPrePop(false)
+      setShowParticles(true)
       setParticleKey(k => k + 1)
-      setPhase('waiting')
-      setTimeout(() => {
-        setRevealKey(k => k + 1)
-        setPhase('entering')
-        setTimeout(() => setPhase('idle'), 700)
-      }, 200)
+      setRevealKey(k => k + 1)
+      setPhase('entering')
+      enterStartRef.current = Date.now()
+      if (enterTimerRef.current) clearTimeout(enterTimerRef.current)
+      enterTimerRef.current = setTimeout(() => setPhase('idle'), 700)
     }
 
     stepTier()
   }
 
-  const handleClick = (e) => {
-    if (phase === 'exiting' || phase === 'entering' || phase === 'waiting' || phase === 'orb' || packClicked) return
-    if (flyPhase === 'flying') return
-    if (!pack) return // Data still loading
+  const executeClick = () => {
+    if (enterTimerRef.current) clearTimeout(enterTimerRef.current)
+    if (preClickRef.current) { clearTimeout(preClickRef.current); preClickRef.current = null }
 
+    if (!pack) return
     if (currentIdx === -1) {
-      // Pack press animation → then first card
       setPackClicked(true)
       setTimeout(() => {
         setPackClicked(false)
@@ -150,10 +207,8 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
         startOrbSequence(nextRarity)
       }, 350)
     } else if (currentIdx < totalCards - 1) {
-      // Next card — exit old, then orb sequence for new
       setPhase('exiting')
       setShowParticles(false)
-      setTiltX(0); setTiltY(0)
       setTimeout(() => {
         const nextIdx = currentIdx + 1
         setCurrentIdx(nextIdx)
@@ -165,13 +220,43 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
     }
   }
 
+  const handleClick = (e) => {
+    if (phase === 'exiting' || phase === 'waiting' || phase === 'orb' || packClicked) return
+    // During fly: queue the open — effect auto-fires when ready
+    if (flyPhase === 'flying') {
+      queuedOpenRef.current = true
+      return
+    }
+    // During enter animation: buffer click between 10%-50%, allow after 50%
+    if (phase === 'entering') {
+      const elapsed = Date.now() - enterStartRef.current
+      if (elapsed < 70) return // < 10%: ignore
+      if (elapsed < 350) {
+        // 10%-50%: buffer — schedule executeClick at the 350ms mark
+        if (!preClickRef.current) {
+          preClickRef.current = setTimeout(() => {
+            preClickRef.current = null
+            executeClick()
+          }, 350 - elapsed)
+        }
+        return
+      }
+      // >= 50%: immediate
+    }
+    executeClick()
+  }
+
   const pt = { red: '#EF4444', green: '#22C55E', blue: '#3B82F6' }[packType] || '#F28C28'
 
   return (
     <div
       onClick={handleClick}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => { setTiltX(0); setTiltY(0) }}
+      onMouseLeave={() => { if (!touchActiveRef.current) { setTiltX(0); setTiltY(0) } }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(10,10,10,0.96)',
@@ -180,6 +265,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
         alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer',
         userSelect: 'none', WebkitUserSelect: 'none',
+        touchAction: 'none',
       }}
     >
       {currentIdx === -1 ? (() => {
@@ -195,30 +281,39 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
               maxWidth: isMobile ? '65vw' : 380,
               transform: 'translate(-50%, -50%)',
               transition: isFlying
-                ? 'left 0.45s cubic-bezier(0.4,0,0.2,1), top 0.45s cubic-bezier(0.4,0,0.2,1), width 0.45s cubic-bezier(0.4,0,0.2,1)'
+                ? 'left 0.3s cubic-bezier(0.4,0,0.2,1), top 0.3s cubic-bezier(0.4,0,0.2,1), width 0.3s cubic-bezier(0.4,0,0.2,1)'
                 : 'none',
               zIndex: 10,
             }}>
+              {/* Tilt wrapper — mouse-follow 3D perspective */}
               <div style={{
-                filter: `drop-shadow(0 0 60px ${pt}60)`,
-                transformOrigin: 'center center',
-                ...(isFlying ? {
-                  transform: flyAnimated ? 'rotate(0deg)' : 'rotate(5deg)',
-                  transition: 'transform 0.45s cubic-bezier(0.4,0,0.2,1)',
-                } : {
-                  animation: packClicked
-                    ? 'poPackOpen 0.35s ease forwards'
-                    : flyRect
-                      ? 'poPendulum 3s ease-in-out infinite'
-                      : 'poEntrance 0.5s ease',
-                }),
+                transform: (!isFlying && !packClicked)
+                  ? `perspective(800px) rotateX(${tiltX * 0.6}deg) rotateY(${tiltY * 0.6}deg) scale(${1 + (Math.abs(tiltX) + Math.abs(tiltY)) * 0.001})`
+                  : 'perspective(800px) rotateX(0deg) rotateY(0deg)',
+                transition: 'transform 0.12s ease-out',
+                transformStyle: 'preserve-3d',
               }}>
-                <img
-                  src={`/packs/pack_${packType}.png`}
-                  alt="Pack"
-                  draggable={false}
-                  style={{ width: '100%', display: 'block', borderRadius: 16 }}
-                />
+                <div style={{
+                  filter: `drop-shadow(0 0 ${60 + (Math.abs(tiltX) + Math.abs(tiltY)) * 0.5}px ${pt}60)`,
+                  transformOrigin: 'center center',
+                  ...(isFlying ? {
+                    transform: flyAnimated ? 'rotate(0deg)' : 'rotate(5deg)',
+                    transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
+                  } : {
+                    animation: packClicked
+                      ? 'poPackOpen 0.35s ease forwards'
+                      : !flyRect
+                        ? 'poEntrance 0.5s ease'
+                        : undefined,
+                  }),
+                }}>
+                  <img
+                    src={`/packs/pack_${packType}.png`}
+                    alt="Pack"
+                    draggable={false}
+                    style={{ width: '100%', display: 'block', borderRadius: 16 }}
+                  />
+                </div>
               </div>
             </div>
             {/* Click hint — appears after landing */}
@@ -271,7 +366,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
 
             {/* Rarity Escalation Orb — shown during 'orb' phase */}
             {phase === 'orb' && orbTier && (
-              <RarityOrb tier={orbTier} burst={orbBurst} />
+              <RarityOrb tier={orbTier} burst={orbBurst} prePop={orbPrePop} />
             )}
 
             {/* Glow — OUTSIDE tilt wrapper, does NOT follow mouse tilt */}
@@ -279,32 +374,38 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
               <CardGlow card={currentCard} />
             )}
 
-            {/* Card tilt wrapper — ONLY this follows the mouse */}
+            {/* Tilt layer — ALWAYS follows mouse, never interrupted by animations */}
             <div
               ref={cardRef}
               style={{
                 position: 'relative', width: '100%', height: '100%',
-                transformStyle: 'preserve-3d',
                 zIndex: 2,
-                transition: phase === 'idle' ? 'transform 0.15s ease-out' : 'none',
-                transform: (phase === 'exiting' || phase === 'entering' || phase === 'waiting' || phase === 'orb')
-                  ? undefined
-                  : `perspective(800px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
+                transform: `perspective(800px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
+                transition: 'transform 0.15s ease-out',
+                transformStyle: 'preserve-3d',
+              }}
+            >
+              {/* Flip animation layer — independent from tilt */}
+              <div style={{
+                width: '100%', height: '100%',
                 animation: phase === 'exiting'
                   ? 'poCardExit 0.4s ease-in forwards'
                   : phase === 'entering'
                     ? 'poCardEnter 0.6s cubic-bezier(0.4,0,0.2,1) forwards'
                     : 'none',
                 opacity: (phase === 'waiting' || phase === 'orb') ? 0 : undefined,
-              }}
-            >
-              <CardReveal
-                key={revealKey}
-                entry={sortedCards[currentIdx]}
-                card={currentCard}
-                copiesPerRarity={copiesPerRarity}
-                isNew={currentCard && preOpenOwned ? !preOpenOwned.has(currentCard.number) : false}
-              />
+                transformStyle: 'preserve-3d',
+              }}>
+                <CardReveal
+                  key={revealKey}
+                  entry={sortedCards[currentIdx]}
+                  card={currentCard}
+                  copiesPerRarity={copiesPerRarity}
+                  isNew={currentCard && preOpenOwned ? !preOpenOwned.has(currentCard.number) : false}
+                  tiltX={tiltX}
+                  tiltY={tiltY}
+                />
+              </div>
             </div>
           </div>
 
@@ -407,13 +508,36 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
           0%, 100% { box-shadow: 0 0 12px rgba(255,45,85,0.7), 0 0 24px rgba(255,45,85,0.4); }
           50%      { box-shadow: 0 0 18px rgba(255,45,85,0.9), 0 0 36px rgba(255,45,85,0.6); }
         }
+        @keyframes poOrbAppear {
+          0%   { transform: scale(0); opacity: 0; filter: brightness(1.8); }
+          45%  { transform: scale(1.1); opacity: 1; filter: brightness(1.3); }
+          65%  { transform: scale(1.05); opacity: 1; filter: brightness(1.15); }
+          82%  { transform: scale(0.98); opacity: 1; filter: brightness(1.05); }
+          100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+        }
+        @keyframes poOrbGlowAppear {
+          0%   { transform: scale(0); opacity: 0; }
+          45%  { transform: scale(1.1); opacity: 0.6; }
+          70%  { transform: scale(1.02); opacity: 0.5; }
+          100% { transform: scale(1); opacity: 0.5; }
+        }
+        @keyframes poOrbRingAppear {
+          0%   { transform: scale(0); opacity: 0; }
+          50%  { transform: scale(1.06); opacity: 0.75; }
+          100% { transform: scale(1); opacity: 0.7; }
+        }
+        @keyframes poOrbPrePop {
+          0%   { transform: scale(1); filter: brightness(1); }
+          50%  { transform: scale(1.18); filter: brightness(1.5); }
+          100% { transform: scale(1); filter: brightness(1.8); }
+        }
       `}</style>
     </div>
   )
 }
 
 /* ─── Rarity Escalation Orb — 3D glowing sphere ─── */
-function RarityOrb({ tier, burst }) {
+function RarityOrb({ tier, burst, prePop }) {
   if (!tier) return null
 
   const TIER_COLORS = {
@@ -444,14 +568,12 @@ function RarityOrb({ tier, burst }) {
         borderRadius: '50%',
         background: isRainbow
           ? 'conic-gradient(from var(--rainbow-angle, 0deg), #EC489944, #F59E0B44, #22C55E44, #3B82F644, #8B5CF644, #EC489944)'
-          : isDiamond
-            ? 'conic-gradient(from var(--diamond-angle, 0deg), #06B6D444, #A5F3FC44, #FFFFFF44, #06B6D444, #164E6344, #A5F3FC44, #FFFFFF44, #06B6D444)'
-            : `radial-gradient(circle, ${c.glow} 0%, ${c.ring} 40%, transparent 70%)`,
-        animation: isRainbow
-          ? 'poOrbPulse 1.5s ease-in-out infinite, poRainbowSpin 2s linear infinite'
-          : isDiamond
-            ? 'poOrbPulse 1.5s ease-in-out infinite, poDiamondSpin 4s linear infinite'
-            : 'poOrbPulse 1.5s ease-in-out infinite',
+          : `radial-gradient(circle, ${c.glow} 0%, ${c.ring} 40%, transparent 70%)`,
+        animation: prePop
+          ? 'poOrbPrePop 0.3s ease-in-out'
+          : isRainbow
+            ? 'poOrbGlowAppear 0.5s ease-out, poOrbPulse 1.5s 0.5s ease-in-out infinite, poRainbowSpin 2s linear infinite'
+            : 'poOrbGlowAppear 0.5s ease-out, poOrbPulse 1.5s 0.5s ease-in-out infinite',
         opacity: 0.5,
       }} />
 
@@ -461,7 +583,9 @@ function RarityOrb({ tier, burst }) {
         width: 140, height: 140,
         borderRadius: '50%',
         background: `radial-gradient(circle, ${c.glow} 0%, transparent 70%)`,
-        animation: 'poOrbPulse 1.2s ease-in-out infinite',
+        animation: prePop
+          ? 'poOrbPrePop 0.3s ease-in-out'
+          : 'poOrbRingAppear 0.4s 0.05s ease-out both, poOrbPulse 1.2s 0.4s ease-in-out infinite',
         opacity: 0.7,
       }} />
 
@@ -472,9 +596,7 @@ function RarityOrb({ tier, burst }) {
         borderRadius: '50%',
         background: isRainbow
           ? 'conic-gradient(from var(--rainbow-angle, 0deg), #EC4899, #F59E0B, #22C55E, #3B82F6, #8B5CF6, #EC4899)'
-          : isDiamond
-            ? 'conic-gradient(from var(--diamond-angle, 0deg), #06B6D4, #A5F3FC, #FFFFFF, #06B6D4, #164E63, #A5F3FC, #FFFFFF, #06B6D4)'
-            : `radial-gradient(circle at 38% 32%, ${c.light} 0%, ${c.main} 35%, ${c.dark} 100%)`,
+          : `radial-gradient(circle at 38% 32%, ${c.light} 0%, ${c.main} 35%, ${c.dark} 100%)`,
         boxShadow: [
           `0 0 30px ${c.glow}`,
           `0 0 60px ${c.glow}`,
@@ -484,10 +606,22 @@ function RarityOrb({ tier, burst }) {
         ].join(', '),
         animation: burst
           ? 'poOrbBurst 0.2s ease-out forwards'
-          : isDiamond
-            ? 'poOrbEntrance 0.3s ease-out, poOrbFloat 2.5s ease-in-out infinite, poDiamondSpin 4s linear infinite'
-            : 'poOrbEntrance 0.3s ease-out, poOrbFloat 2.5s ease-in-out infinite',
+          : prePop
+            ? 'poOrbPrePop 0.3s ease-in-out forwards'
+            : 'poOrbAppear 0.45s cubic-bezier(0.25, 1, 0.5, 1), poOrbFloat 2.5s 0.45s ease-in-out infinite',
+        overflow: 'hidden',
       }}>
+        {/* Diamond shimmer overlay — rotating conic on top of 3D sphere */}
+        {isDiamond && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: 'conic-gradient(from var(--diamond-angle, 0deg), transparent, rgba(255,255,255,0.35) 15%, transparent 30%, rgba(165,243,252,0.3) 50%, transparent 65%, rgba(255,255,255,0.3) 80%, transparent)',
+            animation: 'poDiamondSpin 3s linear infinite',
+            mixBlendMode: 'overlay',
+          }} />
+        )}
         {/* Specular highlight — white gloss on top-left */}
         <div style={{
           position: 'absolute',
@@ -597,11 +731,12 @@ const ParticlesFX = memo(function ParticlesFX({ card }) {
 })
 
 /* ─── Card Reveal — uses unified ScaledCard renderer ─── */
-function CardReveal({ entry, card, copiesPerRarity, isNew }) {
+function CardReveal({ entry, card, copiesPerRarity, isNew, tiltX = 0, tiltY = 0 }) {
   if (!entry || !card) return null
   const fx = RARITY_FX[card.rarity] || RARITY_FX.common
   const totalCopies = copiesPerRarity?.[card.rarity] || '?'
-  const copyStr = entry.copy != null ? String(entry.copy).padStart(3, '0') : null
+  const digits = String(totalCopies).length
+  const copyStr = entry.copy != null ? String(entry.copy).padStart(digits, '0') : null
 
   return (
     <div style={{ position: 'relative' }}>
@@ -611,6 +746,8 @@ function CardReveal({ entry, card, copiesPerRarity, isNew }) {
         copyInfo={copyStr}
         totalCopies={totalCopies}
         style={{ boxShadow: fx.glow }}
+        tiltX={tiltX}
+        tiltY={tiltY}
       />
       {isNew && (
         <div style={{

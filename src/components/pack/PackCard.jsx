@@ -32,7 +32,8 @@ if (typeof document !== 'undefined' && !document.getElementById('pack-card-css')
 export default function PackCard({ card, owned, onClick, copyInfo, totalCopies, copyCount }) {
   const ref = useRef(null)
   const hoveredRef = useRef(false)
-  const handleEnter = () => {
+  const handleEnter = (e) => {
+    if (e.pointerType === 'touch') return
     const el = ref.current
     if (!el) return
     hoveredRef.current = true
@@ -41,7 +42,8 @@ export default function PackCard({ card, owned, onClick, copyInfo, totalCopies, 
     el.style.animation = 'cardUp 0.18s cubic-bezier(0.22,1,0.36,1) forwards'
   }
 
-  const handleLeave = () => {
+  const handleLeave = (e) => {
+    if (e.pointerType === 'touch') return
     const el = ref.current
     if (!el) return
     hoveredRef.current = false
@@ -63,8 +65,8 @@ export default function PackCard({ card, owned, onClick, copyInfo, totalCopies, 
     <div
       ref={ref}
       className="pack-card"
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onPointerEnter={handleEnter}
+      onPointerLeave={handleLeave}
       onClick={() => onClick(card, owned)}
       style={{ position: 'relative' }}
     >

@@ -22,6 +22,8 @@ html {
   touch-action: manipulation;
   height: 100%;
   height: -webkit-fill-available;
+  overscroll-behavior: none;
+  overflow: hidden;
 }
 
 body {

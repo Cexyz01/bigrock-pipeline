@@ -10,9 +10,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
+    "chess.js": "^1.4.0",
     "jspdf": "^4.2.0",
+    "matter-js": "^0.20.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-chessboard": "^4.7.3",
+    "react-dom": "^18.3.1",
+    "uno-engine": "^2.0.3"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

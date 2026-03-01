@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { IconX } from '../ui/Icons'
+import { createGameInvite, getRecentlyActiveUsers } from '../../lib/supabase'
 
 /* ── Command definitions ── */
 const CMDS = [
@@ -8,9 +9,19 @@ const CMDS = [
   { id: 'shake',  icon: '🫨', label: 'Shake',  needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 3  },
   { id: 'disco',  icon: '🪩', label: 'Disco',  needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 5  },
   { id: 'flip',   icon: '🙃', label: 'Flip',   needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 5  },
+  { id: 'gravity',icon: '🏚️', label: 'Gravity',needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 6  },
+  { id: 'play',   icon: '🎮', label: 'Play',   needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
   { id: 'matrix', icon: '🟢', label: 'Matrix', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
+  { id: 'online', icon: '👁', label: 'Online', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
 ];
 const DURATIONS = [3, 5, 10, 15, 30];
+const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi', uno: 'UNO' };
+const GAME_TYPES = [
+  { id: 'connect4', icon: '🔴', label: 'Forza 4' },
+  { id: 'othello',  icon: '⚫', label: 'Othello' },
+  { id: 'chess',    icon: '♟️', label: 'Scacchi' },
+  { id: 'uno',      icon: '🃏', label: 'UNO' },
+];
 
 const HELP = [
   ['help',              'Mostra tutti i comandi'],
@@ -21,12 +32,15 @@ const HELP = [
   ['shake [nome] [sec]','Scuoti schermo (tutti o persona)'],
   ['disco [nome] [sec]','Disco mode (tutti o persona)'],
   ['flip [nome] [sec]', 'Capovolgi schermo (tutti o persona)'],
+  ['gravity [nome] [sec]','Terremoto! Tutto crolla a terra (6s default)'],
+  ['play <nome> [gioco]','Sfida a minigioco (connect4, othello, chess)'],
   ['users',             'Lista utenti registrati'],
+  ['online',            'Ultimi 10 visitatori del sito'],
   ['whoami',            'Mostra info admin corrente'],
   ['clear',             'Pulisci la console'],
 ];
 
-export default function AdminConsole({ user, profiles, channelRef, onMatrixToggle, onClose, isMobile: isMobileProp }) {
+export default function AdminConsole({ user, profiles, channelRef, onMatrixToggle, onGameChallenge, onClose, isMobile: isMobileProp }) {
   // Internal mobile detection as failsafe (prop may miss on some devices)
   const [internalMobile, setInternalMobile] = useState(
     () => typeof window !== 'undefined' && (window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 900))
@@ -68,6 +82,7 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
   const [msg, setMsg] = useState('');
   const [showTargetPicker, setShowTargetPicker] = useState(false);
   const [lastResult, setLastResult] = useState(null);
+  const [selGameType, setSelGameType] = useState('connect4');
 
   // auto-set default duration when command changes
   useEffect(() => {
@@ -83,6 +98,24 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
     if (cmd.id === 'matrix') {
       onMatrixToggle();
       setLastResult({ text: 'Matrix mode toggled!', c: '#00ff41' });
+      return;
+    }
+
+    // online — show recently active users from DB
+    if (cmd.id === 'online') {
+      setLastResult({ text: 'Caricamento...', c: '#888' });
+      getRecentlyActiveUsers(10).then(({ data }) => {
+        if (!data || data.length === 0) { setLastResult({ text: 'Nessun utente recente', c: '#888' }); return; }
+        const now = Date.now();
+        const lines = data.map(u => {
+          const ago = u.last_seen_at ? Math.round((now - new Date(u.last_seen_at).getTime()) / 1000) : null;
+          const agoStr = ago === null ? '?' : ago < 60 ? `${ago}s fa` : ago < 3600 ? `${Math.floor(ago / 60)}m fa` : ago < 86400 ? `${Math.floor(ago / 3600)}h fa` : `${Math.floor(ago / 86400)}g fa`;
+          const isOnline = ago !== null && ago < 180; // active in last 3 min = online
+          const dot = isOnline ? '🟢' : '⚪';
+          return `${dot} ${u.full_name || '?'} · ${u.last_seen_view || '?'} · ${agoStr}`;
+        });
+        setLastResult({ text: `👁 Ultimi visitatori (${data.length}):\n${lines.join('\n')}`, c: '#00ff41' });
+      });
       return;
     }
 
@@ -136,6 +169,25 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
         if (targetId) payload.targetId = targetId;
         broadcast(payload);
         setLastResult({ text: `🙃 Flip → ${targetName || 'Tutti'} (${dur}s)`, c: '#ffd700' });
+        break;
+      }
+      case 'gravity': {
+        const payload = { type: 'gravity', duration: dur * 1000 };
+        if (targetId) payload.targetId = targetId;
+        broadcast(payload);
+        setLastResult({ text: `🏚️ Gravity → ${targetName || 'Tutti'} (${dur}s)`, c: '#ffd700' });
+        break;
+      }
+      case 'play': {
+        if (!targetId) { setLastResult({ text: 'Seleziona un utente!', c: '#ff5555' }); return; }
+        if (targetId === user.id) { setLastResult({ text: 'Non puoi sfidarti da solo 🤦', c: '#ff5555' }); return; }
+        const gameType = selGameType || 'connect4';
+        setLastResult({ text: `🎮 Sfida inviata a ${targetName}...`, c: '#F28C28' });
+        createGameInvite(user.id, targetId, gameType).then(({ data, error }) => {
+          if (error) { setLastResult({ text: `Errore: ${error.message}`, c: '#ff5555' }); return; }
+          if (onGameChallenge) onGameChallenge({ gameId: data.id, game: data, role: 'proposer' });
+          setLastResult({ text: `🎮 ${GAME_LABELS[gameType] || gameType} → ${targetName}`, c: '#00ff41' });
+        });
         break;
       }
     }
@@ -258,6 +310,24 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
             </div>
           )}
 
+          {/* game type selector (for play command) */}
+          {cmd && cmd.id === 'play' && (
+            <div style={S.section}>
+              <div style={S.label}>Gioco</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {GAME_TYPES.map(g => (
+                  <div key={g.id} onClick={() => setSelGameType(g.id)} style={{
+                    ...S.chip(selGameType === g.id),
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px',
+                  }}>
+                    <span>{g.icon}</span>
+                    <span>{g.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* message input */}
           {cmd && cmd.needsMsg && (
             <div style={S.section}>
@@ -322,24 +392,49 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
   const [input, setInput] = useState('');
   const [history, setHistory] = useState([]);
   const [histIdx, setHistIdx] = useState(-1);
-  const termWidth = Math.min(540, window.innerWidth - 32);
+  const [termSize, setTermSize] = useState({ w: Math.min(540, window.innerWidth - 32), h: 280 });
   const [pos, setPos] = useState({ x: 90, y: Math.max(100, window.innerHeight - 420) });
   const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(null); // null | 'e' | 's' | 'se'
   const dragOff = useRef({ x: 0, y: 0 });
+  const resizeStart = useRef({ mx: 0, my: 0, w: 0, h: 0 });
   const outRef = useRef(null);
   const inRef = useRef(null);
 
   useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [output]);
   useEffect(() => { inRef.current?.focus(); }, []);
 
+  // ── Drag ──
   const onDragStart = (e) => { setDragging(true); dragOff.current = { x: e.clientX - pos.x, y: e.clientY - pos.y }; };
   useEffect(() => {
     if (!dragging) return;
-    const move = (e) => setPos({ x: Math.max(0, Math.min(window.innerWidth - termWidth, e.clientX - dragOff.current.x)), y: Math.max(0, Math.min(window.innerHeight - 80, e.clientY - dragOff.current.y)) });
+    const move = (e) => setPos({ x: Math.max(0, Math.min(window.innerWidth - termSize.w, e.clientX - dragOff.current.x)), y: Math.max(0, Math.min(window.innerHeight - 80, e.clientY - dragOff.current.y)) });
     const up = () => setDragging(false);
     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, [dragging]);
+  }, [dragging, termSize.w]);
+
+  // ── Resize ──
+  const onResizeStart = (dir) => (e) => {
+    e.stopPropagation(); e.preventDefault();
+    setResizing(dir);
+    resizeStart.current = { mx: e.clientX, my: e.clientY, w: termSize.w, h: termSize.h };
+  };
+  useEffect(() => {
+    if (!resizing) return;
+    const move = (e) => {
+      const dx = e.clientX - resizeStart.current.mx;
+      const dy = e.clientY - resizeStart.current.my;
+      setTermSize(prev => {
+        const nw = resizing.includes('e') ? Math.max(360, Math.min(window.innerWidth - pos.x - 8, resizeStart.current.w + dx)) : prev.w;
+        const nh = resizing.includes('s') ? Math.max(120, Math.min(window.innerHeight - pos.y - 100, resizeStart.current.h + dy)) : prev.h;
+        return { w: nw, h: nh };
+      });
+    };
+    const up = () => setResizing(null);
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [resizing, pos.x, pos.y]);
 
   const dlog = (text, c = '#00ff41') => setOutput(p => [...p, { text, c }]);
 
@@ -395,10 +490,10 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
         broadcast({ type: 'ban', targetId: target.id, targetName: target.full_name, duration: secs });
         dlog(`  🔨 ${target.full_name} bannato per ${secs}s`, '#ff5555'); break;
       }
-      case 'shake': case 'disco': case 'flip': {
-        const emoji = cmd === 'shake' ? '🫨' : cmd === 'disco' ? '🪩' : '🙃';
-        const maxDur = cmd === 'shake' ? 10 : 15;
-        const defDur = cmd === 'shake' ? 3 : 5;
+      case 'shake': case 'disco': case 'flip': case 'gravity': {
+        const emoji = cmd === 'shake' ? '🫨' : cmd === 'disco' ? '🪩' : cmd === 'gravity' ? '🏚️' : '🙃';
+        const maxDur = cmd === 'gravity' ? 15 : cmd === 'shake' ? 10 : 15;
+        const defDur = cmd === 'gravity' ? 6 : cmd === 'shake' ? 3 : 5;
         const lastNum = parseInt(args[args.length - 1]);
         const allMode = args.length === 0 || (args.length === 1 && !isNaN(parseInt(args[0])));
         if (allMode) {
@@ -416,12 +511,54 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
         }
         break;
       }
+      case 'play': {
+        if (args.length < 1) { dlog('  Uso: play <nome> [connect4|othello|chess|uno]', '#ff5555'); break; }
+        const validGames = ['connect4', 'othello', 'chess', 'uno'];
+        const lastArg = args[args.length - 1].toLowerCase();
+        const hasGame = validGames.includes(lastArg);
+        const gameType = hasGame ? lastArg : 'connect4';
+        const nameQ = hasGame ? args.slice(0, -1).join(' ') : args.join(' ');
+        if (!nameQ) { dlog('  Specifica un utente!', '#ff5555'); break; }
+        const target = findUser(nameQ);
+        if (!target) { dlog(`  Utente "${nameQ}" non trovato`, '#ff5555'); break; }
+        if (target.id === user.id) { dlog('  Non puoi sfidarti da solo 🤦', '#ff5555'); break; }
+        dlog(`  🎮 Invio sfida a ${target.full_name} (${GAME_LABELS[gameType]})...`, '#F28C28');
+        createGameInvite(user.id, target.id, gameType).then(({ data, error }) => {
+          if (error) { dlog(`  ❌ Errore: ${error.message}`, '#ff5555'); return; }
+          if (onGameChallenge) onGameChallenge({ gameId: data.id, game: data, role: 'proposer' });
+          dlog(`  ✅ Sfida inviata!`, '#00ff41');
+        });
+        break;
+      }
       case 'clear': case 'cls': { setOutput([]); break; }
       case 'whoami': { dlog(''); dlog(`  👤 ${user.full_name}`, '#F28C28'); dlog(`  📧 ${user.email}`, '#888'); dlog(`  🎭 ${user.role}`, '#888'); dlog(''); break; }
       case 'users': {
         dlog(''); dlog(`  👥 Utenti (${profiles.length}):`, '#ffd700');
         profiles.forEach(p => { const tag = p.id === user.id ? ' ← tu' : ''; dlog(`  ${(p.full_name || '???').padEnd(24)} ${(p.role || 'studente').padEnd(14)}${tag}`, p.id === user.id ? '#F28C28' : '#888'); });
         dlog(''); break;
+      }
+      case 'online': {
+        dlog('  Caricamento...', '#888');
+        getRecentlyActiveUsers(10).then(({ data }) => {
+          // Remove the "Caricamento..." line
+          setOutput(prev => prev.slice(0, -1));
+          if (!data || data.length === 0) { dlog('  Nessun utente recente', '#888'); return; }
+          const now = Date.now();
+          dlog('');
+          dlog(`  👁 Ultimi visitatori (${data.length}):`, '#ffd700');
+          dlog(`  ${''.padEnd(2)} ${'Nome'.padEnd(22)} ${'Ruolo'.padEnd(14)} ${'Pagina'.padEnd(16)} Ultimo accesso`, '#00ff41');
+          dlog(`  ${''.padEnd(2)} ${'─'.repeat(22)} ${'─'.repeat(14)} ${'─'.repeat(16)} ${'─'.repeat(12)}`, '#333');
+          data.forEach(u => {
+            const ago = u.last_seen_at ? Math.round((now - new Date(u.last_seen_at).getTime()) / 1000) : null;
+            const agoStr = ago === null ? '?' : ago < 60 ? `${ago}s fa` : ago < 3600 ? `${Math.floor(ago / 60)}m fa` : ago < 86400 ? `${Math.floor(ago / 3600)}h fa` : `${Math.floor(ago / 86400)}g fa`;
+            const isOnline = ago !== null && ago < 180;
+            const dot = isOnline ? '🟢' : '⚪';
+            const isMe = u.id === user.id;
+            dlog(`  ${dot} ${(u.full_name || '???').padEnd(22)} ${(u.role || 'studente').padEnd(14)} ${(u.last_seen_view || '?').padEnd(16)} ${agoStr}${isMe ? ' ← tu' : ''}`, isMe ? '#F28C28' : '#888');
+          });
+          dlog('');
+        });
+        break;
       }
       default: dlog(`  Comando sconosciuto: "${cmd}"`, '#ff5555');
     }
@@ -434,40 +571,48 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
   };
 
   return (
-    <div data-admin-console onClick={() => inRef.current?.focus()} style={{
-      position: 'fixed', left: pos.x, top: pos.y, width: termWidth, maxWidth: 'calc(100vw - 16px)', zIndex: 9999,
-      borderRadius: 14, overflow: 'hidden',
-      boxShadow: '0 0 40px rgba(0,255,65,0.25), 0 12px 40px rgba(0,0,0,0.7)',
-      border: '1.5px solid rgba(0,255,65,0.4)',
+    <div data-admin-console style={{
+      position: 'fixed', left: pos.x, top: pos.y, width: termSize.w, maxWidth: 'calc(100vw - 16px)', zIndex: 9999,
       fontFamily: '"Courier New", Consolas, "Liberation Mono", monospace', fontSize: 12.5,
-      backdropFilter: 'blur(12px)',
     }}>
-      {/* title bar */}
-      <div onMouseDown={onDragStart} style={{
-        background: 'linear-gradient(180deg, #161b22 0%, #0d1117 100%)',
-        padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none', borderBottom: '1px solid rgba(0,255,65,0.15)',
+      {/* Inner shell — clips content with rounded corners */}
+      <div onClick={() => inRef.current?.focus()} style={{
+        borderRadius: 14, overflow: 'hidden',
+        boxShadow: '0 0 40px rgba(0,255,65,0.25), 0 12px 40px rgba(0,0,0,0.7)',
+        border: '1.5px solid rgba(0,255,65,0.4)',
+        backdropFilter: 'blur(12px)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57', cursor: 'pointer' }} />
-            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#febc2e' }} />
-            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#28c840' }} />
+        {/* title bar */}
+        <div onMouseDown={onDragStart} style={{
+          background: 'linear-gradient(180deg, #161b22 0%, #0d1117 100%)',
+          padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none', borderBottom: '1px solid rgba(0,255,65,0.15)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57', cursor: 'pointer' }} />
+              <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#febc2e' }} />
+              <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#28c840' }} />
+            </div>
+            <span style={{ color: '#00ff41', fontWeight: 700, fontSize: 12, letterSpacing: 1.5, opacity: 0.8 }}>ADMIN CONSOLE</span>
           </div>
-          <span style={{ color: '#00ff41', fontWeight: 700, fontSize: 12, letterSpacing: 1.5, opacity: 0.8 }}>ADMIN CONSOLE</span>
+          <span style={{ color: '#333', fontSize: 10 }}>Ctrl+Shift+D</span>
         </div>
-        <span style={{ color: '#333', fontSize: 10 }}>Ctrl+Shift+D</span>
+        {/* output */}
+        <div ref={outRef} style={{ background: 'rgba(13,17,23,0.97)', padding: '10px 14px', height: termSize.h, overflowY: 'auto', overflowX: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#00ff4133 transparent' }}>
+          {output.map((line, i) => <div key={i} style={{ color: line.c, lineHeight: 1.65, whiteSpace: 'pre' }}>{line.text || '\u00A0'}</div>)}
+        </div>
+        {/* input */}
+        <div style={{ background: 'rgba(10,14,20,0.98)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid rgba(0,255,65,0.12)' }}>
+          <span style={{ color: '#00ff41', fontWeight: 700, fontSize: 14 }}>{'❯'}</span>
+          <input ref={inRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKey} spellCheck={false} autoComplete="off" placeholder="Digita un comando..."
+            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e6e6e6', fontFamily: 'inherit', fontSize: 12.5, caretColor: '#00ff41' }} />
+        </div>
       </div>
-      {/* output */}
-      <div ref={outRef} style={{ background: 'rgba(13,17,23,0.97)', padding: '10px 14px', height: 280, overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin', scrollbarColor: '#00ff4133 transparent' }}>
-        {output.map((line, i) => <div key={i} style={{ color: line.c, lineHeight: 1.65, whiteSpace: 'pre', wordBreak: 'break-all' }}>{line.text || '\u00A0'}</div>)}
-      </div>
-      {/* input */}
-      <div style={{ background: 'rgba(10,14,20,0.98)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid rgba(0,255,65,0.12)' }}>
-        <span style={{ color: '#00ff41', fontWeight: 700, fontSize: 14 }}>{'❯'}</span>
-        <input ref={inRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKey} spellCheck={false} autoComplete="off" placeholder="Digita un comando..."
-          style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e6e6e6', fontFamily: 'inherit', fontSize: 12.5, caretColor: '#00ff41' }} />
-      </div>
+      {/* Resize handles — outside inner shell so they aren't clipped */}
+      <div onMouseDown={onResizeStart('e')} style={{ position: 'absolute', top: 0, right: -3, width: 6, height: '100%', cursor: 'ew-resize', zIndex: 2 }} />
+      <div onMouseDown={onResizeStart('s')} style={{ position: 'absolute', bottom: -3, left: 0, width: '100%', height: 6, cursor: 'ns-resize', zIndex: 2 }} />
+      <div onMouseDown={onResizeStart('se')} style={{ position: 'absolute', bottom: -3, right: -3, width: 16, height: 16, cursor: 'nwse-resize', zIndex: 3 }} />
     </div>
   );
 }

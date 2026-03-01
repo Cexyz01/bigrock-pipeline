@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import MatrixRain from './MatrixRain';
+import GravityEffect from './GravityEffect';
 
 /* ── Broadcast Overlay ─────────────────────────────────────────── */
 function BroadcastOverlay({ message, sender, duration = 5000, onDone }) {
@@ -153,7 +154,7 @@ function DiscoOverlay({ duration, onDone }) {
 
 /* ── Main AdminEffects ─────────────────────────────────────────── */
 export default function AdminEffects({ effects, userId, matrixMode, onClear }) {
-  const { broadcastMsg, banInfo, shaking, disco, flipped } = effects;
+  const { broadcastMsg, banInfo, shaking, disco, flipped, gravity } = effects;
 
   // shake
   useEffect(() => {
@@ -185,6 +186,7 @@ export default function AdminEffects({ effects, userId, matrixMode, onClear }) {
   const clearBroadcast = useCallback(() => onClear('broadcastMsg'), [onClear]);
   const clearBan = useCallback(() => onClear('banInfo'), [onClear]);
   const clearDisco = useCallback(() => onClear('disco'), [onClear]);
+  const clearGravity = useCallback(() => onClear('gravity'), [onClear]);
 
   return (
     <>
@@ -209,6 +211,10 @@ export default function AdminEffects({ effects, userId, matrixMode, onClear }) {
 
       {disco > 0 && (
         <DiscoOverlay duration={disco} onDone={clearDisco} />
+      )}
+
+      {gravity > 0 && (
+        <GravityEffect duration={gravity} onDone={clearGravity} />
       )}
     </>
   );

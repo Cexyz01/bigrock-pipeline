@@ -215,7 +215,77 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
       {/* Table — only render after project dates are loaded to avoid flash */}
       {!datesLoaded ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 13 }}>Loading...</div>
-      ) : <Fade delay={100}>
+      ) : isMobile ? (
+        /* ─── MOBILE: card layout, squares below name, horizontally scrollable ─── */
+        <Fade delay={100}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {students.map((student) => {
+              const hasTasks = studentHasAnyTasks(student.id)
+              const dept = DEPTS.find(d => d.id === student.department)
+              return (
+                <div key={student.id} style={{
+                  background: '#fff', borderRadius: 12, border: '1px solid #E8ECF1',
+                  padding: '10px 12px', overflow: 'hidden',
+                }}>
+                  {/* Student name row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <Av name={student.full_name} size={26} url={student.avatar_url} mood={student.mood_emoji} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{student.full_name}</div>
+                      <div style={{ fontSize: 10, color: '#94A3B8' }}>{dept?.label || 'N/A'}</div>
+                    </div>
+                    {!hasTasks && <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap' }}>Idle</span>}
+                  </div>
+                  {/* Squares row — horizontally scrollable */}
+                  <div style={{
+                    overflowX: 'auto', overflowY: 'hidden',
+                    WebkitOverflowScrolling: 'touch',
+                    margin: '0 -4px', padding: '0 4px',
+                  }}>
+                    <div style={{ display: 'flex', gap: 3, width: 'max-content' }}>
+                      {dates.map(dateStr => {
+                        const status = getStudentDayStatus(student.id, dateStr)
+                        const colors = cellColors[status.type]
+                        const date = new Date(dateStr)
+                        const isToday = dateStr === new Date().toISOString().split('T')[0]
+                        return (
+                          <div key={dateStr}
+                            onClick={() => setSelectedCell({ student, date: dateStr, status })}
+                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }}
+                          >
+                            {/* Date label */}
+                            <div style={{
+                              fontSize: 8, lineHeight: 1, marginBottom: 2, textAlign: 'center',
+                              color: isToday ? '#F28C28' : '#B0B8C4', fontWeight: isToday ? 700 : 400,
+                            }}>
+                              {date.getDate()}
+                            </div>
+                            {/* Square */}
+                            <div style={{
+                              width: 28, height: 28, borderRadius: 4,
+                              background: colors.bg, border: `1px solid ${colors.border}`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              boxShadow: isToday ? '0 0 0 1.5px #F28C28' : 'none',
+                            }}>
+                              {status.wipCount > 0 && (
+                                <span style={{ fontSize: 9, fontWeight: 700, color: colors.text, lineHeight: 1 }}>
+                                  {status.wipCount}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Fade>
+      ) : (
+        /* ─── DESKTOP: original table layout ─── */
+        <Fade delay={100}>
         <div style={{ overflowX: 'auto', borderRadius: 16, border: '1px solid #E8ECF1', background: '#fff' }}>
           <table style={{ borderCollapse: 'collapse', minWidth: dates.length * 44 + 200 }}>
             <thead>
@@ -294,7 +364,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
             </tbody>
           </table>
         </div>
-      </Fade>}
+      </Fade>)}
 
       {/* Cell Detail Modal */}
       {selectedCell && (

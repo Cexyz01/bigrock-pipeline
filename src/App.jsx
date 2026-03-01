@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { isStaff, isAdmin, SUPER_ADMIN_EMAIL } from './lib/constants'
+import { createPortal } from 'react-dom'
+import { isStaff, isAdmin, isSuperAdmin, SUPER_ADMIN_EMAIL } from './lib/constants'
 import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import useIsMobile from './hooks/useIsMobile'
@@ -15,6 +16,8 @@ import {
   subscribeToDMs, getDMUnreadCount,
   uploadConceptImage,
   getTcgGameActive,
+  subscribeToGameInvites, getGameById,
+  updateLastSeen,
   getWipUpdates, createWipUpdate, uploadWipImage, addWipComment,
   getWipViews, markWipViewed,
   updateReviewMeta, subscribeToWipUpdates,
@@ -36,6 +39,8 @@ import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
 import PackPage from './components/pages/PackPage'
 import ReviewPage from './components/pages/ReviewPage'
+import GameInviteOverlay from './components/games/GameInviteOverlay'
+import GameSession from './components/games/GameSession'
 import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fixSyncMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
@@ -57,7 +62,9 @@ export default function App() {
   const [wipViews, setWipViews] = useState([])
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [matrixMode, setMatrixMode] = useState(false)
-  const [adminFx, setAdminFx] = useState({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0 })
+  const [pendingGameInvite, setPendingGameInvite] = useState(null) // { gameId, game, role }
+  const [activeGameId, setActiveGameId] = useState(null)
+  const [adminFx, setAdminFx] = useState({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0, gravity: 0 })
   const adminChRef = useRef(null)
   const dmToastedRef = useRef(new Set())
   const chatOpenRef = useRef(false)
@@ -141,10 +148,22 @@ export default function App() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('touchend', onTap) }
   }, [user])
 
-  // Admin effects broadcast channel (all users receive)
+  // Super admin immunity — opening console clears all effects
+  useEffect(() => {
+    if (adminConsoleOpen && user && isSuperAdmin(user.role)) {
+      setAdminFx({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0, gravity: 0 })
+      setMatrixMode(false)
+      // Also reset body-level CSS effects that AdminEffects may have applied
+      document.body.style.animation = ''
+      document.body.style.transform = ''
+      document.body.style.transition = ''
+    }
+  }, [adminConsoleOpen, user])
+
+  // Admin effects broadcast channel (all users receive) + Presence tracking
   useEffect(() => {
     if (!user) return
-    const ch = supabase.channel('admin-fx')
+    const ch = supabase.channel('admin-fx', { config: { presence: { key: user.id } } })
       .on('broadcast', { event: 'admin-fx' }, ({ payload }) => {
         if (!payload) return
         const meTargeted = !payload.targetId || payload.targetId === user.id
@@ -155,15 +174,46 @@ export default function App() {
           case 'shake': setAdminFx(p => ({ ...p, shaking: payload.duration })); break
           case 'disco': setAdminFx(p => ({ ...p, disco: payload.duration })); break
           case 'flip': setAdminFx(p => ({ ...p, flipped: payload.duration })); break
+          case 'gravity': setAdminFx(p => ({ ...p, gravity: payload.duration })); break
         }
       })
-      .subscribe()
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await ch.track({
+            user_id: user.id,
+            full_name: user.full_name || user.email,
+            role: user.role || 'studente',
+            view: view,
+            online_at: new Date().toISOString(),
+          })
+        }
+      })
     adminChRef.current = ch
     return () => supabase.removeChannel(ch)
   }, [user])
 
+  // Update presence when view changes
+  useEffect(() => {
+    if (!adminChRef.current || !user) return
+    adminChRef.current.track({
+      user_id: user.id,
+      full_name: user.full_name || user.email,
+      role: user.role || 'studente',
+      view: view,
+      online_at: new Date().toISOString(),
+    })
+  }, [view, user])
+
+  // Persist last_seen_at to DB (on mount + every 2 min + on view change)
+  useEffect(() => {
+    if (!user) return
+    updateLastSeen(user.id, view)
+    const iv = setInterval(() => updateLastSeen(user.id, view), 2 * 60 * 1000)
+    return () => clearInterval(iv)
+  }, [user, view])
+
   const clearAdminFx = useCallback((key) => {
-    setAdminFx(p => ({ ...p, [key]: key === 'shaking' || key === 'disco' || key === 'flipped' ? 0 : null }))
+    setAdminFx(p => ({ ...p, [key]: key === 'shaking' || key === 'disco' || key === 'flipped' || key === 'gravity' ? 0 : null }))
   }, [])
 
   // Realtime
@@ -214,6 +264,25 @@ export default function App() {
     ]
     return () => channels.forEach(ch => supabase.removeChannel(ch))
   }, [user, profiles, refreshDmUnread])
+
+  // Game invite subscription (mini-games)
+  useEffect(() => {
+    if (!user) return
+    const sub = subscribeToGameInvites(user.id, async (payload) => {
+      const game = payload.new
+      if (game && game.status === 'pending' && game.target_id === user.id) {
+        // Fetch full game with profiles
+        const { data: full } = await getGameById(game.id)
+        if (full) setPendingGameInvite({ gameId: game.id, game: full, role: 'target' })
+      }
+    })
+    return () => { if (sub) supabase.removeChannel(sub) }
+  }, [user])
+
+  // Game challenge handler (from AdminConsole)
+  const handleGameChallenge = useCallback((invite) => {
+    setPendingGameInvite(invite)
+  }, [])
 
   const handleNavigate = (targetView, targetId) => {
     setView(targetView)
@@ -570,7 +639,7 @@ export default function App() {
       {isMobile && <InstallBanner />}
       <AdminEffects effects={adminFx} userId={user.id} matrixMode={matrixMode} onClear={clearAdminFx} />
       {adminConsoleOpen && isAdmin(user.role) && (
-        <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} onMatrixToggle={() => setMatrixMode(p => !p)} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
+        <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} onMatrixToggle={() => setMatrixMode(p => !p)} onGameChallenge={handleGameChallenge} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
       )}
 
       <Sidebar
@@ -606,6 +675,29 @@ export default function App() {
       </div>
 
       <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} dmUnreadCount={dmUnreadCount} onDmRead={refreshDmUnread} isMobile={isMobile} />
+
+      {/* Mini-game overlays */}
+      {pendingGameInvite && !activeGameId && createPortal(
+        <GameInviteOverlay
+          gameId={pendingGameInvite.gameId}
+          game={pendingGameInvite.game}
+          role={pendingGameInvite.role}
+          onAccepted={(id) => { setPendingGameInvite(null); setActiveGameId(id) }}
+          onClose={() => setPendingGameInvite(null)}
+          addToast={addToast}
+        />,
+        document.body
+      )}
+      {activeGameId && createPortal(
+        <GameSession
+          gameId={activeGameId}
+          user={user}
+          onClose={() => setActiveGameId(null)}
+          addToast={addToast}
+          isMobile={isMobile}
+        />,
+        document.body
+      )}
     </div>
   )
 }

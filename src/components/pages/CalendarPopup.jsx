@@ -6,7 +6,7 @@ import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import { IconCheck, IconX } from '../ui/Icons'
 
-export default function CalendarPopup({ events, user, onCreate, onDelete, requestConfirm }) {
+export default function CalendarPopup({ events, user, onCreate, onDelete, requestConfirm, noHeader = false }) {
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ title: '', event_date: '', event_time: '', is_milestone: false, description: '' })
   const staff = isStaff(user.role)
@@ -27,10 +27,17 @@ export default function CalendarPopup({ events, user, onCreate, onDelete, reques
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Calendar</h2>
-        {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={{ padding: '6px 14px', fontSize: 12 }}>+ Event</Btn>}
-      </div>
+      {!noHeader && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Calendar</h2>
+          {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={{ padding: '6px 14px', fontSize: 12 }}>+ Event</Btn>}
+        </div>
+      )}
+      {noHeader && staff && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <Btn variant="primary" onClick={() => setShowCreate(true)} style={{ padding: '6px 14px', fontSize: 12 }}>+ Event</Btn>
+        </div>
+      )}
 
       {/* Milestones */}
       <div style={{ marginBottom: 20 }}>

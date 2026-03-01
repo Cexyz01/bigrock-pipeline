@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { PACK_TYPES, PACK_TIMER_MINUTES, PACK_MAX_ACCUMULATED } from '../../lib/constants'
+import useIsMobile from '../../hooks/useIsMobile'
 
 export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onResetPacks, canOpenPacks }) {
+  const isMobile = useIsMobile()
   const [hovered, setHovered] = useState(null)
   const [settling, setSettling] = useState(null)
   const [pressed, setPressed] = useState(null)
@@ -55,8 +57,8 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
           return (
             <div
               key={pack.id}
-              onMouseEnter={() => { setHovered(pack.id); setSettling(s => s === pack.id ? null : s) }}
-              onMouseLeave={() => { if (hovered === pack.id) setSettling(pack.id); setHovered(null) }}
+              onPointerEnter={(e) => { if (isMobile || e.pointerType === 'touch') return; setHovered(pack.id); setSettling(s => s === pack.id ? null : s) }}
+              onPointerLeave={(e) => { if (isMobile || e.pointerType === 'touch') return; if (hovered === pack.id) setSettling(pack.id); setHovered(null) }}
               onClick={() => {
                 if (!canOpen) return
                 setPressed(pack.id)
@@ -91,7 +93,9 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
                       ? 'grayscale(1) brightness(0.45)'
                       : isH
                         ? `saturate(1.3) brightness(1.15) drop-shadow(0 0 24px ${pack.color}60)`
-                        : 'saturate(0.5) brightness(0.65)',
+                        : isMobile
+                          ? 'saturate(1) brightness(1)'
+                          : 'saturate(0.5) brightness(0.65)',
                     animation: isH
                       ? 'packPendulumEntry 0.2s ease-out forwards, packPendulum 0.8s ease-in-out 0.2s infinite'
                       : isSettling
@@ -120,7 +124,7 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
                 marginTop: 8,
                 lineHeight: 1,
                 transition: 'all 0.3s ease',
-                filter: isH ? `brightness(1.2) drop-shadow(0 0 16px ${pack.color}70)` : 'brightness(0.7) saturate(0.5)',
+                filter: isH ? `brightness(1.2) drop-shadow(0 0 16px ${pack.color}70)` : isMobile ? 'brightness(1) saturate(1)' : 'brightness(0.7) saturate(0.5)',
               }}>
                 <img
                   src={pack.titleImage}

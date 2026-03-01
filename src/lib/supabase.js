@@ -60,6 +60,23 @@ export async function updateProfile(userId, updates) {
   return { data, error }
 }
 
+// ── Last Seen Tracking ──
+
+export async function updateLastSeen(userId, currentView) {
+  return supabase.from('profiles')
+    .update({ last_seen_at: new Date().toISOString(), last_seen_view: currentView || null })
+    .eq('id', userId)
+}
+
+export async function getRecentlyActiveUsers(limit = 10) {
+  const { data, error } = await supabase.from('profiles')
+    .select('id, full_name, avatar_url, role, last_seen_at, last_seen_view')
+    .not('last_seen_at', 'is', null)
+    .order('last_seen_at', { ascending: false })
+    .limit(limit)
+  return { data: data || [], error }
+}
+
 // ── Avatar Upload ──
 
 export async function uploadAvatar(userId, file) {
@@ -687,6 +704,13 @@ export async function resetAllOpenedPacks() {
   return { error }
 }
 
+export async function resetAllTradeTokens() {
+  const { error } = await supabase.from('pack_trade_tokens')
+    .update({ tokens: 0, last_regenerated_at: new Date().toISOString() })
+    .neq('user_id', '00000000-0000-0000-0000-000000000000')
+  return { error }
+}
+
 // ── WIP Updates ──
 
 export async function getAllWipUpdates() {
@@ -997,28 +1021,29 @@ export async function executeTrade(tradeId) {
   if (!proposerTokens || proposerTokens.tokens <= 0) return { error: { message: 'Proposer non ha token disponibili' } }
   if (!targetTokens || targetTokens.tokens <= 0) return { error: { message: 'Target non ha token disponibili' } }
 
-  // 4. Verify ≥2 copies each
-  const [pCards, tCards] = await Promise.all([
+  // 4. Verify ≥2 copies: target must have ≥2 of proposer_card_number, proposer must have ≥2 of target_card_number
+  // (each player PICKS what they WANT from the other's duplicates)
+  const [tGiveCards, pGiveCards] = await Promise.all([
     supabase.from('pack_user_cards').select('id, obtained_at')
-      .eq('user_id', trade.proposer_id).eq('card_number', trade.proposer_card_number)
+      .eq('user_id', trade.target_id).eq('card_number', trade.proposer_card_number)
       .order('obtained_at', { ascending: false }),
     supabase.from('pack_user_cards').select('id, obtained_at')
-      .eq('user_id', trade.target_id).eq('card_number', trade.target_card_number)
+      .eq('user_id', trade.proposer_id).eq('card_number', trade.target_card_number)
       .order('obtained_at', { ascending: false }),
   ])
-  if (!pCards.data || pCards.data.length < 2) return { error: { message: 'Proposer non ha abbastanza copie' } }
-  if (!tCards.data || tCards.data.length < 2) return { error: { message: 'Target non ha abbastanza copie' } }
+  if (!tGiveCards.data || tGiveCards.data.length < 2) return { error: { message: 'Target non ha abbastanza copie' } }
+  if (!pGiveCards.data || pGiveCards.data.length < 2) return { error: { message: 'Proposer non ha abbastanza copie' } }
 
-  // 5. Delete most recent copy from each
+  // 5. Delete one copy from each (target gives proposer_card_number, proposer gives target_card_number)
   await Promise.all([
-    supabase.from('pack_user_cards').delete().eq('id', pCards.data[0].id),
-    supabase.from('pack_user_cards').delete().eq('id', tCards.data[0].id),
+    supabase.from('pack_user_cards').delete().eq('id', tGiveCards.data[0].id),
+    supabase.from('pack_user_cards').delete().eq('id', pGiveCards.data[0].id),
   ])
 
-  // 6. Grant swapped cards
+  // 6. Grant: proposer gets what they wanted, target gets what they wanted
   await Promise.all([
-    grantCard(trade.proposer_id, trade.target_card_number, 'trade'),
-    grantCard(trade.target_id, trade.proposer_card_number, 'trade'),
+    grantCard(trade.proposer_id, trade.proposer_card_number, 'trade'),
+    grantCard(trade.target_id, trade.target_card_number, 'trade'),
   ])
 
   // 7. Consume tokens
@@ -1091,6 +1116,134 @@ export function subscribeToTradeSession(tradeId, callback) {
       schema: 'public',
       table: 'pack_trades',
       filter: `id=eq.${tradeId}`,
+    }, callback)
+    .subscribe()
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MINI-GAMES
+   ═══════════════════════════════════════════════════════════════════ */
+
+function getInitialGameState(type, proposerId, targetId) {
+  switch (type) {
+    case 'connect4':
+      return { board: Array.from({ length: 6 }, () => Array(7).fill(0)) }
+    case 'othello': {
+      const board = Array.from({ length: 8 }, () => Array(8).fill(0))
+      board[3][3] = 2; board[3][4] = 1; board[4][3] = 1; board[4][4] = 2
+      return { board }
+    }
+    case 'chess':
+      return { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', pgn: '' }
+    case 'uno': {
+      // Create UNO deck, deal 7 cards each, set first discard
+      const COLORS = ['red', 'blue', 'green', 'yellow']
+      const deck = []
+      for (const color of COLORS) {
+        deck.push({ color, value: '0' })
+        for (let i = 1; i <= 9; i++) { deck.push({ color, value: String(i) }); deck.push({ color, value: String(i) }) }
+        for (const sp of ['skip', 'reverse', 'draw2']) { deck.push({ color, value: sp }); deck.push({ color, value: sp }) }
+      }
+      for (let i = 0; i < 4; i++) { deck.push({ color: 'wild', value: 'wild' }); deck.push({ color: 'wild', value: 'wild_draw4' }) }
+      for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]] }
+      const hand1 = deck.splice(0, 7)
+      const hand2 = deck.splice(0, 7)
+      let firstIdx = deck.findIndex(c => c.color !== 'wild')
+      if (firstIdx === -1) firstIdx = 0
+      const [firstCard] = deck.splice(firstIdx, 1)
+      return {
+        hands: { [proposerId]: hand1, [targetId]: hand2 },
+        drawPile: deck, discardPile: [firstCard],
+        direction: 1, chosenColor: null, lastAction: null,
+      }
+    }
+    default:
+      return {}
+  }
+}
+
+export async function createGameInvite(proposerId, targetId, gameType) {
+  const { data, error } = await supabase.from('mini_games')
+    .insert({
+      game_type: gameType,
+      proposer_id: proposerId,
+      target_id: targetId,
+      status: 'pending',
+      game_state: getInitialGameState(gameType, proposerId, targetId),
+      current_turn: proposerId,
+    })
+    .select('*, proposer:profiles!mini_games_proposer_id_fkey(id, full_name, avatar_url, role), target:profiles!mini_games_target_id_fkey(id, full_name, avatar_url, role)')
+    .single()
+  return { data, error }
+}
+
+export async function acceptGameInvite(gameId) {
+  const { data, error } = await supabase.from('mini_games')
+    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .eq('id', gameId).eq('status', 'pending')
+    .select('*, proposer:profiles!mini_games_proposer_id_fkey(id, full_name, avatar_url, role), target:profiles!mini_games_target_id_fkey(id, full_name, avatar_url, role)')
+    .single()
+  return { data, error }
+}
+
+export async function declineGameInvite(gameId) {
+  const { data, error } = await supabase.from('mini_games')
+    .update({ status: 'declined', updated_at: new Date().toISOString() })
+    .eq('id', gameId).eq('status', 'pending')
+    .select('*').single()
+  return { data, error }
+}
+
+export async function cancelGame(gameId) {
+  const { data, error } = await supabase.from('mini_games')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', gameId).in('status', ['pending', 'active'])
+    .select('*').single()
+  return { data, error }
+}
+
+export async function makeGameMove(gameId, newState, nextTurn, winnerId = null) {
+  const update = {
+    game_state: newState,
+    current_turn: nextTurn,
+    updated_at: new Date().toISOString(),
+  }
+  if (winnerId) { update.winner_id = winnerId; update.status = 'completed' }
+  if (winnerId === 'draw') { update.winner_id = null; update.status = 'completed' }
+  const { data, error } = await supabase.from('mini_games')
+    .update(update)
+    .eq('id', gameId).eq('status', 'active')
+    .select('*').single()
+  return { data, error }
+}
+
+export async function getGameById(gameId) {
+  const { data, error } = await supabase.from('mini_games')
+    .select('*, proposer:profiles!mini_games_proposer_id_fkey(id, full_name, avatar_url, role), target:profiles!mini_games_target_id_fkey(id, full_name, avatar_url, role)')
+    .eq('id', gameId).single()
+  return { data, error }
+}
+
+export function subscribeToGameInvites(userId, callback) {
+  return supabase
+    .channel(`game-invites-${userId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'mini_games',
+      filter: `target_id=eq.${userId}`,
+    }, callback)
+    .subscribe()
+}
+
+export function subscribeToGameSession(gameId, callback) {
+  return supabase
+    .channel(`game-session-${gameId}`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'mini_games',
+      filter: `id=eq.${gameId}`,
     }, callback)
     .subscribe()
 }

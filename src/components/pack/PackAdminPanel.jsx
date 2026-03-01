@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { getPackConfig, savePackConfig, getPackStats, getPackStatsByType, insertGeneratedPacks, deleteAllGeneratedPacks, getPackCards, getPacksRemaining, updatePackCard, uploadCardImage, setTcgGameActive, resetAllUserCards, resetAllUserTimers, resetAllOpenedPacks, getRecentRareFinds, getUserCardStats, getTopCollectors, getCollectionCount } from '../../lib/supabase'
+import { getPackConfig, savePackConfig, getPackStats, getPackStatsByType, insertGeneratedPacks, deleteAllGeneratedPacks, getPackCards, getPacksRemaining, updatePackCard, uploadCardImage, setTcgGameActive, resetAllUserCards, resetAllUserTimers, resetAllOpenedPacks, resetAllTradeTokens, getRecentRareFinds, getUserCardStats, getTopCollectors, getCollectionCount } from '../../lib/supabase'
 import { PACK_RARITIES, NON_COMMON_RARITIES, PACK_TYPES, PACKS_PER_POOL, CARDS_PER_PACK } from '../../lib/constants'
 
 const ACCENT = '#F28C28'
@@ -1177,7 +1177,11 @@ function SystemManagerTab({ tcgGameActive, onGameStateChange, stats, cards, rema
       const { error: packErr } = await resetAllOpenedPacks()
       if (packErr) throw new Error('Pack reset error: ' + packErr.message)
 
-      // 4. Activate the game
+      // 4. Reset all trade tokens to 0
+      const { error: tokenErr } = await resetAllTradeTokens()
+      if (tokenErr) throw new Error('Token reset error: ' + tokenErr.message)
+
+      // 5. Activate the game
       const { error: gameErr } = await setTcgGameActive(true)
       if (gameErr) throw new Error('Activation error: ' + gameErr.message)
 

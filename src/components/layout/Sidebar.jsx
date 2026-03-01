@@ -3,7 +3,7 @@ import { isStaff, isAdmin, displayRole } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 
 // ── Notification category colors ──
-import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards } from '../ui/Icons'
+import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX } from '../ui/Icons'
 const NOTIF_CAT = {
   wip_update:    { label: 'WIP',       color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={15} /> },
   task_assigned: { label: 'Assigned',  color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={15} /> },
@@ -214,7 +214,7 @@ export default function Sidebar({
                   cursor: 'pointer', color: '#64748B', fontSize: 18,
                 }}><IconX size={18} /></button>
               </div>
-              <CalendarPopup events={events} user={user} onCreate={onCreateEvent} onDelete={onDeleteEvent} requestConfirm={requestConfirm} />
+              <CalendarPopup events={events} user={user} onCreate={onCreateEvent} onDelete={onDeleteEvent} requestConfirm={requestConfirm} noHeader />
             </div>
           </>
         )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { getPackCards, getUserCards, grantCard as grantCardApi, getUserTimer, upsertUserTimer, getPacksRemaining, claimAndOpenPack, getPackConfig, subscribeToTable, supabase } from '../../lib/supabase'
 import { isStaff, isAdmin, PACK_TYPES, PACK_RARITIES } from '../../lib/constants'
@@ -9,6 +9,7 @@ import PackAdminPanel from '../pack/PackAdminPanel'
 import PackOpening from '../pack/PackOpening'
 import PackTrading from '../pack/PackTrading'
 import TradeSession from '../pack/TradeSession'
+import TradeInviteOverlay from '../pack/TradeInviteOverlay'
 import { IconX } from '../ui/Icons'
 import Fade from '../ui/Fade'
 import useIsMobile from '../../hooks/useIsMobile'
@@ -35,6 +36,7 @@ const TABS = [
 export default function PackPage({ user, profiles, addToast, requestConfirm, tcgGameActive, onGameStateChange }) {
   const isMobile = useIsMobile()
   const [tab, setTab] = useState('collection')
+  const [shopTab, setShopTab] = useState('shop') // mobile only: 'shop' | 'trading'
   const [cards, setCards] = useState([])
   const [userCards, setUserCards] = useState([])
   const [loading, setLoading] = useState(true)
@@ -42,6 +44,16 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [poolFilter, setPoolFilter] = useState('all')
   const [selected, setSelected] = useState(null)
   const [selectedOwned, setSelectedOwned] = useState(false)
+  const detailTiltRef = useRef(null)
+  const detailTouchRef = useRef(null)
+
+  // Direct DOM tilt — avoids React re-renders for 60fps smoothness
+  const setTiltDirect = useCallback((tx, ty, animate) => {
+    const el = detailTiltRef.current
+    if (!el) return
+    el.style.transition = animate ? 'transform 0.18s ease-out' : 'none'
+    el.style.transform = `perspective(800px) rotateX(${tx}deg) rotateY(${ty}deg)`
+  }, [])
 
   const [timer, setTimer] = useState(null)
   const [remaining, setRemaining] = useState({ red: 0, green: 0, blue: 0 })
@@ -49,6 +61,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
   // Real-time trading
   const [activeTradeId, setActiveTradeId] = useState(null)
+  const [pendingInvite, setPendingInvite] = useState(null) // { tradeId, trade, role: 'proposer'|'target' }
 
   // Pack opening — optimistic render + fly transition
   const [openingPack, setOpeningPack] = useState(null) // { pack_type, cards: [...] } or null
@@ -132,11 +145,14 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     const m = {}
     for (const [cardNum, copies] of Object.entries(copiesMap)) {
       if (copies.length > 0 && copies[0].copy_number != null) {
-        m[cardNum] = String(copies[0].copy_number).padStart(3, '0')
+        const card = cards.find(c => String(c.number) === String(cardNum))
+        const total = copiesPerRarity?.[card?.rarity]
+        const digits = total ? String(total).length : 2
+        m[cardNum] = String(copies[0].copy_number).padStart(digits, '0')
       }
     }
     return m
-  }, [copiesMap])
+  }, [copiesMap, cards, copiesPerRarity])
 
   const filteredCards = useMemo(() => {
     let filtered = cards
@@ -149,13 +165,20 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const totalCount = cards.length
 
   const handleCardClick = (card, owned) => {
+    if (!owned) return
     setSelected(card)
     setSelectedOwned(owned)
   }
 
   const handleOpenPack = async (packType, rect) => {
     if (!canOpenPacks) {
-      addToast(admin ? 'Admins cannot open packs during active game' : 'You cannot open packs right now', 'error')
+      if (tcgGameActive && admin) {
+        addToast('Admins cannot open packs during active game', 'error')
+      } else if (tcgGameActive && !admin && !isInPackTimeWindow()) {
+        addToast('Puoi aprire i pacchetti solo dalle 9:30 alle 18:10', 'error')
+      } else {
+        addToast('You cannot open packs right now', 'error')
+      }
       return
     }
     // Snapshot owned cards BEFORE opening (for "NEW" badge)
@@ -209,8 +232,14 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   }
 
   // Admin can't open packs when game is active (to avoid compromising the game)
+  // Non-admin can only open between 9:30 and 18:10 during active game
   const admin = isAdmin(user.role)
-  const canOpenPacks = tcgGameActive ? !admin : admin
+  const isInPackTimeWindow = () => {
+    const now = new Date()
+    const m = now.getHours() * 60 + now.getMinutes()
+    return m >= 570 && m < 1090 // 9:30 = 570min, 18:10 = 1090min
+  }
+  const canOpenPacks = tcgGameActive ? (!admin && isInPackTimeWindow()) : admin
 
   const visibleTabs = TABS.filter(t => !t.adminOnly || admin)
 
@@ -294,10 +323,10 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
         {/* Main content */}
         {tab === 'collection' && (
           <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, minHeight: 0, ...(isMobile ? { overflowY: 'auto', WebkitOverflowScrolling: 'touch' } : {}) }}>
-            {/* LEFT/TOP: Shop */}
+            {/* LEFT/TOP: Shop + Trading */}
             <div style={{
               ...(isMobile ? {
-                padding: '16px 16px 8px',
+                padding: '12px 16px 8px',
                 borderBottom: `1px solid ${D.border}`,
                 flexShrink: 0,
               } : {
@@ -312,8 +341,44 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                 flexShrink: 0,
               }),
             }}>
-              <PackShop remaining={remaining} timer={timer} onOpenPack={handleOpenPack} isAdmin={admin} onResetPacks={handleResetPacks} canOpenPacks={canOpenPacks} />
-              <PackTrading user={user} profiles={profiles} addToast={addToast} onTradeSessionStart={(id) => setActiveTradeId(id)} />
+              {/* Tab switcher Shop / Trading */}
+              <div style={{
+                display: 'flex', gap: 3, background: D.card, borderRadius: 10, padding: 2,
+                border: `1px solid ${D.border}`, marginBottom: isMobile ? 12 : 20, alignSelf: 'center',
+              }}>
+                {[{ id: 'shop', label: 'Shop' }, { id: 'trading', label: 'Trading' }].map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setShopTab(t.id)}
+                    style={{
+                      padding: '6px 20px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600,
+                      cursor: 'pointer', transition: 'all 0.2s',
+                      background: shopTab === t.id ? '#F28C28' : 'transparent',
+                      color: shopTab === t.id ? '#fff' : D.muted,
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Show only active sub-tab */}
+              {shopTab === 'shop' && (
+                <PackShop remaining={remaining} timer={timer} onOpenPack={handleOpenPack} isAdmin={admin} onResetPacks={handleResetPacks} canOpenPacks={canOpenPacks} />
+              )}
+              {shopTab === 'trading' && (
+                <PackTrading
+                  user={user}
+                  profiles={profiles}
+                  addToast={addToast}
+                  onInviteSent={(tradeId, trade) => setPendingInvite({ tradeId, trade, role: 'proposer' })}
+                  onInviteReceived={(invite) => setPendingInvite({
+                    tradeId: invite.id,
+                    trade: invite,
+                    role: 'target',
+                  })}
+                />
+              )}
             </div>
 
             {/* RIGHT/BOTTOM: Collection */}
@@ -447,19 +512,55 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     {/* Detail Modal — portal to body for true viewport centering */}
     {selected && createPortal(
       <div
-        onClick={() => setSelected(null)}
+        onClick={() => { setTiltDirect(0, 0, true); setSelected(null) }}
+        onMouseMove={(e) => {
+          const el = detailTiltRef.current
+          if (!el) return
+          const rect = el.getBoundingClientRect()
+          const cx = rect.left + rect.width / 2
+          const cy = rect.top + rect.height / 2
+          const nx = (e.clientX - cx) / (rect.width / 2)
+          const ny = (e.clientY - cy) / (rect.height / 2)
+          const clamp = (v, min, max) => Math.min(max, Math.max(min, v))
+          setTiltDirect(clamp(ny * -15, -15, 15), clamp(nx * 15, -15, 15), true)
+        }}
+        onMouseLeave={() => setTiltDirect(0, 0, true)}
+        onTouchStart={(e) => {
+          const t = e.touches[0]
+          detailTouchRef.current = { x: t.clientX, y: t.clientY, moved: false }
+        }}
+        onTouchMove={(e) => {
+          if (!detailTouchRef.current) return
+          const t = e.touches[0]
+          const dx = t.clientX - detailTouchRef.current.x
+          const dy = t.clientY - detailTouchRef.current.y
+          if (Math.abs(dx) > 5 || Math.abs(dy) > 5) detailTouchRef.current.moved = true
+          const clamp = (v, min, max) => Math.min(max, Math.max(min, v))
+          setTiltDirect(clamp(dy * -0.12, -15, 15), clamp(dx * 0.12, -15, 15), false)
+        }}
+        onTouchEnd={(e) => {
+          const wasTap = detailTouchRef.current && !detailTouchRef.current.moved
+          detailTouchRef.current = null
+          setTiltDirect(0, 0, true)
+          if (wasTap) {
+            e.preventDefault() // prevent ghost click from reaching cards behind the portal
+            setSelected(null)
+          }
+        }}
+        onTouchCancel={() => { detailTouchRef.current = null; setTiltDirect(0, 0, true) }}
         style={{
           position: 'fixed', inset: 0, zIndex: 9000,
           background: 'rgba(0,0,0,0.7)',
           backdropFilter: 'blur(10px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           userSelect: 'none', WebkitUserSelect: 'none',
+          touchAction: 'none',
         }}
       >
         <div onClick={e => e.stopPropagation()} style={{
           padding: 28, animation: 'modalIn 0.2s ease',
         }}>
-          <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copies={copiesMap[selected.number] || []} cards={cards} copiesPerRarity={copiesPerRarity} />
+          <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copies={copiesMap[selected.number] || []} cards={cards} copiesPerRarity={copiesPerRarity} tiltRef={detailTiltRef} isMobile={isMobile} />
         </div>
       </div>,
       document.body
@@ -539,6 +640,19 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
       document.body
     )}
 
+    {/* Trade Invite overlay — portal to body */}
+    {pendingInvite && !activeTradeId && createPortal(
+      <TradeInviteOverlay
+        tradeId={pendingInvite.tradeId}
+        trade={pendingInvite.trade}
+        role={pendingInvite.role}
+        onAccepted={(tradeId) => { setPendingInvite(null); setActiveTradeId(tradeId) }}
+        onClose={() => setPendingInvite(null)}
+        addToast={addToast}
+      />,
+      document.body
+    )}
+
     {/* Trade Session overlay — portal to body */}
     {activeTradeId && createPortal(
       <TradeSession
@@ -556,7 +670,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   )
 }
 
-function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity }) {
+function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity, tiltRef, isMobile }) {
   const pt = PACK_TYPES.find(p => p.id === card.pack_type)
   const totalCopies = copiesPerRarity?.[card.rarity] || '?'
   const hasMultiple = copies.length > 1
@@ -570,31 +684,43 @@ function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity }) {
 
   return (
     <div style={{ textAlign: 'center' }}>
-      {/* Card fan — first card straight, others fanned to the left behind */}
-      <div style={{
-        position: 'relative', width: 360, margin: '0 auto 20px',
-        aspectRatio: '2.5 / 3.5',
-      }}>
-        {copies.map((copy, i) => {
-          const copyStr = copy.copy_number != null ? String(copy.copy_number).padStart(3, '0') : null
-          return (
-            <div key={copy.id || i} style={{
-              position: i === 0 ? 'relative' : 'absolute',
-              top: 0, left: 0, width: '100%',
-              transform: i === 0 ? 'none' : `rotateZ(${i * FAN_ANGLE}deg)`,
-              transformOrigin: 'bottom left',
-              zIndex: copies.length - i,
-              filter: i === 0 ? 'none' : `brightness(${Math.max(0.55, 1 - i * 0.12)})`,
-              transition: 'transform 0.3s ease',
-            }}>
-              <ScaledCard
-                card={card} owned={true}
-                copyInfo={copyStr}
-                totalCopies={totalCopies}
-              />
-            </div>
-          )
-        })}
+      {/* Tilt wrapper — transform controlled via direct DOM manipulation for 60fps smoothness */}
+      <div
+        ref={tiltRef}
+        style={{
+          transform: 'perspective(800px) rotateX(0deg) rotateY(0deg)',
+          transition: 'transform 0.18s ease-out',
+          transformStyle: 'preserve-3d',
+        }}
+      >
+        {/* Card fan — first card straight, others fanned to the left behind */}
+        <div style={{
+          position: 'relative', width: isMobile ? '50vw' : 360, margin: '0 auto 20px',
+          aspectRatio: '2.5 / 3.5',
+        }}>
+          {copies.map((copy, i) => {
+            const digits = String(totalCopies).length
+            const copyStr = copy.copy_number != null ? String(copy.copy_number).padStart(digits, '0') : null
+            return (
+              <div key={copy.id || i} style={{
+                position: i === 0 ? 'relative' : 'absolute',
+                top: 0, left: 0, width: '100%',
+                transform: i === 0 ? 'none' : `rotateZ(${i * FAN_ANGLE}deg)`,
+                transformOrigin: 'bottom left',
+                zIndex: copies.length - i,
+                filter: i === 0 ? 'none' : `brightness(${Math.max(0.55, 1 - i * 0.12)})`,
+                transition: 'transform 0.3s ease',
+              }}>
+                <ScaledCard
+                  card={card} owned={true}
+                  copyInfo={copyStr}
+                  totalCopies={totalCopies}
+                  staticDepth={i > 0}
+                />
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {/* Pool badge — moved below card so fan doesn't cover it */}
