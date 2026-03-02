@@ -938,6 +938,28 @@ async function handleGetWipUploadSig(_supabase: any, params: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// SHOT CONCEPT IMAGE UPLOAD — Signed Cloudinary params
+// ══════════════════════════════════════════════════════════════
+
+async function handleGetConceptUploadSig(_supabase: any, params: any) {
+  const { shot_id } = params
+  if (!shot_id) return err("Missing shot_id")
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
+
+  const folder = "bigrock-concepts"
+  const ts = Math.floor(Date.now() / 1000).toString()
+  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
+
+  return ok({
+    cloud_name: CLD_CLOUD,
+    api_key: CLD_KEY,
+    timestamp: ts,
+    signature: sig,
+    folder,
+  })
+}
+
+// ══════════════════════════════════════════════════════════════
 // FIX SYNC — Incremental repair (only fix cells with missing images)
 // ══════════════════════════════════════════════════════════════
 
@@ -1038,6 +1060,7 @@ serve(async (req) => {
       case "cleanup":           return await handleCleanup(supabase)
       case "get_card_upload_sig": return await handleGetCardUploadSig(supabase, params)
       case "get_wip_upload_sig": return await handleGetWipUploadSig(supabase, params)
+      case "get_concept_upload_sig": return await handleGetConceptUploadSig(supabase, params)
       default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {

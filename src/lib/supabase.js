@@ -334,12 +334,68 @@ export async function setProjectEndDate(date) {
 // ── Storage ──
 
 export async function uploadConceptImage(shotId, file) {
-  const ext = file.name.split('.').pop()
-  const path = `${shotId}.${ext}`
-  const { data, error } = await supabase.storage.from('shot-concepts').upload(path, file, { upsert: true })
-  if (error) return { url: null, error }
-  const { data: urlData } = supabase.storage.from('shot-concepts').getPublicUrl(path)
-  return { url: urlData.publicUrl, error: null }
+  try {
+    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+    if (file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
+
+    // Step 1: Get signed upload params from Edge Function
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: shotId }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let sigJson
+    try { sigJson = await sigRes.json() } catch (_) {
+      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
+    }
+    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
+    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
+      return { url: null, error: { message: 'Incomplete signature response — check the Cloudinary credentials in secrets' } }
+    }
+
+    // Step 2: Upload directly to Cloudinary
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    let cloudRes
+    try {
+      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, {
+        method: 'POST', body: fd,
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Cloudinary upload network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let cloudJson
+    try { cloudJson = await cloudRes.json() } catch (_) {
+      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
+    }
+    if (!cloudRes.ok) {
+      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
+      return { url: null, error: { message: 'Cloudinary: ' + msg } }
+    }
+
+    const imageUrl = cloudJson.secure_url
+    if (!imageUrl) return { url: null, error: { message: 'Cloudinary did not return an image URL' } }
+
+    return { url: imageUrl, error: null }
+  } catch (err) {
+    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
+  }
 }
 
 // ── Realtime subscriptions ──
