@@ -7,6 +7,7 @@ import Av from '../ui/Av'
 import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
+import ImageLightbox from '../ui/ImageLightbox'
 import { IconX, IconImage, IconSend, IconCheck } from '../ui/Icons'
 
 const MAX_IMAGES = 4
@@ -394,12 +395,7 @@ export default function TaskDetailModal({
             </div>
           </div>
         </div>
-        {/* Lightbox */}
-        {lightboxUrl && (
-          <div onClick={() => setLightboxUrl(null)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}>
-            <img src={lightboxUrl} alt="WIP Full" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, objectFit: 'contain' }} />
-          </div>
-        )}
+        <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
       </>
     )
   }
@@ -466,27 +462,7 @@ export default function TaskDetailModal({
         </div>
       </div>
 
-      {/* Image lightbox */}
-      {lightboxUrl && (
-        <div
-          onClick={() => setLightboxUrl(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 200,
-            background: 'rgba(0,0,0,0.85)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'zoom-out',
-          }}
-        >
-          <img
-            src={lightboxUrl}
-            alt="WIP Full"
-            style={{
-              maxWidth: '90vw', maxHeight: '90vh',
-              borderRadius: 8, objectFit: 'contain',
-            }}
-          />
-        </div>
-      )}
+      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </>
   )
 }

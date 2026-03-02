@@ -8,6 +8,7 @@ import Btn from '../ui/Btn'
 import Av from '../ui/Av'
 import StatusBadge from '../ui/StatusBadge'
 import EmptyState from '../ui/EmptyState'
+import ImageLightbox from '../ui/ImageLightbox'
 import { IconEdit, IconCheck, IconX, IconEye } from '../ui/Icons'
 
 export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask, onUpdateReviewMeta, addToast }) {
@@ -18,6 +19,7 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
   // Load latest WIP images for all review tasks
   useEffect(() => {
@@ -440,13 +442,13 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
                       height: 180,
                     }}>
                       {images.slice(0, 4).map((img, imgIdx) => (
-                        <a key={imgIdx} href={img} target="_blank" rel="noopener noreferrer" style={{ display: 'block', overflow: 'hidden' }}>
+                        <div key={imgIdx} onClick={() => setLightboxUrl(img)} style={{ overflow: 'hidden', cursor: 'pointer' }}>
                           <img
                             src={img}
                             alt={`Review ${imgIdx + 1}`}
                             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                           />
-                        </a>
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -550,6 +552,8 @@ export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask,
           })}
         </div>
       )}
+
+      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   )
 }

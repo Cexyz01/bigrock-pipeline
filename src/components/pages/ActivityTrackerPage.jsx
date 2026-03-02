@@ -7,6 +7,7 @@ import Card from '../ui/Card'
 import Av from '../ui/Av'
 import Modal from '../ui/Modal'
 import StatusBadge from '../ui/StatusBadge'
+import ImageLightbox from '../ui/ImageLightbox'
 import { IconX } from '../ui/Icons'
 
 export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate }) {
@@ -19,6 +20,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
   const [savingEnd, setSavingEnd] = useState(false)
   const [allWips, setAllWips] = useState([])
   const [datesLoaded, setDatesLoaded] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
   // Load project dates + WIP updates on mount
   useEffect(() => {
@@ -376,14 +378,17 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
             wipsByStudentDate={wipsByStudentDate}
             approvedByStudentDate={approvedByStudentDate}
             tasks={tasks}
+            onImageClick={setLightboxUrl}
           />
         </Modal>
       )}
+
+      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   )
 }
 
-function WipCard({ wip, green }) {
+function WipCard({ wip, green, onImageClick }) {
   const bg = green ? '#D1FAE5' : '#DBEAFE'
   const border = green ? '#A7F3D0' : '#BFDBFE'
   const titleColor = green ? '#065F46' : '#1E40AF'
@@ -408,9 +413,9 @@ function WipCard({ wip, green }) {
       {wip.images?.length > 0 && (
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {wip.images.map((url, i) => (
-            <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+            <div key={i} onClick={() => onImageClick?.(url)} style={{ cursor: 'pointer' }}>
               <img src={url} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: `1px solid ${imgBorder}` }} />
-            </a>
+            </div>
           ))}
         </div>
       )}
@@ -418,7 +423,7 @@ function WipCard({ wip, green }) {
   )
 }
 
-function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStudentDate, tasks }) {
+function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStudentDate, tasks, onImageClick }) {
   const key = `${student.id}_${dateStr}`
   const dayWips = wipsByStudentDate[key] || []
   const dayApproved = approvedByStudentDate[key] || []
@@ -453,7 +458,7 @@ function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStud
             const dept = DEPTS.find(d => d.id === t.department)
             const latestWip = approvedWips.find(w => w.task_id === t.id)
             // If there's a WIP with screenshots, show only that; otherwise show the task info
-            if (latestWip) return <WipCard key={t.id} wip={latestWip} green />
+            if (latestWip) return <WipCard key={t.id} wip={latestWip} green onImageClick={onImageClick} />
             return (
               <div key={t.id} style={{
                 padding: '10px 14px', borderRadius: 10,
@@ -477,7 +482,7 @@ function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStud
           <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, color: '#2563EB', marginTop: dayApproved.length > 0 ? 8 : 0 }}>
             WIP Updates ({remainingWips.length})
           </h3>
-          {remainingWips.map(wip => <WipCard key={wip.id} wip={wip} />)}
+          {remainingWips.map(wip => <WipCard key={wip.id} wip={wip} onImageClick={onImageClick} />)}
         </>
       )}
     </div>
