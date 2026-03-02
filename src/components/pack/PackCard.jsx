@@ -25,13 +25,19 @@ if (typeof document !== 'undefined' && !document.getElementById('pack-card-css')
       animation: none !important;
       transition: transform 0.08s ease;
     }
+    @keyframes newCollPulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(255,45,85,0.6), 0 2px 6px rgba(0,0,0,0.4); }
+      50% { box-shadow: 0 0 16px rgba(255,45,85,0.9), 0 2px 8px rgba(0,0,0,0.5); }
+    }
   `
   document.head.appendChild(s)
 }
 
-export default function PackCard({ card, owned, onClick, copyInfo, totalCopies, copyCount }) {
+export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo, totalCopies, copyCount }) {
   const ref = useRef(null)
   const hoveredRef = useRef(false)
+  const seenFiredRef = useRef(false)
+
   const handleEnter = (e) => {
     if (e.pointerType === 'touch') return
     const el = ref.current
@@ -40,6 +46,12 @@ export default function PackCard({ card, owned, onClick, copyInfo, totalCopies, 
     el.style.animation = 'none'
     void el.offsetHeight
     el.style.animation = 'cardUp 0.18s cubic-bezier(0.22,1,0.36,1) forwards'
+
+    // Mark card as seen on first hover
+    if (isNew && onSeen && !seenFiredRef.current) {
+      seenFiredRef.current = true
+      onSeen(card.number)
+    }
   }
 
   const handleLeave = (e) => {
@@ -61,17 +73,45 @@ export default function PackCard({ card, owned, onClick, copyInfo, totalCopies, 
     }
   }
 
+  // Mobile: mark seen on click/tap too
+  const handleClick = () => {
+    if (isNew && onSeen && !seenFiredRef.current) {
+      seenFiredRef.current = true
+      onSeen(card.number)
+    }
+    onClick(card, owned)
+  }
+
   return (
     <div
       ref={ref}
       className="pack-card"
       onPointerEnter={handleEnter}
       onPointerLeave={handleLeave}
-      onClick={() => onClick(card, owned)}
+      onClick={handleClick}
       style={{ position: 'relative' }}
     >
       {/* Main card */}
       <ScaledCard card={card} owned={owned} copyInfo={copyInfo} totalCopies={totalCopies} />
+
+      {/* NEW badge */}
+      {isNew && (
+        <div style={{
+          position: 'absolute', top: -6, left: -4, zIndex: 11,
+          transform: 'rotate(-8deg)',
+          background: 'linear-gradient(135deg, #FF6B6B, #FF2D55)',
+          color: '#fff',
+          fontSize: 10, fontWeight: 900, letterSpacing: 0.8,
+          padding: '2px 8px', borderRadius: 4,
+          boxShadow: '0 0 10px rgba(255,45,85,0.6), 0 2px 6px rgba(0,0,0,0.4)',
+          textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+          animation: 'newCollPulse 2s ease-in-out infinite',
+          pointerEvents: 'none',
+          border: '1.5px solid rgba(255,255,255,0.3)',
+        }}>
+          NEW
+        </div>
+      )}
 
       {/* Copy count badge */}
       {owned && copyCount >= 2 && (

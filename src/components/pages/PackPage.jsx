@@ -75,6 +75,26 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [grantNum, setGrantNum] = useState('')
   const [granting, setGranting] = useState(false)
 
+  // "New" badge in collection — track which cards user has seen (hovered) at least once
+  const SEEN_KEY = `tcg_seen_${user.id}`
+  const [seenCards, setSeenCards] = useState(() => {
+    try {
+      const raw = localStorage.getItem(SEEN_KEY)
+      if (raw) return new Set(JSON.parse(raw))
+    } catch {}
+    return null // null = not initialized yet, will seed on first load
+  })
+
+  const markCardSeen = useCallback((cardNumber) => {
+    setSeenCards(prev => {
+      if (!prev || prev.has(cardNumber)) return prev
+      const next = new Set(prev)
+      next.add(cardNumber)
+      try { localStorage.setItem(SEEN_KEY, JSON.stringify([...next])) } catch {}
+      return next
+    })
+  }, [SEEN_KEY])
+
   useEffect(() => { loadAll() }, [user])
 
   // Realtime: auto-refresh collection when cards change (e.g. admin reset)
@@ -117,6 +137,15 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     }
 
     setLoading(false)
+
+    // Seed seenCards with all currently owned cards on first visit
+    // so existing cards don't all show as "NEW"
+    setSeenCards(prev => {
+      if (prev !== null) return prev // already initialized from localStorage
+      const seed = new Set(uc.map(u => u.card_number))
+      try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seed])) } catch {}
+      return seed
+    })
   }
 
   const ownedSet = useMemo(() => new Set(userCards.map(uc => uc.card_number)), [userCards])
@@ -463,17 +492,23 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                   gridTemplateColumns: isMobile ? 'repeat(auto-fill, minmax(90px, 1fr))' : 'repeat(auto-fill, minmax(210px, 1fr))',
                   gap: isMobile ? 8 : 12,
                 }}>
-                  {filteredCards.map(card => (
-                    <PackCard
-                      key={card.number}
-                      card={card}
-                      owned={ownedSet.has(card.number)}
-                      onClick={handleCardClick}
-                      copyInfo={copyInfoMap[card.number]}
-                      totalCopies={copiesPerRarity?.[card.rarity]}
-                      copyCount={copyCountMap[card.number] || 0}
-                    />
-                  ))}
+                  {filteredCards.map(card => {
+                    const owned = ownedSet.has(card.number)
+                    const isNew = owned && seenCards && !seenCards.has(card.number)
+                    return (
+                      <PackCard
+                        key={card.number}
+                        card={card}
+                        owned={owned}
+                        isNew={isNew}
+                        onSeen={markCardSeen}
+                        onClick={handleCardClick}
+                        copyInfo={copyInfoMap[card.number]}
+                        totalCopies={copiesPerRarity?.[card.rarity]}
+                        copyCount={copyCountMap[card.number] || 0}
+                      />
+                    )
+                  })}
                 </div>
 
                 {filteredCards.length === 0 && (
