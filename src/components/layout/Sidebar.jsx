@@ -81,10 +81,10 @@ export default function Sidebar({
       <>
         {/* Bottom Tab Bar */}
         <div className="mobile-bottom-bar" style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
+          position: 'fixed', bottom: 0, left: 0, right: 0, height: 52,
           background: '#fff', borderTop: '1px solid #E8ECF1',
           display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-          zIndex: 40, paddingTop: 6,
+          zIndex: 40, paddingBottom: 2,
           boxShadow: '0 -2px 12px rgba(0,0,0,0.04)',
         }}>
           {mobileNav.map(n => {
