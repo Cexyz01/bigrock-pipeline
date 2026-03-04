@@ -84,7 +84,7 @@ export default function Sidebar({
           position: 'fixed', bottom: 0, left: 0, right: 0,
           background: '#fff', borderTop: '1px solid #E8ECF1',
           display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-          zIndex: 40,
+          zIndex: 40, paddingTop: 6,
           boxShadow: '0 -2px 12px rgba(0,0,0,0.04)',
         }}>
           {mobileNav.map(n => {

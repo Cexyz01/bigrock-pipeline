@@ -193,15 +193,10 @@ button { font-family: inherit; cursor: pointer; }
   .emoji-picker-grid button { width: 38px; height: 38px; }
 }
 
-/* Mobile bottom bar: 52px content + safe area padding extends background behind home indicator */
+/* Mobile bottom bar — auto height, safe area adds padding below icons */
 .mobile-bottom-bar {
-  height: 52px;
-  box-sizing: content-box;
-}
-@supports (padding: env(safe-area-inset-bottom)) {
-  .mobile-bottom-bar {
-    padding-bottom: env(safe-area-inset-bottom) !important;
-  }
+  padding-bottom: constant(safe-area-inset-bottom) !important;
+  padding-bottom: env(safe-area-inset-bottom, 4px) !important;
 }
 @supports (padding: env(safe-area-inset-top)) {
   .mobile-safe-top {
