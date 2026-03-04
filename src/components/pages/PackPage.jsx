@@ -8,8 +8,6 @@ import PackShop from '../pack/PackShop'
 import PackAdminPanel from '../pack/PackAdminPanel'
 import PackOpening from '../pack/PackOpening'
 import PackTrading from '../pack/PackTrading'
-import TradeSession from '../pack/TradeSession'
-import TradeInviteOverlay from '../pack/TradeInviteOverlay'
 import { IconX } from '../ui/Icons'
 import Fade from '../ui/Fade'
 import useIsMobile from '../../hooks/useIsMobile'
@@ -33,7 +31,7 @@ const TABS = [
   { id: 'admin', label: 'Admin', adminOnly: true },
 ]
 
-export default function PackPage({ user, profiles, addToast, requestConfirm, tcgGameActive, onGameStateChange }) {
+export default function PackPage({ user, profiles, addToast, requestConfirm, tcgGameActive, onGameStateChange, onTradeInviteSent }) {
   const isMobile = useIsMobile()
   const [tab, setTab] = useState('collection')
   const [shopTab, setShopTab] = useState('shop') // mobile only: 'shop' | 'trading'
@@ -45,6 +43,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [selected, setSelected] = useState(null)
   const [selectedOwned, setSelectedOwned] = useState(false)
   const detailTiltRef = useRef(null)
+  const detailShineRef = useRef(null)
   const detailTouchRef = useRef(null)
 
   // Direct DOM tilt — avoids React re-renders for 60fps smoothness
@@ -53,15 +52,28 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     if (!el) return
     el.style.transition = animate ? 'transform 0.18s ease-out' : 'none'
     el.style.transform = `perspective(800px) rotateX(${tx}deg) rotateY(${ty}deg)`
+    // Light reflection — diagonal band that sweeps across the card with tilt
+    const shine = detailShineRef.current
+    if (shine) {
+      const mag = Math.sqrt(tx * tx + ty * ty)
+      const intensity = Math.min(mag / 15, 1)
+      shine.style.transition = animate ? 'opacity 0.18s ease-out' : 'none'
+      shine.style.opacity = intensity > 0.01 ? '1' : '0'
+      if (intensity > 0.01) {
+        // Light reflects opposite to tilt: tilt down (tx>0) → light moves up, tilt up (tx<0) → light moves down
+        // Diagonal band (~135°) with slight rotation from horizontal tilt
+        const a = 135 + ty * 0.5
+        const p = 50 + tx * 5
+        const pk = (0.15 * intensity).toFixed(3)
+        const lo = (0.04 * intensity).toFixed(3)
+        shine.style.background = `linear-gradient(${a}deg, transparent ${p - 40}%, rgba(255,255,255,${lo}) ${p - 20}%, rgba(255,255,255,${pk}) ${p}%, rgba(255,255,255,${lo}) ${p + 20}%, transparent ${p + 40}%)`
+      }
+    }
   }, [])
 
   const [timer, setTimer] = useState(null)
   const [remaining, setRemaining] = useState({ red: 0, green: 0, blue: 0 })
   const [copiesPerRarity, setCopiesPerRarity] = useState({})
-
-  // Real-time trading
-  const [activeTradeId, setActiveTradeId] = useState(null)
-  const [pendingInvite, setPendingInvite] = useState(null) // { tradeId, trade, role: 'proposer'|'target' }
 
   // Pack opening — optimistic render + fly transition
   const [openingPack, setOpeningPack] = useState(null) // { pack_type, cards: [...] } or null
@@ -400,12 +412,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                   user={user}
                   profiles={profiles}
                   addToast={addToast}
-                  onInviteSent={(tradeId, trade) => setPendingInvite({ tradeId, trade, role: 'proposer' })}
-                  onInviteReceived={(invite) => setPendingInvite({
-                    tradeId: invite.id,
-                    trade: invite,
-                    role: 'target',
-                  })}
+                  onInviteSent={onTradeInviteSent}
                 />
               )}
             </div>
@@ -485,7 +492,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
               {/* Scrollable card grid */}
               <div style={{
                 ...(isMobile ? {} : { flex: 1, minHeight: 0, overflowY: 'auto' }),
-                padding: isMobile ? '8px 12px 80px' : '12px 24px 24px',
+                padding: isMobile ? '8px 12px 68px' : '12px 24px 24px',
               }}>
                 <div style={{
                   display: 'grid',
@@ -595,7 +602,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
         <div onClick={e => e.stopPropagation()} style={{
           padding: 28, animation: 'modalIn 0.2s ease',
         }}>
-          <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copies={copiesMap[selected.number] || []} cards={cards} copiesPerRarity={copiesPerRarity} tiltRef={detailTiltRef} isMobile={isMobile} />
+          <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copies={copiesMap[selected.number] || []} cards={cards} copiesPerRarity={copiesPerRarity} tiltRef={detailTiltRef} shineRef={detailShineRef} isMobile={isMobile} />
         </div>
       </div>,
       document.body
@@ -675,37 +682,12 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
       document.body
     )}
 
-    {/* Trade Invite overlay — portal to body */}
-    {pendingInvite && !activeTradeId && createPortal(
-      <TradeInviteOverlay
-        tradeId={pendingInvite.tradeId}
-        trade={pendingInvite.trade}
-        role={pendingInvite.role}
-        onAccepted={(tradeId) => { setPendingInvite(null); setActiveTradeId(tradeId) }}
-        onClose={() => setPendingInvite(null)}
-        addToast={addToast}
-      />,
-      document.body
-    )}
-
-    {/* Trade Session overlay — portal to body */}
-    {activeTradeId && createPortal(
-      <TradeSession
-        tradeId={activeTradeId}
-        user={user}
-        cards={cards}
-        userCards={userCards}
-        addToast={addToast}
-        onClose={() => { setActiveTradeId(null); loadAll() }}
-      />,
-      document.body
-    )}
 
   </>
   )
 }
 
-function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity, tiltRef, isMobile }) {
+function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity, tiltRef, shineRef, isMobile }) {
   const pt = PACK_TYPES.find(p => p.id === card.pack_type)
   const totalCopies = copiesPerRarity?.[card.rarity] || '?'
   const hasMultiple = copies.length > 1
@@ -755,6 +737,16 @@ function CardDetail({ card, owned, rarity, copies, cards, copiesPerRarity, tiltR
               </div>
             )
           })}
+          {/* Light reflection overlay — controlled via direct DOM for 60fps */}
+          {copies.length > 0 && (
+            <div ref={shineRef} style={{
+              position: 'absolute', inset: 0,
+              borderRadius: Math.round(16 * (isMobile ? window.innerWidth * 0.5 : 360) / 300),
+              pointerEvents: 'none',
+              zIndex: copies.length + 2,
+              opacity: 0,
+            }} />
+          )}
         </div>
       </div>
 

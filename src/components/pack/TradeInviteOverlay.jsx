@@ -3,247 +3,180 @@ import {
   acceptTradeInvite, declineTradeInvite, cancelTrade,
   subscribeToTradeSession, supabase,
 } from '../../lib/supabase'
-import useIsMobile from '../../hooks/useIsMobile'
 
-const D = {
-  bg: '#1a1a1a', card: '#222222', border: '#2d2d2d',
-  text: '#F1F5F9', sub: '#CBD5E1', muted: '#94A3B8', dim: '#64748B',
-}
-
-const INVITE_TIMEOUT = 10 // seconds
+const INVITE_TIMEOUT = 15 // seconds (matches game invites)
 
 export default function TradeInviteOverlay({ tradeId, trade, role, onAccepted, onClose, addToast }) {
-  const isMobile = useIsMobile()
-  const [timeLeft, setTimeLeft] = useState(INVITE_TIMEOUT)
-  const [status, setStatus] = useState('waiting') // 'waiting' | 'accepted' | 'declined' | 'cancelled' | 'timeout'
+  const [countdown, setCountdown] = useState(INVITE_TIMEOUT)
+  const [status, setStatus] = useState('waiting') // waiting | accepted | declined | cancelled | timeout
   const closedRef = useRef(false)
-  const channelRef = useRef(null)
+  const subRef = useRef(null)
 
   const isProposer = role === 'proposer'
   const otherUser = isProposer ? trade?.target : trade?.proposer
+  const otherName = otherUser?.full_name || 'Player'
 
-  // Clean close helper
-  const doClose = useCallback(() => {
+  const doClose = useCallback((msg) => {
     if (closedRef.current) return
     closedRef.current = true
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-      channelRef.current = null
+    if (msg && addToast) addToast(msg, 'info')
+    if (subRef.current) {
+      supabase.removeChannel(subRef.current)
+      subRef.current = null
     }
     onClose()
-  }, [onClose])
+  }, [onClose, addToast])
+
+  // Subscribe to trade status changes
+  useEffect(() => {
+    if (!tradeId) return
+    subRef.current = subscribeToTradeSession(tradeId, (payload) => {
+      const updated = payload.new
+      if (updated.status === 'active') {
+        setStatus('accepted')
+        setTimeout(() => {
+          if (!closedRef.current) { closedRef.current = true; onAccepted(tradeId) }
+        }, 400)
+      } else if (updated.status === 'rejected') {
+        setStatus('declined')
+        setTimeout(() => doClose(`${otherName} ha rifiutato lo scambio`), 1500)
+      } else if (updated.status === 'cancelled') {
+        setStatus('cancelled')
+        setTimeout(() => doClose('Scambio annullato'), 1000)
+      }
+    })
+    return () => { if (subRef.current) supabase.removeChannel(subRef.current) }
+  }, [tradeId, onAccepted, doClose, otherName])
 
   // Countdown timer
   useEffect(() => {
     if (status !== 'waiting') return
     const iv = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
+      setCountdown(p => {
+        if (p <= 1) {
           clearInterval(iv)
+          cancelTrade(tradeId)
           setStatus('timeout')
+          setTimeout(() => doClose('Tempo scaduto'), 1000)
           return 0
         }
-        return prev - 1
+        return p - 1
       })
     }, 1000)
     return () => clearInterval(iv)
-  }, [status])
-
-  // Auto-cancel on timeout
-  useEffect(() => {
-    if (status !== 'timeout') return
-    cancelTrade(tradeId).catch(() => {})
-    const t = setTimeout(() => doClose(), 1500)
-    return () => clearTimeout(t)
   }, [status, tradeId, doClose])
 
-  // Realtime subscription
-  useEffect(() => {
-    if (!tradeId) return
-    const channel = subscribeToTradeSession(tradeId, (payload) => {
-      const updated = payload.new
-      if (updated.status === 'active') {
-        setStatus('accepted')
-        setTimeout(() => onAccepted(tradeId), 400)
-      } else if (updated.status === 'rejected') {
-        setStatus('declined')
-        setTimeout(() => doClose(), 1500)
-      } else if (updated.status === 'cancelled') {
-        setStatus('cancelled')
-        setTimeout(() => doClose(), 1500)
-      }
-    })
-    channelRef.current = channel
-    return () => {
-      supabase.removeChannel(channel)
-      channelRef.current = null
-    }
-  }, [tradeId, onAccepted, doClose])
-
-  // Accept
   const handleAccept = async () => {
-    if (status !== 'waiting') return
     const { error } = await acceptTradeInvite(tradeId)
-    if (error) {
-      addToast('Error accepting invite', 'error')
-    }
-    // Realtime will catch the status change → 'active'
+    if (error) addToast?.('Errore nell\'accettare lo scambio', 'error')
   }
 
-  // Decline
   const handleDecline = async () => {
-    if (status !== 'waiting') return
     await declineTradeInvite(tradeId)
-    setStatus('declined')
-    setTimeout(() => doClose(), 800)
   }
 
-  // Cancel (proposer)
   const handleCancel = async () => {
-    if (status !== 'waiting') return
     await cancelTrade(tradeId)
-    setStatus('cancelled')
-    setTimeout(() => doClose(), 800)
   }
 
-  const statusMessage = {
-    timeout: 'Time expired!',
-    declined: 'Invite declined',
-    cancelled: 'Invite cancelled',
-    accepted: 'Accepted!',
-  }
+  const exitAnim = status === 'accepted' || status === 'declined' || status === 'cancelled' || status === 'timeout'
 
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9600,
-      background: 'rgba(0,0,0,0.85)',
-      backdropFilter: 'blur(8px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      animation: 'tradeOverlayIn 0.25s ease',
+      background: 'rgba(0,0,0,0.8)',
+      backdropFilter: 'blur(8px)',
+      animation: 'tradeOverlayIn 0.3s ease',
+      opacity: exitAnim ? 0.5 : 1,
+      transition: 'opacity 0.3s ease',
     }}>
       <div style={{
-        background: D.card, border: `1px solid ${D.border}`, borderRadius: 20,
-        padding: isMobile ? 24 : 32, width: isMobile ? '90%' : 400,
-        maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
-        textAlign: 'center',
+        background: '#1a1a1a', borderRadius: 20, padding: '36px 48px',
+        minWidth: 320, maxWidth: 420, textAlign: 'center',
+        border: '1px solid #333',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
         animation: 'tradePopIn 0.3s ease',
+        transform: exitAnim ? 'scale(0.95)' : 'scale(1)',
+        transition: 'transform 0.3s ease',
       }}>
-        {/* Avatar */}
-        <div style={{
-          width: 56, height: 56, borderRadius: '50%', margin: '0 auto 16px',
-          background: '#333', overflow: 'hidden',
-          border: '3px solid #F28C28',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          {otherUser?.avatar_url ? (
-            <img src={otherUser.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <span style={{ fontSize: 20, fontWeight: 700, color: '#aaa' }}>
-              {(otherUser?.full_name || '?')[0]}
-            </span>
-          )}
-        </div>
+        {/* Trade icon */}
+        <div style={{ fontSize: 56, marginBottom: 12 }}>🔄</div>
 
         {/* Title */}
-        <h3 style={{ fontSize: 18, fontWeight: 800, color: D.text, margin: '0 0 6px' }}>
-          {isProposer ? 'Invite sent!' : 'Trade invite!'}
-        </h3>
-        <p style={{ fontSize: 13, color: D.sub, margin: '0 0 20px' }}>
-          {isProposer
-            ? `Waiting for ${otherUser?.full_name || 'user'} to respond...`
-            : `${otherUser?.full_name || 'A user'} wants to trade cards with you!`
-          }
-        </p>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#F1F5F9', marginBottom: 6 }}>
+          {role === 'target' ? `${otherName} ti invita!` : `Scambio inviato a ${otherName}`}
+        </div>
 
-        {/* Status message (timeout/declined/cancelled/accepted) */}
-        {status !== 'waiting' && (
+        {/* Subtitle */}
+        <div style={{ fontSize: 16, color: '#F28C28', fontWeight: 600, marginBottom: 20 }}>
+          Scambio Carte
+        </div>
+
+        {/* Status message */}
+        <div style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>
+          {status === 'waiting' && role === 'proposer' && 'Attesa risposta...'}
+          {status === 'waiting' && role === 'target' && 'Vuoi accettare lo scambio?'}
+          {status === 'accepted' && '✅ Scambio accettato!'}
+          {status === 'declined' && '❌ Scambio rifiutato'}
+          {status === 'cancelled' && '⚠️ Scambio annullato'}
+          {status === 'timeout' && '⏰ Tempo scaduto'}
+        </div>
+
+        {/* Countdown bar */}
+        {status === 'waiting' && (
           <div style={{
-            padding: '10px 16px', borderRadius: 10, marginBottom: 16,
-            background: status === 'accepted' ? '#22C55E20' : '#EF444420',
-            color: status === 'accepted' ? '#22C55E' : '#EF4444',
-            fontSize: 14, fontWeight: 700,
+            height: 4, borderRadius: 2, background: '#2a2a2a',
+            marginBottom: 24, overflow: 'hidden',
           }}>
-            {statusMessage[status]}
+            <div style={{
+              height: '100%', borderRadius: 2,
+              background: countdown <= 3 ? '#EF4444' : '#F28C28',
+              width: `${(countdown / INVITE_TIMEOUT) * 100}%`,
+              transition: 'width 1s linear, background 0.3s ease',
+            }} />
           </div>
         )}
 
-        {/* Timer bar */}
+        {/* Countdown number */}
         {status === 'waiting' && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{
-              height: 6, borderRadius: 3, background: '#2d2d2d', overflow: 'hidden',
-              marginBottom: 8,
-            }}>
-              <div style={{
-                width: `${(timeLeft / INVITE_TIMEOUT) * 100}%`,
-                height: '100%', borderRadius: 3,
-                background: timeLeft <= 3
-                  ? 'linear-gradient(90deg, #EF4444, #F87171)'
-                  : 'linear-gradient(90deg, #F28C28, #F5B862)',
-                transition: 'width 1s linear, background 0.3s',
-              }} />
-            </div>
-            <span style={{
-              fontSize: 24, fontWeight: 800, fontFamily: 'monospace',
-              color: timeLeft <= 3 ? '#EF4444' : '#F5B862',
-            }}>
-              {timeLeft}
-            </span>
+          <div style={{
+            fontSize: 32, fontWeight: 900, fontFamily: '"Courier New", monospace',
+            color: countdown <= 3 ? '#EF4444' : '#F28C28',
+            marginBottom: 24,
+            animation: countdown <= 3 ? 'pulse 0.5s ease infinite' : 'none',
+          }}>
+            {countdown}
           </div>
         )}
 
         {/* Buttons */}
-        {status === 'waiting' && (
-          <div style={{ display: 'flex', gap: 10 }}>
-            {isProposer ? (
-              <button
-                onClick={handleCancel}
-                style={{
-                  flex: 1, padding: '12px 0', borderRadius: 10,
-                  border: `1px solid #EF444460`, background: 'transparent',
-                  color: '#EF4444', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={handleDecline}
-                  style={{
-                    flex: 1, padding: '12px 0', borderRadius: 10,
-                    border: `1px solid #EF444460`, background: 'transparent',
-                    color: '#EF4444', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                  }}
-                >
-                  Decline
-                </button>
-                <button
-                  onClick={handleAccept}
-                  style={{
-                    flex: 1, padding: '12px 0', borderRadius: 10,
-                    border: 'none', background: '#22C55E',
-                    color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                  }}
-                >
-                  Accept
-                </button>
-              </>
-            )}
+        {status === 'waiting' && role === 'target' && (
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button onClick={handleAccept} style={{
+              padding: '10px 28px', borderRadius: 10, fontSize: 15, fontWeight: 700,
+              background: '#22C55E', color: '#fff', border: 'none', cursor: 'pointer',
+            }}>
+              Accetta
+            </button>
+            <button onClick={handleDecline} style={{
+              padding: '10px 28px', borderRadius: 10, fontSize: 15, fontWeight: 700,
+              background: '#333', color: '#aaa', border: '1px solid #444', cursor: 'pointer',
+            }}>
+              Rifiuta
+            </button>
           </div>
         )}
-      </div>
 
-      <style>{`
-        @keyframes tradeOverlayIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes tradePopIn {
-          from { opacity: 0; transform: scale(0.9) translateY(20px); }
-          to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
+        {status === 'waiting' && role === 'proposer' && (
+          <button onClick={handleCancel} style={{
+            padding: '10px 28px', borderRadius: 10, fontSize: 15, fontWeight: 700,
+            background: '#333', color: '#aaa', border: '1px solid #444', cursor: 'pointer',
+          }}>
+            Annulla
+          </button>
+        )}
+      </div>
     </div>
   )
 }

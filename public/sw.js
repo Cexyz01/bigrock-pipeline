@@ -1,5 +1,5 @@
 // BigRock Hub — Service Worker (network-first with cache fallback)
-const CACHE_NAME = 'bigrock-v1'
+const CACHE_NAME = 'bigrock-v2'
 
 // Install: cache shell assets
 self.addEventListener('install', (e) => {

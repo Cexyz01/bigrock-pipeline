@@ -2,13 +2,14 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 export default function ImageLightbox({ src, onClose }) {
-  if (!src) return null
-
   useEffect(() => {
+    if (!src) return
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [src, onClose])
+
+  if (!src) return null
 
   return createPortal(
     <div

@@ -71,14 +71,26 @@ export default function MatrixRain() {
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9998,
-        pointerEvents: 'none',
-      }}
-    />
+    <>
+      {/* Solid black backdrop so nothing bleeds through */}
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9997,
+          background: '#000',
+          pointerEvents: 'none',
+        }}
+      />
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9998,
+          pointerEvents: 'none',
+        }}
+      />
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import TRIVIA_QUESTIONS from './triviaQuestions'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -732,7 +733,7 @@ export async function claimAndOpenPack(userId, packType) {
 // ── TCG Game State ──
 
 export async function getTcgGameActive() {
-  const { data } = await supabase.from('app_settings').select('value').eq('key', 'tcg_game_active').single()
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'tcg_game_active').maybeSingle()
   return data?.value === 'true'
 }
 
@@ -741,6 +742,18 @@ export async function setTcgGameActive(active) {
     .upsert({ key: 'tcg_game_active', value: active ? 'true' : 'false', updated_at: new Date().toISOString() }, { onConflict: 'key' })
     .select().single()
   return { data, error }
+}
+
+export async function grantPackReward(userId, count) {
+  const active = await getTcgGameActive()
+  if (!active) return { granted: false, count }
+  const timer = await getUserTimer(userId)
+  const currentPacks = timer?.available_packs || 0
+  await upsertUserTimer(userId, {
+    available_packs: currentPacks + count,
+    ...(timer ? {} : { last_pack_at: new Date().toISOString() }),
+  })
+  return { granted: true, count }
 }
 
 export async function resetAllUserCards() {
@@ -1190,7 +1203,7 @@ function getInitialGameState(type, proposerId, targetId) {
       return { board }
     }
     case 'chess':
-      return { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', pgn: '' }
+      return { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', pgn: '', clocks: { w: 600, b: 600 }, lastMoveTime: null }
     case 'uno': {
       // Create UNO deck, deal 7 cards each, set first discard
       const COLORS = ['red', 'blue', 'green', 'yellow']
@@ -1211,6 +1224,30 @@ function getInitialGameState(type, proposerId, targetId) {
         hands: { [proposerId]: hand1, [targetId]: hand2 },
         drawPile: deck, discardPile: [firstCard],
         direction: 1, chosenColor: null, lastAction: null,
+      }
+    }
+    case 'snake_battle': {
+      return {
+        gridSize: 20,
+        snakes: {
+          [proposerId]: { body: [[2,10],[1,10],[0,10]], dir: 'right' },
+          [targetId]: { body: [[17,10],[18,10],[19,10]], dir: 'left' },
+        },
+        food: [10, 10],
+        speed: 180,
+      }
+    }
+    case 'trivia_quiz': {
+      // Pick 10 questions: 4 easy + 3 medium + 3 hard — solo challenge
+      const shuffle = arr => [...arr].sort(() => Math.random() - 0.5)
+      const easy = shuffle(TRIVIA_QUESTIONS.filter(q => q.difficulty === 'easy')).slice(0, 4)
+      const medium = shuffle(TRIVIA_QUESTIONS.filter(q => q.difficulty === 'medium')).slice(0, 3)
+      const hard = shuffle(TRIVIA_QUESTIONS.filter(q => q.difficulty === 'hard')).slice(0, 3)
+      const questions = [...easy, ...medium, ...hard]
+      return {
+        questions,
+        currentQ: 0,
+        score: 0,
       }
     }
     default:

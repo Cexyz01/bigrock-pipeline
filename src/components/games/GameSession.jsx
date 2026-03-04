@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase, getGameById, makeGameMove, cancelGame, subscribeToGameSession } from '../../lib/supabase';
+import { supabase, getGameById, makeGameMove, cancelGame, subscribeToGameSession, grantPackReward } from '../../lib/supabase';
 import { IconX } from '../ui/Icons';
 import Connect4Game from './Connect4Game';
 import OthelloGame from './OthelloGame';
 import ChessGame from './ChessGame';
 import UnoGame from './UnoGame';
+import SnakeBattleGame from './SnakeBattleGame';
+import TriviaQuizGame from './TriviaQuizGame';
+import TriviaRewardOverlay from './TriviaRewardOverlay';
 
-const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi', uno: 'UNO' };
-const GAME_ICONS = { connect4: '🔴', othello: '⚫', chess: '♟️', uno: '🃏' };
+const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi', uno: 'UNO', snake_battle: 'Snake Battle', trivia_quiz: 'Trivia Quiz' };
+const GAME_ICONS = { connect4: '🔴', othello: '⚫', chess: '♟️', uno: '🃏', snake_battle: '🐍', trivia_quiz: '🧠' };
 
 // Keys from the raw DB row that realtime sends (no joined data)
 const RAW_KEYS = ['id', 'game_type', 'proposer_id', 'target_id', 'status', 'game_state', 'current_turn', 'winner_id', 'created_at', 'updated_at'];
@@ -16,6 +19,7 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
   const [game, setGame] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [endState, setEndState] = useState(null); // null | { winner, draw }
+  const [triviaResult, setTriviaResult] = useState(null); // { score, totalQuestions, packsWon, tcgGranted }
   const [isMobile] = useState(() => window.innerWidth < 768);
   const subRef = useRef(null);
   const closedRef = useRef(false);
@@ -81,6 +85,16 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
     return () => { if (subRef.current) supabase.removeChannel(subRef.current); };
   }, [gameId]);
 
+  // Derived values (safe even when game is null)
+  const amProposer = game ? user.id === game.proposer_id : false;
+  const myColor = amProposer ? 1 : 2; // proposer = P1 (red), target = P2 (yellow)
+  const isMyTurn = game ? game.current_turn === user.id : false;
+  const gameState = game?.game_state || {};
+  const proposerName = game?.proposer?.full_name || 'Player 1';
+  const targetName = game?.target?.full_name || 'Player 2';
+  const gameLabel = GAME_LABELS[game?.game_type] || game?.game_type || '';
+  const gameIcon = GAME_ICONS[game?.game_type] || '🎮';
+
   const handleClose = useCallback(async () => {
     if (closedRef.current) return;
     closedRef.current = true;
@@ -90,6 +104,71 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
     }
     onClose();
   }, [endState, game, gameId, onClose]);
+
+  // Handle move from game component
+  const handleMove = useCallback(async (moveResult) => {
+    let nextTurn = amProposer ? game.target_id : game.proposer_id;
+    const winnerId = moveResult.won ? user.id : moveResult.draw ? 'draw' : null;
+
+    // Othello: if opponent has no moves, current player goes again
+    if (moveResult.skipNextTurn) nextTurn = user.id;
+
+    // UNO: skip opponent (draw2, wild_draw4, skip) or keep turn (after drawing)
+    if (moveResult.skipOpponent) nextTurn = user.id;
+    if (moveResult.keepTurn) nextTurn = user.id;
+
+    // Snake Battle & Trivia Quiz: real-time games, only write DB on game end
+    if (game.game_type === 'snake_battle') {
+      // Snake only calls onMove at game end with { won, draw }
+      await makeGameMove(gameId, gameState, nextTurn, winnerId);
+      return;
+    }
+    if (game.game_type === 'trivia_quiz') {
+      // Solo challenge — only called once at game end with { score, totalQuestions, won }
+      const triviaScore = moveResult.score || 0;
+      const packsWon = triviaScore >= 10 ? 2 : triviaScore >= 7 ? 1 : 0;
+      const finalWinner = moveResult.won ? user.id : null;
+
+      // Grant packs if earned
+      let tcgGranted = false;
+      if (packsWon > 0) {
+        const result = await grantPackReward(user.id, packsWon);
+        tcgGranted = result.granted;
+      }
+
+      // Save final result to DB
+      const newState = { ...gameState, score: triviaScore, completed: true };
+      await makeGameMove(gameId, newState, game.proposer_id, finalWinner);
+
+      // Show trivia reward overlay instead of standard end popup
+      setTriviaResult({ score: triviaScore, totalQuestions: moveResult.totalQuestions || 10, packsWon, tcgGranted });
+      return;
+    }
+
+    let newState = {};
+    if (game.game_type === 'chess') {
+      newState.fen = moveResult.fen;
+      newState.lastMove = moveResult.lastMove;
+      if (moveResult.moveNotation) newState.moveNotation = moveResult.moveNotation;
+      if (moveResult.clocks) newState.clocks = moveResult.clocks;
+      newState.lastMoveTime = Date.now();
+    } else if (game.game_type === 'uno') {
+      // UNO: full state replacement
+      newState = {
+        hands: moveResult.hands,
+        drawPile: moveResult.drawPile,
+        discardPile: moveResult.discardPile,
+        direction: moveResult.direction,
+        chosenColor: moveResult.chosenColor,
+        lastAction: moveResult.lastAction,
+      };
+    } else {
+      newState.board = moveResult.board;
+      newState.lastMove = moveResult.lastMove;
+    }
+
+    await makeGameMove(gameId, newState, nextTurn, winnerId);
+  }, [gameId, game, amProposer, user.id]);
 
   // ── Loading state: show dark backdrop with spinner ──
   if (!game) {
@@ -129,50 +208,6 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
       </div>
     );
   }
-
-  const amProposer = user.id === game.proposer_id;
-  const myColor = amProposer ? 1 : 2; // proposer = P1 (red), target = P2 (yellow)
-  const isMyTurn = game.current_turn === user.id;
-  const gameState = game.game_state || {};
-  const proposerName = game.proposer?.full_name || 'Player 1';
-  const targetName = game.target?.full_name || 'Player 2';
-  const gameLabel = GAME_LABELS[game.game_type] || game.game_type;
-  const gameIcon = GAME_ICONS[game.game_type] || '🎮';
-
-  // Handle move from game component
-  const handleMove = useCallback(async (moveResult) => {
-    let nextTurn = amProposer ? game.target_id : game.proposer_id;
-    const winnerId = moveResult.won ? user.id : moveResult.draw ? 'draw' : null;
-
-    // Othello: if opponent has no moves, current player goes again
-    if (moveResult.skipNextTurn) nextTurn = user.id;
-
-    // UNO: skip opponent (draw2, wild_draw4, skip) or keep turn (after drawing)
-    if (moveResult.skipOpponent) nextTurn = user.id;
-    if (moveResult.keepTurn) nextTurn = user.id;
-
-    let newState = {};
-    if (game.game_type === 'chess') {
-      newState.fen = moveResult.fen;
-      newState.lastMove = moveResult.lastMove;
-      if (moveResult.moveNotation) newState.moveNotation = moveResult.moveNotation;
-    } else if (game.game_type === 'uno') {
-      // UNO: full state replacement
-      newState = {
-        hands: moveResult.hands,
-        drawPile: moveResult.drawPile,
-        discardPile: moveResult.discardPile,
-        direction: moveResult.direction,
-        chosenColor: moveResult.chosenColor,
-        lastAction: moveResult.lastAction,
-      };
-    } else {
-      newState.board = moveResult.board;
-      newState.lastMove = moveResult.lastMove;
-    }
-
-    await makeGameMove(gameId, newState, nextTurn, winnerId);
-  }, [gameId, game, amProposer, user.id]);
 
   // End state popup content
   const renderEndPopup = () => {
@@ -252,21 +287,23 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
           </div>
 
           {/* Player names */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <span style={{
-              color: game.current_turn === game.proposer_id ? (game.game_type === 'chess' ? '#F1F5F9' : '#EF4444') : '#666',
-              fontWeight: game.current_turn === game.proposer_id ? 700 : 400,
-            }}>
-              {game.game_type === 'chess' ? '♔' : game.game_type === 'othello' ? '⚫' : game.game_type === 'uno' ? '🃏' : '🔴'} {proposerName}
-            </span>
-            <span style={{ color: '#444' }}>vs</span>
-            <span style={{
-              color: game.current_turn === game.target_id ? (game.game_type === 'chess' ? '#F1F5F9' : '#EAB308') : '#666',
-              fontWeight: game.current_turn === game.target_id ? 700 : 400,
-            }}>
-              {game.game_type === 'chess' ? '♚' : game.game_type === 'othello' ? '⚪' : game.game_type === 'uno' ? '🃏' : '🟡'} {targetName}
-            </span>
-          </div>
+          {game.game_type !== 'snake_battle' && game.game_type !== 'trivia_quiz' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <span style={{
+                color: game.current_turn === game.proposer_id ? (game.game_type === 'chess' ? '#F1F5F9' : '#EF4444') : '#666',
+                fontWeight: game.current_turn === game.proposer_id ? 700 : 400,
+              }}>
+                {game.game_type === 'chess' ? '♔' : game.game_type === 'othello' ? '⚫' : game.game_type === 'uno' ? '🃏' : '🔴'} {proposerName}
+              </span>
+              <span style={{ color: '#444' }}>vs</span>
+              <span style={{
+                color: game.current_turn === game.target_id ? (game.game_type === 'chess' ? '#F1F5F9' : '#EAB308') : '#666',
+                fontWeight: game.current_turn === game.target_id ? 700 : 400,
+              }}>
+                {game.game_type === 'chess' ? '♚' : game.game_type === 'othello' ? '⚪' : game.game_type === 'uno' ? '🃏' : '🟡'} {targetName}
+              </span>
+            </div>
+          )}
 
           <button onClick={handleClose} style={{
             background: 'none', border: 'none', cursor: 'pointer',
@@ -315,6 +352,8 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
               isMyTurn={isMyTurn && !endState}
               onMove={handleMove}
               isMobile={isMobile}
+              clocks={gameState.clocks || { w: 600, b: 600 }}
+              lastMoveTime={gameState.lastMoveTime}
             />
           )}
 
@@ -328,10 +367,38 @@ export default function GameSession({ gameId, user, onClose, addToast }) {
               isMobile={isMobile}
             />
           )}
+
+          {game.game_type === 'snake_battle' && (
+            <SnakeBattleGame
+              gameState={gameState}
+              myId={user.id}
+              opponentId={amProposer ? game.target_id : game.proposer_id}
+              onMove={handleMove}
+              isMobile={isMobile}
+              gameId={gameId}
+            />
+          )}
+
+          {game.game_type === 'trivia_quiz' && !triviaResult && (
+            <TriviaQuizGame
+              gameState={gameState}
+              onMove={handleMove}
+              isMobile={isMobile}
+            />
+          )}
         </div>
 
         {/* End state overlay */}
-        {renderEndPopup()}
+        {game.game_type === 'trivia_quiz' && triviaResult && (
+          <TriviaRewardOverlay
+            score={triviaResult.score}
+            totalQuestions={triviaResult.totalQuestions}
+            packsWon={triviaResult.packsWon}
+            tcgGranted={triviaResult.tcgGranted}
+            onClose={handleClose}
+          />
+        )}
+        {game.game_type !== 'trivia_quiz' && renderEndPopup()}
       </div>
     </div>
   );

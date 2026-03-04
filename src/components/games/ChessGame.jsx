@@ -1,14 +1,29 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 
 // Chess game component using chess.js for logic + react-chessboard for UI
 // myColor: 1 = white (proposer), 2 = black (target)
+// clocks: { w: seconds, b: seconds } — 600s = 10 minutes each
 
-export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) {
+const INITIAL_TIME = 600; // 10 minutes in seconds
+
+function formatClock(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile, clocks, lastMoveTime }) {
   const [moveFrom, setMoveFrom] = useState(null);
   const [optionSquares, setOptionSquares] = useState({});
   const [rightClickedSquares, setRightClickedSquares] = useState({});
+
+  // Clock state — local countdown
+  const [whiteTime, setWhiteTime] = useState(clocks?.w ?? INITIAL_TIME);
+  const [blackTime, setBlackTime] = useState(clocks?.b ?? INITIAL_TIME);
+  const clockRef = useRef(null);
+  const lastSyncRef = useRef(Date.now());
 
   const game = useMemo(() => {
     const g = new Chess();
@@ -19,6 +34,60 @@ export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) 
   const myColorStr = myColor === 1 ? 'w' : 'b';
   const boardOrientation = myColor === 1 ? 'white' : 'black';
   const boardWidth = isMobile ? Math.min(window.innerWidth * 0.88, 360) : 480;
+  const activeColor = game.turn(); // 'w' or 'b'
+  const isGameOver = game.isGameOver();
+
+  // Sync clocks from server state
+  useEffect(() => {
+    if (!clocks) return;
+    let w = clocks.w;
+    let b = clocks.b;
+    // If there's a lastMoveTime, subtract elapsed time for the active player
+    if (lastMoveTime && !isGameOver) {
+      const elapsed = (Date.now() - lastMoveTime) / 1000;
+      if (activeColor === 'w') w = Math.max(0, w - elapsed);
+      else b = Math.max(0, b - elapsed);
+    }
+    setWhiteTime(w);
+    setBlackTime(b);
+    lastSyncRef.current = Date.now();
+  }, [clocks, lastMoveTime, activeColor, isGameOver]);
+
+  // Local countdown tick (1s interval)
+  useEffect(() => {
+    if (isGameOver) return;
+    clockRef.current = setInterval(() => {
+      if (activeColor === 'w') {
+        setWhiteTime(t => {
+          const next = Math.max(0, t - 1);
+          if (next <= 0) {
+            clearInterval(clockRef.current);
+            // White ran out of time — if I'm white, I lose; if I'm black, I win
+            if (myColorStr === 'w') {
+              onMove({ fen: game.fen(), lastMove: null, won: false, draw: false, timeout: true, clocks: { w: 0, b: blackTime } });
+            } else {
+              onMove({ fen: game.fen(), lastMove: null, won: true, draw: false, timeout: true, clocks: { w: 0, b: blackTime } });
+            }
+          }
+          return next;
+        });
+      } else {
+        setBlackTime(t => {
+          const next = Math.max(0, t - 1);
+          if (next <= 0) {
+            clearInterval(clockRef.current);
+            if (myColorStr === 'b') {
+              onMove({ fen: game.fen(), lastMove: null, won: false, draw: false, timeout: true, clocks: { w: whiteTime, b: 0 } });
+            } else {
+              onMove({ fen: game.fen(), lastMove: null, won: true, draw: false, timeout: true, clocks: { w: whiteTime, b: 0 } });
+            }
+          }
+          return next;
+        });
+      }
+    }, 1000);
+    return () => clearInterval(clockRef.current);
+  }, [activeColor, isGameOver, myColorStr]); // intentionally omit onMove/game/whiteTime/blackTime to avoid re-creating interval
 
   // Get possible moves for a square and highlight them
   const getMoveOptions = useCallback((square) => {
@@ -41,6 +110,44 @@ export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) 
     return true;
   }, [game]);
 
+  const makeMove = useCallback((moveData) => {
+    let result = null;
+    try {
+      result = game.move(moveData);
+    } catch (e) {
+      // Invalid move
+    }
+    if (result === null) return null;
+
+    const newFen = game.fen();
+    const isCheckmate = game.isCheckmate();
+    const isDraw = game.isDraw();
+    const isStalemate = game.isStalemate();
+
+    // Snapshot current clocks at time of move
+    const movingColor = result.color; // 'w' or 'b'
+    const newClocks = {
+      w: movingColor === 'w' ? Math.max(0, whiteTime) : whiteTime,
+      b: movingColor === 'b' ? Math.max(0, blackTime) : blackTime,
+    };
+
+    setMoveFrom(null);
+    setOptionSquares({});
+
+    onMove({
+      fen: newFen,
+      lastMove: { from: moveData.from, to: moveData.to },
+      won: isCheckmate,
+      draw: isDraw || isStalemate,
+      moveNotation: result.san,
+      clocks: newClocks,
+    });
+
+    // Undo the move on our local instance since the state comes from the server
+    game.undo();
+    return result;
+  }, [game, onMove, whiteTime, blackTime]);
+
   const onSquareClick = useCallback((square) => {
     if (!isMyTurn) return;
     setRightClickedSquares({});
@@ -56,18 +163,7 @@ export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) 
     }
 
     // Try to make the move
-    const moveData = {
-      from: moveFrom,
-      to: square,
-      promotion: 'q', // auto-promote to queen
-    };
-
-    let result = null;
-    try {
-      result = game.move(moveData);
-    } catch (e) {
-      // Invalid move
-    }
+    const result = makeMove({ from: moveFrom, to: square, promotion: 'q' });
 
     if (result === null) {
       // Invalid move — check if clicking another of our pieces
@@ -79,67 +175,15 @@ export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) 
         setMoveFrom(null);
         setOptionSquares({});
       }
-      return;
     }
-
-    // Valid move
-    const newFen = game.fen();
-    const isCheckmate = game.isCheckmate();
-    const isDraw = game.isDraw();
-    const isStalemate = game.isStalemate();
-
-    setMoveFrom(null);
-    setOptionSquares({});
-
-    onMove({
-      fen: newFen,
-      lastMove: { from: moveData.from, to: moveData.to },
-      won: isCheckmate,
-      draw: isDraw || isStalemate,
-      moveNotation: result.san,
-    });
-
-    // Undo the move on our local instance since the state comes from the server
-    game.undo();
-  }, [game, isMyTurn, moveFrom, myColorStr, getMoveOptions, onMove]);
+  }, [game, isMyTurn, moveFrom, myColorStr, getMoveOptions, makeMove]);
 
   // Drag and drop
   const onDrop = useCallback((sourceSquare, targetSquare) => {
     if (!isMyTurn) return false;
-
-    const moveData = {
-      from: sourceSquare,
-      to: targetSquare,
-      promotion: 'q',
-    };
-
-    let result = null;
-    try {
-      result = game.move(moveData);
-    } catch (e) {
-      return false;
-    }
-    if (result === null) return false;
-
-    const newFen = game.fen();
-    const isCheckmate = game.isCheckmate();
-    const isDraw = game.isDraw();
-    const isStalemate = game.isStalemate();
-
-    setMoveFrom(null);
-    setOptionSquares({});
-
-    onMove({
-      fen: newFen,
-      lastMove: { from: sourceSquare, to: targetSquare },
-      won: isCheckmate,
-      draw: isDraw || isStalemate,
-      moveNotation: result.san,
-    });
-
-    game.undo();
-    return true;
-  }, [game, isMyTurn, onMove]);
+    const result = makeMove({ from: sourceSquare, to: targetSquare, promotion: 'q' });
+    return result !== null;
+  }, [isMyTurn, makeMove]);
 
   const isDraggablePiece = useCallback(({ piece }) => {
     if (!isMyTurn) return false;
@@ -169,8 +213,41 @@ export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) 
     return styles;
   }, [game, optionSquares, rightClickedSquares]);
 
+  // Clock component
+  const ClockDisplay = ({ time, isActive, label, color }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 14px', borderRadius: 8,
+      background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
+      border: isActive ? '1px solid #444' : '1px solid transparent',
+    }}>
+      <span style={{ fontSize: 12, color: '#888' }}>{label}</span>
+      <span style={{
+        fontSize: 20, fontWeight: 900, fontFamily: '"Courier New", monospace',
+        color: time <= 30 ? '#EF4444' : time <= 120 ? '#F28C28' : color,
+        animation: isActive && time <= 30 ? 'pulse 0.5s ease infinite' : 'none',
+      }}>
+        {formatClock(time)}
+      </span>
+    </div>
+  );
+
+  // Top clock = opponent, bottom clock = me
+  const topTime = myColor === 1 ? blackTime : whiteTime;
+  const topActive = myColor === 1 ? activeColor === 'b' : activeColor === 'w';
+  const topLabel = myColor === 1 ? '♚' : '♔';
+  const topColor = '#F1F5F9';
+
+  const botTime = myColor === 1 ? whiteTime : blackTime;
+  const botActive = myColor === 1 ? activeColor === 'w' : activeColor === 'b';
+  const botLabel = myColor === 1 ? '♔' : '♚';
+  const botColor = '#F1F5F9';
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      {/* Opponent clock (top) */}
+      <ClockDisplay time={topTime} isActive={topActive && !isGameOver} label={topLabel} color={topColor} />
+
       {/* Turn indicator */}
       <div style={{ fontSize: 13, color: isMyTurn ? '#22C55E' : '#888', fontWeight: 600 }}>
         {game.isCheckmate()
@@ -207,6 +284,9 @@ export default function ChessGame({ fen, myColor, isMyTurn, onMove, isMobile }) 
           animationDuration={200}
         />
       </div>
+
+      {/* My clock (bottom) */}
+      <ClockDisplay time={botTime} isActive={botActive && !isGameOver} label={botLabel} color={botColor} />
     </div>
   );
 }

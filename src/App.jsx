@@ -17,6 +17,7 @@ import {
   uploadConceptImage,
   getTcgGameActive,
   subscribeToGameInvites, getGameById,
+  subscribeToTradeInvites, getTradeById,
   updateLastSeen,
   getWipUpdates, createWipUpdate, uploadWipImage, addWipComment,
   getWipViews, markWipViewed,
@@ -41,6 +42,8 @@ import PackPage from './components/pages/PackPage'
 import ReviewPage from './components/pages/ReviewPage'
 import GameInviteOverlay from './components/games/GameInviteOverlay'
 import GameSession from './components/games/GameSession'
+import TradeInviteOverlay from './components/pack/TradeInviteOverlay'
+import TradeSession from './components/pack/TradeSession'
 import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fixSyncMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
@@ -64,12 +67,25 @@ export default function App() {
   const [matrixMode, setMatrixMode] = useState(false)
   const [pendingGameInvite, setPendingGameInvite] = useState(null) // { gameId, game, role }
   const [activeGameId, setActiveGameId] = useState(null)
+  const [pendingTradeInvite, setPendingTradeInvite] = useState(null) // { tradeId, trade, role }
+  const [activeTradeId, setActiveTradeId] = useState(null)
   const [adminFx, setAdminFx] = useState({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0, gravity: 0 })
   const adminChRef = useRef(null)
   const dmToastedRef = useRef(new Set())
   const chatOpenRef = useRef(false)
   const { toasts, addToast, removeToast } = useToast()
   const { pending, requestConfirm, confirm, cancel } = useConfirm()
+
+  // iOS PWA standalone viewport fix — window.innerHeight is the only
+  // reliable source of truth on iOS; CSS vh/dvh can be wrong in standalone.
+  useEffect(() => {
+    const setH = () => document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`)
+    setH()
+    window.addEventListener('resize', setH)
+    // Also fire on orientationchange for older iOS
+    window.addEventListener('orientationchange', () => setTimeout(setH, 100))
+    return () => window.removeEventListener('resize', setH)
+  }, [])
 
   // Auth
   useEffect(() => {
@@ -148,11 +164,10 @@ export default function App() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('touchend', onTap) }
   }, [user])
 
-  // Super admin immunity — opening console clears all effects
+  // Super admin immunity — opening console clears troll effects (but NOT matrix mode)
   useEffect(() => {
     if (adminConsoleOpen && user && isSuperAdmin(user.role)) {
       setAdminFx({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0, gravity: 0 })
-      setMatrixMode(false)
       // Also reset body-level CSS effects that AdminEffects may have applied
       document.body.style.animation = ''
       document.body.style.transform = ''
@@ -278,6 +293,24 @@ export default function App() {
     })
     return () => { if (sub) supabase.removeChannel(sub) }
   }, [user])
+
+  // Trade invite subscription (global — works from any page)
+  useEffect(() => {
+    if (!user) return
+    const sub = subscribeToTradeInvites(user.id, async (payload) => {
+      const inv = payload.new
+      if (inv && inv.status === 'pending_invite' && inv.target_id === user.id) {
+        const { data: full } = await getTradeById(inv.id)
+        if (full) setPendingTradeInvite({ tradeId: inv.id, trade: full, role: 'target' })
+      }
+    })
+    return () => { if (sub) supabase.removeChannel(sub) }
+  }, [user])
+
+  // Trade invite sent handler (from PackTrading)
+  const handleTradeInviteSent = useCallback((tradeId, trade) => {
+    setPendingTradeInvite({ tradeId, trade, role: 'proposer' })
+  }, [])
 
   // Game challenge handler (from AdminConsole)
   const handleGameChallenge = useCallback((invite) => {
@@ -630,16 +663,16 @@ export default function App() {
     )
   }
 
-  const contentPadding = isMobile ? '16px 16px 80px' : '36px 44px'
+  const contentPadding = isMobile ? '16px 16px 68px' : '36px 44px'
 
   return (
-    <div className={isMobile ? 'mobile-safe-top' : ''} style={{ display: 'flex', height: isMobile ? '100dvh' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
+    <div className={isMobile ? 'mobile-safe-top' : ''} style={{ display: 'flex', height: isMobile ? 'var(--app-height, 100vh)' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
       {isMobile && <InstallBanner />}
       <AdminEffects effects={adminFx} userId={user.id} matrixMode={matrixMode} onClear={clearAdminFx} />
       {adminConsoleOpen && isAdmin(user.role) && (
-        <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} onMatrixToggle={() => setMatrixMode(p => !p)} onGameChallenge={handleGameChallenge} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
+        <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} matrixMode={matrixMode} onMatrixToggle={() => setMatrixMode(p => !p)} onGameChallenge={handleGameChallenge} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
       )}
 
       <Sidebar
@@ -654,10 +687,10 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Full-bleed views: storyboard, pack — no padding, no maxWidth */}
         {(view === 'storyboard' || view === 'pack') ? (
-          <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 64 } : {}) }}>
+          <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 52 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage />}
             {view === 'pack' && (isAdmin(user.role) || tcgGameActive) && (
-              <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
+              <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
             )}
           </div>
         ) : (
@@ -695,6 +728,28 @@ export default function App() {
           onClose={() => setActiveGameId(null)}
           addToast={addToast}
           isMobile={isMobile}
+        />,
+        document.body
+      )}
+
+      {/* Trade overlays */}
+      {pendingTradeInvite && !activeTradeId && createPortal(
+        <TradeInviteOverlay
+          tradeId={pendingTradeInvite.tradeId}
+          trade={pendingTradeInvite.trade}
+          role={pendingTradeInvite.role}
+          onAccepted={(id) => { setPendingTradeInvite(null); setActiveTradeId(id) }}
+          onClose={() => setPendingTradeInvite(null)}
+          addToast={addToast}
+        />,
+        document.body
+      )}
+      {activeTradeId && createPortal(
+        <TradeSession
+          tradeId={activeTradeId}
+          user={user}
+          addToast={addToast}
+          onClose={() => setActiveTradeId(null)}
         />,
         document.body
       )}

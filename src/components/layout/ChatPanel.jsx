@@ -217,7 +217,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
           className="mobile-chat-fab"
           onClick={onToggle}
           style={{
-            position: 'fixed', bottom: 76, right: 16, zIndex: 45,
+            position: 'fixed', bottom: 64, right: 16, zIndex: 45,
             width: 52, height: 52, borderRadius: 16,
             background: 'linear-gradient(135deg, #F28C28, #F5B862)',
             border: 'none', cursor: 'pointer',

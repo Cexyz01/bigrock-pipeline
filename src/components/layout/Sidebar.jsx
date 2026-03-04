@@ -81,10 +81,10 @@ export default function Sidebar({
       <>
         {/* Bottom Tab Bar */}
         <div className="mobile-bottom-bar" style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, height: 64,
+          position: 'fixed', bottom: 0, left: 0, right: 0,
           background: '#fff', borderTop: '1px solid #E8ECF1',
           display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-          zIndex: 40, paddingBottom: 4,
+          zIndex: 40,
           boxShadow: '0 -2px 12px rgba(0,0,0,0.04)',
         }}>
           {mobileNav.map(n => {
@@ -95,8 +95,11 @@ export default function Sidebar({
                 gap: 2, background: 'none', border: 'none', cursor: 'pointer',
                 padding: '6px 0', minWidth: 56, position: 'relative',
                 color: active ? '#F28C28' : '#94A3B8',
-                transition: 'color 0.15s ease',
-              }}>
+                transition: 'color 0.15s ease, transform 0.1s ease, opacity 0.1s ease',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+              onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.88)'; e.currentTarget.style.opacity = '0.7' }}
+              onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.opacity = '1' }}>
                 {n.icon}
                 <span style={{ fontSize: 10, fontWeight: active ? 700 : 500 }}>{n.label}</span>
                 {n.badge > 0 && (
@@ -116,8 +119,11 @@ export default function Sidebar({
             gap: 2, background: 'none', border: 'none', cursor: 'pointer',
             padding: '6px 0', minWidth: 56,
             color: showMore ? '#F28C28' : '#94A3B8',
-            transition: 'color 0.15s ease',
-          }}>
+            transition: 'color 0.15s ease, transform 0.1s ease, opacity 0.1s ease',
+            WebkitTapHighlightColor: 'transparent',
+          }}
+          onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.88)'; e.currentTarget.style.opacity = '0.7' }}
+          onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.opacity = '1' }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
             </svg>
@@ -131,7 +137,7 @@ export default function Sidebar({
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)', zIndex: 90 }}
               onClick={() => setShowMore(false)} />
             <div style={{
-              position: 'fixed', bottom: 64, left: 0, right: 0, zIndex: 91,
+              position: 'fixed', bottom: 52, left: 0, right: 0, zIndex: 91,
               background: '#fff', borderRadius: '20px 20px 0 0',
               boxShadow: '0 -8px 32px rgba(0,0,0,0.12)',
               animation: 'slideInUp 0.2s ease',

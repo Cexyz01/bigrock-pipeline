@@ -5,6 +5,7 @@ import {
   getTradeById, getTradeTokens, getOtherUserCards,
   selectTradeCard, acceptTradeSelection, executeTrade, cancelTrade,
   subscribeToTradeSession, sendNotification, supabase,
+  getPackCards, getUserCards,
 } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 
@@ -16,8 +17,12 @@ const D = {
 const RARITIES = ['common', 'rare', 'gold', 'diamond', 'rainbow']
 const RARITY_LABELS = { common: 'Common', rare: 'Rare', gold: 'Gold', diamond: 'Diamond', rainbow: 'Rainbow' }
 
-export default function TradeSession({ tradeId, user, cards, userCards, addToast, onClose }) {
+export default function TradeSession({ tradeId, user, cards: cardsProp, userCards: userCardsProp, addToast, onClose }) {
   const isMobile = useIsMobile()
+  const [internalCards, setInternalCards] = useState(cardsProp || [])
+  const [internalUserCards, setInternalUserCards] = useState(userCardsProp || [])
+  const cards = cardsProp || internalCards
+  const userCards = userCardsProp || internalUserCards
   const [trade, setTrade] = useState(null)
   const [tokens, setTokens] = useState(null)
   const [otherUserCards, setOtherUserCards] = useState([])
@@ -40,10 +45,15 @@ export default function TradeSession({ tradeId, user, cards, userCards, addToast
 
   // Load initial data
   const loadTrade = useCallback(async () => {
-    const [{ data: t }, tok] = await Promise.all([
-      getTradeById(tradeId),
-      getTradeTokens(user.id),
-    ])
+    const promises = [getTradeById(tradeId), getTradeTokens(user.id)]
+    // Self-load cards if not provided via props
+    if (!cardsProp) promises.push(getPackCards())
+    if (!userCardsProp) promises.push(getUserCards(user.id))
+    const results = await Promise.all(promises)
+    const { data: t } = results[0]
+    const tok = results[1]
+    if (!cardsProp && results[2]) setInternalCards(results[2])
+    if (!userCardsProp && results[cardsProp ? 2 : 3]) setInternalUserCards(results[cardsProp ? 2 : 3])
     if (!t) { addToast('Trade not found', 'error'); onClose(); return }
     setTrade(t)
     setTokens(tok)
@@ -52,7 +62,7 @@ export default function TradeSession({ tradeId, user, cards, userCards, addToast
     const oc = await getOtherUserCards(otherId)
     setOtherUserCards(oc)
     setLoading(false)
-  }, [tradeId, user.id, addToast, onClose])
+  }, [tradeId, user.id, addToast, onClose, cardsProp, userCardsProp])
 
   useEffect(() => { loadTrade() }, [loadTrade])
 

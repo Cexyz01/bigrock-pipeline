@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase, subscribeToGameSession, declineGameInvite, cancelGame } from '../../lib/supabase';
 
-const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi' };
-const GAME_ICONS = { connect4: '🔴', othello: '⚫', chess: '♟️' };
+const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi', uno: 'UNO', snake_battle: 'Snake Battle', trivia_quiz: 'Trivia Quiz' };
+const GAME_ICONS = { connect4: '🔴', othello: '⚫', chess: '♟️', uno: '🃏', snake_battle: '🐍', trivia_quiz: '🧠' };
 const TIMEOUT = 15; // seconds
 
 export default function GameInviteOverlay({ gameId, game, role, onAccepted, onClose, addToast }) {
@@ -30,6 +30,11 @@ export default function GameInviteOverlay({ gameId, game, role, onAccepted, onCl
       const g = payload.new;
       if (g.status === 'active') {
         setStatus('accepted');
+        // Trivia: proposer doesn't play — just show confirmation and close
+        if (role === 'proposer' && game.game_type === 'trivia_quiz') {
+          setTimeout(() => doClose(`${otherName} ha accettato la sfida trivia!`), 1200);
+          return;
+        }
         setTimeout(() => {
           if (!closedRef.current) { closedRef.current = true; onAccepted(gameId); }
         }, 400);

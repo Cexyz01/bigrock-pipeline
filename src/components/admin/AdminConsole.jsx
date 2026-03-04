@@ -15,12 +15,14 @@ const CMDS = [
   { id: 'online', icon: '👁', label: 'Online', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
 ];
 const DURATIONS = [3, 5, 10, 15, 30];
-const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi', uno: 'UNO' };
+const GAME_LABELS = { connect4: 'Forza 4', othello: 'Othello', chess: 'Scacchi', uno: 'UNO', snake_battle: 'Snake Battle', trivia_quiz: 'Trivia Quiz' };
 const GAME_TYPES = [
-  { id: 'connect4', icon: '🔴', label: 'Forza 4' },
-  { id: 'othello',  icon: '⚫', label: 'Othello' },
-  { id: 'chess',    icon: '♟️', label: 'Scacchi' },
-  { id: 'uno',      icon: '🃏', label: 'UNO' },
+  { id: 'connect4',     icon: '🔴', label: 'Forza 4' },
+  { id: 'othello',      icon: '⚫', label: 'Othello' },
+  { id: 'chess',        icon: '♟️', label: 'Scacchi' },
+  { id: 'uno',          icon: '🃏', label: 'UNO' },
+  { id: 'snake_battle', icon: '🐍', label: 'Snake Battle' },
+  { id: 'trivia_quiz',  icon: '🧠', label: 'Trivia Quiz' },
 ];
 
 const HELP = [
@@ -33,14 +35,14 @@ const HELP = [
   ['disco [nome] [sec]','Disco mode (tutti o persona)'],
   ['flip [nome] [sec]', 'Capovolgi schermo (tutti o persona)'],
   ['gravity [nome] [sec]','Terremoto! Tutto crolla a terra (6s default)'],
-  ['play <nome> [gioco]','Sfida a minigioco (connect4, othello, chess)'],
+  ['play <nome> [gioco]','Sfida a minigioco (connect4, othello, chess, uno, snake, trivia)'],
   ['users',             'Lista utenti registrati'],
   ['online',            'Ultimi 10 visitatori del sito'],
   ['whoami',            'Mostra info admin corrente'],
   ['clear',             'Pulisci la console'],
 ];
 
-export default function AdminConsole({ user, profiles, channelRef, onMatrixToggle, onGameChallenge, onClose, isMobile: isMobileProp }) {
+export default function AdminConsole({ user, profiles, channelRef, matrixMode, onMatrixToggle, onGameChallenge, onClose, isMobile: isMobileProp }) {
   // Internal mobile detection as failsafe (prop may miss on some devices)
   const [internalMobile, setInternalMobile] = useState(
     () => typeof window !== 'undefined' && (window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 900))
@@ -97,7 +99,10 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
     // matrix is a toggle, no target/duration
     if (cmd.id === 'matrix') {
       onMatrixToggle();
+      if (!matrixMode) { document.documentElement.requestFullscreen?.().catch(() => {}); }
+      else if (document.fullscreenElement) { document.exitFullscreen?.().catch(() => {}); }
       setLastResult({ text: 'Matrix mode toggled!', c: '#00ff41' });
+      onClose();
       return;
     }
 
@@ -191,6 +196,65 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
         break;
       }
     }
+  };
+
+  // ── Desktop terminal hooks (must be called unconditionally for Rules of Hooks) ──
+  const [output, setOutput] = useState([
+    { text: '  ____  _       ____            _    ', c: '#00ff41' },
+    { text: ' | __ )(_) __ _|  _ \\ ___   ___| | __', c: '#00ff41' },
+    { text: " |  _ \\| |/ _` | |_) / _ \\ / __| |/ /", c: '#00ff41' },
+    { text: ' | |_) | | (_| |  _ < (_) | (__|   < ', c: '#00ff41' },
+    { text: ' |____/|_|\\__, |_| \\_\\___/ \\___|_|\\_\\', c: '#00ff41' },
+    { text: '          |___/   ADMIN CONSOLE v1.0', c: '#F28C28' },
+    { text: '', c: '#888' },
+    { text: ' Digita "help" per la lista comandi.', c: '#666' },
+    { text: '', c: '#888' },
+  ]);
+  const [input, setInput] = useState('');
+  const [history, setHistory] = useState([]);
+  const [histIdx, setHistIdx] = useState(-1);
+  const [termSize, setTermSize] = useState({ w: Math.min(540, window.innerWidth - 32), h: 280 });
+  const [pos, setPos] = useState({ x: 90, y: Math.max(100, window.innerHeight - 420) });
+  const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(null);
+  const dragOff = useRef({ x: 0, y: 0 });
+  const resizeStart = useRef({ mx: 0, my: 0, w: 0, h: 0 });
+  const outRef = useRef(null);
+  const inRef = useRef(null);
+
+  useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [output]);
+  useEffect(() => { if (!isMobile) inRef.current?.focus(); }, [isMobile]);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e) => setPos({ x: Math.max(0, Math.min(window.innerWidth - termSize.w, e.clientX - dragOff.current.x)), y: Math.max(0, Math.min(window.innerHeight - 80, e.clientY - dragOff.current.y)) });
+    const up = () => setDragging(false);
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [dragging, termSize.w]);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const move = (e) => {
+      const dx = e.clientX - resizeStart.current.mx;
+      const dy = e.clientY - resizeStart.current.my;
+      setTermSize(prev => {
+        const nw = resizing.includes('e') ? Math.max(360, Math.min(window.innerWidth - pos.x - 8, resizeStart.current.w + dx)) : prev.w;
+        const nh = resizing.includes('s') ? Math.max(120, Math.min(window.innerHeight - pos.y - 100, resizeStart.current.h + dy)) : prev.h;
+        return { w: nw, h: nh };
+      });
+    };
+    const up = () => setResizing(null);
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [resizing, pos.x, pos.y]);
+
+  const dlog = (text, c = '#00ff41') => setOutput(p => [...p, { text, c }]);
+  const onDragStart = (e) => { setDragging(true); dragOff.current = { x: e.clientX - pos.x, y: e.clientY - pos.y }; };
+  const onResizeStart = (dir) => (e) => {
+    e.stopPropagation(); e.preventDefault();
+    setResizing(dir);
+    resizeStart.current = { mx: e.clientX, my: e.clientY, w: termSize.w, h: termSize.h };
   };
 
   if (isMobile) {
@@ -376,67 +440,8 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
   }
 
   // ══════════════════════════════════════════════
-  //  DESKTOP TERMINAL UI (unchanged logic)
+  //  DESKTOP TERMINAL UI
   // ══════════════════════════════════════════════
-  const [output, setOutput] = useState([
-    { text: '  ____  _       ____            _    ', c: '#00ff41' },
-    { text: ' | __ )(_) __ _|  _ \\ ___   ___| | __', c: '#00ff41' },
-    { text: " |  _ \\| |/ _` | |_) / _ \\ / __| |/ /", c: '#00ff41' },
-    { text: ' | |_) | | (_| |  _ < (_) | (__|   < ', c: '#00ff41' },
-    { text: ' |____/|_|\\__, |_| \\_\\___/ \\___|_|\\_\\', c: '#00ff41' },
-    { text: '          |___/   ADMIN CONSOLE v1.0', c: '#F28C28' },
-    { text: '', c: '#888' },
-    { text: ' Digita "help" per la lista comandi.', c: '#666' },
-    { text: '', c: '#888' },
-  ]);
-  const [input, setInput] = useState('');
-  const [history, setHistory] = useState([]);
-  const [histIdx, setHistIdx] = useState(-1);
-  const [termSize, setTermSize] = useState({ w: Math.min(540, window.innerWidth - 32), h: 280 });
-  const [pos, setPos] = useState({ x: 90, y: Math.max(100, window.innerHeight - 420) });
-  const [dragging, setDragging] = useState(false);
-  const [resizing, setResizing] = useState(null); // null | 'e' | 's' | 'se'
-  const dragOff = useRef({ x: 0, y: 0 });
-  const resizeStart = useRef({ mx: 0, my: 0, w: 0, h: 0 });
-  const outRef = useRef(null);
-  const inRef = useRef(null);
-
-  useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [output]);
-  useEffect(() => { inRef.current?.focus(); }, []);
-
-  // ── Drag ──
-  const onDragStart = (e) => { setDragging(true); dragOff.current = { x: e.clientX - pos.x, y: e.clientY - pos.y }; };
-  useEffect(() => {
-    if (!dragging) return;
-    const move = (e) => setPos({ x: Math.max(0, Math.min(window.innerWidth - termSize.w, e.clientX - dragOff.current.x)), y: Math.max(0, Math.min(window.innerHeight - 80, e.clientY - dragOff.current.y)) });
-    const up = () => setDragging(false);
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
-    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, [dragging, termSize.w]);
-
-  // ── Resize ──
-  const onResizeStart = (dir) => (e) => {
-    e.stopPropagation(); e.preventDefault();
-    setResizing(dir);
-    resizeStart.current = { mx: e.clientX, my: e.clientY, w: termSize.w, h: termSize.h };
-  };
-  useEffect(() => {
-    if (!resizing) return;
-    const move = (e) => {
-      const dx = e.clientX - resizeStart.current.mx;
-      const dy = e.clientY - resizeStart.current.my;
-      setTermSize(prev => {
-        const nw = resizing.includes('e') ? Math.max(360, Math.min(window.innerWidth - pos.x - 8, resizeStart.current.w + dx)) : prev.w;
-        const nh = resizing.includes('s') ? Math.max(120, Math.min(window.innerHeight - pos.y - 100, resizeStart.current.h + dy)) : prev.h;
-        return { w: nw, h: nh };
-      });
-    };
-    const up = () => setResizing(null);
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
-    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, [resizing, pos.x, pos.y]);
-
-  const dlog = (text, c = '#00ff41') => setOutput(p => [...p, { text, c }]);
 
   const exec = (raw) => {
     const trimmed = raw.trim();
@@ -479,7 +484,7 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
         broadcast({ type: 'broadcast', targetId: target.id, message: m, sender: user.full_name, duration: dur });
         dlog(`  📢 → ${target.full_name}: "${m}" (${dur / 1000}s)`, '#ffd700'); break;
       }
-      case 'matrix': { onMatrixToggle(); dlog('  🟢 Matrix mode toggled!', '#00ff41'); break; }
+      case 'matrix': { onMatrixToggle(); if (!matrixMode) { document.documentElement.requestFullscreen?.().catch(() => {}); } else if (document.fullscreenElement) { document.exitFullscreen?.().catch(() => {}); } dlog('  🟢 Matrix mode toggled!', '#00ff41'); onClose(); break; }
       case 'ban': {
         if (args.length < 2) { dlog('  Uso: ban <nome> <secondi>', '#ff5555'); break; }
         const secs = parseInt(args[args.length - 1]);
@@ -512,11 +517,12 @@ export default function AdminConsole({ user, profiles, channelRef, onMatrixToggl
         break;
       }
       case 'play': {
-        if (args.length < 1) { dlog('  Uso: play <nome> [connect4|othello|chess|uno]', '#ff5555'); break; }
-        const validGames = ['connect4', 'othello', 'chess', 'uno'];
+        if (args.length < 1) { dlog('  Uso: play <nome> [connect4|othello|chess|uno|snake|trivia]', '#ff5555'); break; }
+        const gameAliases = { snake: 'snake_battle', trivia: 'trivia_quiz' };
+        const validGames = ['connect4', 'othello', 'chess', 'uno', 'snake_battle', 'trivia_quiz', 'snake', 'trivia'];
         const lastArg = args[args.length - 1].toLowerCase();
         const hasGame = validGames.includes(lastArg);
-        const gameType = hasGame ? lastArg : 'connect4';
+        const gameType = hasGame ? (gameAliases[lastArg] || lastArg) : 'connect4';
         const nameQ = hasGame ? args.slice(0, -1).join(' ') : args.join(' ');
         if (!nameQ) { dlog('  Specifica un utente!', '#ff5555'); break; }
         const target = findUser(nameQ);

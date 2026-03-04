@@ -48,7 +48,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
   const banner = document.createElement('div')
   banner.id = 'pwa-banner'
   banner.innerHTML = `
-    <div style="position:fixed;bottom:72px;left:12px;right:12px;z-index:999;
+    <div style="position:fixed;bottom:60px;left:12px;right:12px;z-index:999;
       background:linear-gradient(135deg,#F28C28,#F5B862);color:#fff;
       border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;
       box-shadow:0 8px 32px rgba(242,140,40,0.4);animation:slideInUp 0.3s ease">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-  getTradeTokens, createTradeInvite, getTradeById, subscribeToTradeInvites,
-  sendNotification, supabase,
+  getTradeTokens, createTradeInvite,
+  sendNotification,
 } from '../../lib/supabase'
 import { isAdmin } from '../../lib/constants'
 
@@ -10,7 +10,7 @@ const D = {
   text: '#F1F5F9', sub: '#CBD5E1', muted: '#94A3B8', dim: '#64748B',
 }
 
-export default function PackTrading({ user, profiles, addToast, onInviteSent, onInviteReceived }) {
+export default function PackTrading({ user, profiles, addToast, onInviteSent }) {
   const [tokens, setTokens] = useState(null)
   const [loading, setLoading] = useState(true)
   const [targetUser, setTargetUser] = useState('')
@@ -26,18 +26,6 @@ export default function PackTrading({ user, profiles, addToast, onInviteSent, on
   }, [user.id])
 
   useEffect(() => { loadData() }, [loadData])
-
-  // Realtime: incoming invites → fetch full trade (with profiles), then trigger overlay
-  useEffect(() => {
-    const channel = subscribeToTradeInvites(user.id, async (payload) => {
-      const newInvite = payload.new
-      if (newInvite && newInvite.status === 'pending_invite') {
-        const { data: fullTrade } = await getTradeById(newInvite.id)
-        onInviteReceived(fullTrade || newInvite)
-      }
-    })
-    return () => { supabase.removeChannel(channel) }
-  }, [user.id, onInviteReceived])
 
   // Filter eligible profiles
   const eligibleProfiles = useMemo(() => {
