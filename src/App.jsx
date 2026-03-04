@@ -47,6 +47,13 @@ import TradeSession from './components/pack/TradeSession'
 import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fixSyncMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
+import DevConsole from './components/console/DevConsole'
+import BroadcastOverlay from './components/console/BroadcastOverlay'
+import MatrixRain from './components/console/MatrixRain'
+import BanOverlay from './components/console/BanOverlay'
+import useAdminChannel from './components/console/useAdminChannel'
+import useConsoleKeyboard from './components/console/useConsoleKeyboard'
+
 export default function App() {
   const isMobile = useIsMobile()
   const [session, setSession] = useState(null)
@@ -86,6 +93,22 @@ export default function App() {
     window.addEventListener('orientationchange', () => setTimeout(setH, 100))
     return () => window.removeEventListener('resize', setH)
   }, [])
+
+  // Admin DevConsole
+  const [consoleOpen, setConsoleOpen] = useState(false)
+  const {
+    broadcastMessage, dismissBroadcast,
+    matrixActive,
+    banInfo,
+    sendCommand,
+  } = useAdminChannel(!!user)
+  const toggleConsole = useCallback(() => setConsoleOpen(prev => !prev), [])
+  useConsoleKeyboard(user?.role === 'admin', toggleConsole)
+
+  const isBanned = banInfo && (
+    user?.full_name === banInfo.target ||
+    user?.email === banInfo.email
+  )
 
   // Auth
   useEffect(() => {
@@ -752,6 +775,30 @@ export default function App() {
           onClose={() => setActiveTradeId(null)}
         />,
         document.body
+      )}
+
+      {/* Admin DevConsole */}
+      {user?.role === 'admin' && consoleOpen && (
+        <DevConsole
+          open={consoleOpen}
+          onClose={() => setConsoleOpen(false)}
+          sendCommand={sendCommand}
+          profiles={profiles}
+          addToast={addToast}
+        />
+      )}
+
+      {/* Broadcast overlay — all users */}
+      {broadcastMessage && (
+        <BroadcastOverlay message={broadcastMessage} onDismiss={dismissBroadcast} />
+      )}
+
+      {/* Matrix rain — all users */}
+      {matrixActive && <MatrixRain />}
+
+      {/* Ban overlay — targeted user only */}
+      {isBanned && (
+        <BanOverlay seconds={banInfo.seconds} onExpire={() => {}} />
       )}
     </div>
   )
