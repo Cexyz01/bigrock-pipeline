@@ -81,10 +81,10 @@ export default function Sidebar({
       <>
         {/* Bottom Tab Bar */}
         <div className="mobile-bottom-bar" style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, height: 52,
+          position: 'fixed', bottom: 0, left: 0, right: 0, height: 44,
           background: '#fff', borderTop: '1px solid #E8ECF1',
           display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-          zIndex: 40, paddingBottom: 2,
+          zIndex: 40, boxSizing: 'content-box',
           boxShadow: '0 -2px 12px rgba(0,0,0,0.04)',
         }}>
           {mobileNav.map(n => {
@@ -137,7 +137,7 @@ export default function Sidebar({
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)', zIndex: 90 }}
               onClick={() => setShowMore(false)} />
             <div style={{
-              position: 'fixed', bottom: 52, left: 0, right: 0, zIndex: 91,
+              position: 'fixed', bottom: 44, left: 0, right: 0, zIndex: 91,
               background: '#fff', borderRadius: '20px 20px 0 0',
               boxShadow: '0 -8px 32px rgba(0,0,0,0.12)',
               animation: 'slideInUp 0.2s ease',

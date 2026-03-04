@@ -686,7 +686,7 @@ export default function App() {
     )
   }
 
-  const contentPadding = isMobile ? '16px 16px 68px' : '36px 44px'
+  const contentPadding = isMobile ? '16px 16px 60px' : '36px 44px'
 
   return (
     <div className={isMobile ? 'mobile-safe-top' : ''} style={{ display: 'flex', height: isMobile ? 'var(--app-height, 100vh)' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
@@ -710,7 +710,7 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Full-bleed views: storyboard, pack — no padding, no maxWidth */}
         {(view === 'storyboard' || view === 'pack') ? (
-          <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 52 } : {}) }}>
+          <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 44 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage />}
             {view === 'pack' && (isAdmin(user.role) || tcgGameActive) && (
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
