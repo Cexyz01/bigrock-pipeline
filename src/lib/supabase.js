@@ -341,6 +341,7 @@ export async function uploadConceptImage(shotId, file) {
 
     // Step 1: Get signed upload params from Edge Function
     const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    const { data: { session } } = await supabase.auth.getSession()
     let sigRes
     try {
       sigRes = await fetch(sigUrl, {
@@ -348,6 +349,7 @@ export async function uploadConceptImage(shotId, file) {
         headers: {
           'Content-Type': 'application/json',
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: shotId }),
       })
@@ -511,6 +513,7 @@ export async function uploadCardImage(cardNumber, file) {
 
     // Step 1: Get signed upload params from Edge Function
     const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    const { data: { session } } = await supabase.auth.getSession()
     let sigRes
     try {
       sigRes = await fetch(sigUrl, {
@@ -518,6 +521,7 @@ export async function uploadCardImage(cardNumber, file) {
         headers: {
           'Content-Type': 'application/json',
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({ action: 'get_card_upload_sig', card_number: cardNumber }),
       })
@@ -837,6 +841,7 @@ export async function uploadWipImage(taskId, file) {
 
     // Step 1: Get signed upload params from Edge Function
     const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    const { data: { session } } = await supabase.auth.getSession()
     let sigRes
     try {
       sigRes = await fetch(sigUrl, {
@@ -844,6 +849,7 @@ export async function uploadWipImage(taskId, file) {
         headers: {
           'Content-Type': 'application/json',
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({ action: 'get_wip_upload_sig', task_id: taskId }),
       })
