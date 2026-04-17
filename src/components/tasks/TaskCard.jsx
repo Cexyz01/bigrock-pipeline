@@ -33,7 +33,7 @@ export default function TaskCard({ task, user, staff, onClick, wipViews }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        padding: isMobile ? 16 : 24, borderRadius: isMobile ? 16 : 24, cursor: 'pointer', minHeight: isMobile ? 120 : 160,
+        padding: isMobile ? 14 : 18, borderRadius: isMobile ? 14 : 20, cursor: 'pointer', minHeight: isMobile ? 96 : 128,
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         background: h ? (statusHoverBg[task.status] || '#F8FAFC') : (statusBg[task.status] || '#fff'),
         border: `1px solid ${statusBorder[task.status] || '#E8ECF1'}`,

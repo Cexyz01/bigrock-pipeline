@@ -2,10 +2,17 @@ import React from 'react'
 import { getShotStatus } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 
-const ShotCell = React.memo(function ShotCell({ status, onClick, clickable }) {
+const ShotCell = React.memo(function ShotCell({ status, onClick, clickable, disabled }) {
   const isMobile = useIsMobile()
   const st = getShotStatus(status)
   const isComplete = status === 'review'
+
+  if (disabled) {
+    return (
+      <div style={{ padding: isMobile ? '1px 1px' : '3px 2px' }} />
+    )
+  }
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '1px 1px' : '3px 2px' }}>
       <div

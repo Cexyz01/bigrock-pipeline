@@ -1,0 +1,2 @@
+[functions.miro-sync]
+verify_jwt = false

@@ -116,7 +116,8 @@ function calcImageGrid(n: number): { cols: number; rows: number } {
 // MIRO API HELPERS
 // ══════════════════════════════════════════════════════════════
 
-const boardUrl = `${MIRO_API}/boards/${BOARD_ID}`
+// Default board URL — can be overridden per-request via board_id param
+let boardUrl = `${MIRO_API}/boards/${BOARD_ID}`
 
 async function miroGet(path: string) {
   const res = await fetch(`${boardUrl}${path}`, {
@@ -462,6 +463,42 @@ function err(msg: string, status = 400) {
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
 // ══════════════════════════════════════════════════════════════
+// CREATE BOARD — Create a new Miro board for a project
+// ══════════════════════════════════════════════════════════════
+
+async function handleCreateBoard(supabase: any, params: any) {
+  const { project_id, project_name } = params
+  if (!project_id || !project_name) throw new Error("project_id and project_name required")
+
+  console.log(`[create_board] Creating Miro board for project: ${project_name}`)
+
+  const res = await fetch(`${MIRO_API}/boards`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${MIRO_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: `BigRock Pipeline — ${project_name}`,
+      description: `Storyboard per ${project_name}`,
+    }),
+  })
+
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`Miro create board failed: ${res.status} ${t}`)
+  }
+
+  const board = await res.json()
+  console.log(`[create_board] Board created: ${board.id}`)
+
+  // Update the project record with the new board_id
+  await supabase.from("projects").update({ miro_board_id: board.id }).eq("id", project_id)
+
+  return ok({ board_id: board.id, board_url: board.viewLink })
+}
+
+// ══════════════════════════════════════════════════════════════
 // FULL SYNC — Nuclear rebuild of the entire Miro table
 // ══════════════════════════════════════════════════════════════
 
@@ -652,7 +689,8 @@ async function handleCreateShotRow(supabase: any, params: any) {
 async function handleDeleteShotRow(supabase: any, params: any) {
   const { shot_id } = params
   if (!shot_id) return err("shot_id required")
-  await cloudDeletePrefix(`bigrock-wip/${shot_id}`)
+  // DO NOT delete Cloudinary assets — keep images safe
+  // Previously: await cloudDeletePrefix(`bigrock-wip/${shot_id}`)
   await supabase.from("miro_wip_images").delete().eq("shot_id", shot_id)
   await supabase.from("miro_shot_rows").delete().eq("shot_id", shot_id)
   return await handleFullSync(supabase)
@@ -688,8 +726,8 @@ async function handleDeleteTaskImages(supabase: any, params: any) {
   // 3. Delete miro_wip_images DB rows for this task
   await supabase.from("miro_wip_images").delete().eq("task_id", task_id)
 
-  // 4. Delete Cloudinary assets for WIP updates (bigrock-wip-updates/{task_id})
-  await cloudDeletePrefix(`bigrock-wip-updates/${task_id}`)
+  // 4. DO NOT delete Cloudinary assets — keep WIP images for review/history
+  // Previously: await cloudDeletePrefix(`bigrock-wip-updates/${task_id}`)
 
   // 5. Delete Cloudinary assets for Miro images if task has shot+department
   if (task?.shot_id && task?.department) {
@@ -886,8 +924,8 @@ async function handleCleanup(supabase: any) {
     console.log(`[cleanup] ${table}: ${error ? "ERROR " + error.message : "OK"}`)
   }
 
-  // 3. Delete Cloudinary assets
-  await cloudDeletePrefix("bigrock-wip")
+  // 3. DO NOT delete Cloudinary assets — keep them safe
+  // Previously: await cloudDeletePrefix("bigrock-wip")
 
   console.log("[cleanup] ═══ Done ═══")
   return ok({ success: true, deleted: results })
@@ -947,6 +985,48 @@ async function handleGetConceptUploadSig(_supabase: any, params: any) {
   if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
 
   const folder = "bigrock-concepts"
+  const ts = Math.floor(Date.now() / 1000).toString()
+  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
+
+  return ok({
+    cloud_name: CLD_CLOUD,
+    api_key: CLD_KEY,
+    timestamp: ts,
+    signature: sig,
+    folder,
+  })
+}
+
+// SHOT OUTPUT IMAGE UPLOAD — Signed Cloudinary params
+// ══════════════════════════════════════════════════════════════
+
+async function handleGetOutputUploadSig(_supabase: any, params: any) {
+  const { shot_id } = params
+  if (!shot_id) return err("Missing shot_id")
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
+
+  const folder = "bigrock-outputs"
+  const ts = Math.floor(Date.now() / 1000).toString()
+  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
+
+  return ok({
+    cloud_name: CLD_CLOUD,
+    api_key: CLD_KEY,
+    timestamp: ts,
+    signature: sig,
+    folder,
+  })
+}
+
+// TIMELINE FILE UPLOAD — Signed Cloudinary params (audio/video)
+// ══════════════════════════════════════════════════════════════
+
+async function handleGetTimelineUploadSig(_supabase: any, params: any) {
+  const { shot_id } = params
+  if (!shot_id) return err("Missing shot_id")
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
+
+  const folder = "bigrock-timeline"
   const ts = Math.floor(Date.now() / 1000).toString()
   const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
 
@@ -1040,14 +1120,18 @@ serve(async (req) => {
   }
 
   try {
-    const { action, ...params } = await req.json()
-    console.log(`[miro-sync] Action: ${action}`)
+    const { action, board_id: clientBoardId, ...params } = await req.json()
+    console.log(`[miro-sync] Action: ${action}, board_id: ${clientBoardId || 'default'}`)
+
+    // Override board URL if client provides a specific board_id
+    boardUrl = `${MIRO_API}/boards/${clientBoardId || BOARD_ID}`
 
     // Auth is verified by Supabase relay (verify_jwt default=true)
     // Use service role for DB operations
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     switch (action) {
+      case "create_board":      return await handleCreateBoard(supabase, params)
       case "full_sync":         return await handleFullSync(supabase)
       case "fix_sync":          return await handleFixSync(supabase)
       case "create_shot_row":   return await handleCreateShotRow(supabase, params)
@@ -1061,6 +1145,8 @@ serve(async (req) => {
       case "get_card_upload_sig": return await handleGetCardUploadSig(supabase, params)
       case "get_wip_upload_sig": return await handleGetWipUploadSig(supabase, params)
       case "get_concept_upload_sig": return await handleGetConceptUploadSig(supabase, params)
+      case "get_output_upload_sig": return await handleGetOutputUploadSig(supabase, params)
+      case "get_timeline_upload_sig": return await handleGetTimelineUploadSig(supabase, params)
       default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {

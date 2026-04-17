@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { DEPTS, SHOT_STATUSES, isStaff, isAdmin, ACCENT } from '../../lib/constants'
+import { DEPTS, SHOT_STATUSES, hasPermission, ACCENT } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
@@ -7,37 +7,19 @@ import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import EmptyState from '../ui/EmptyState'
 import ShotRow from '../shots/ShotRow'
-import { IconWrench, IconAlertTriangle, IconCamera, IconX } from '../ui/Icons'
+import { IconCamera, IconX } from '../ui/Icons'
 
-export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateShot, onDeleteShot, onUploadReference, onSyncMiro, onFixMiro, addToast, requestConfirm }) {
+export default function ShotTrackerPage({ shots, user, canEditShots = true, onUpdateShot, onReorderShots, onCreateShot, onDeleteShot, onUploadReference, onUploadOutput, addToast, requestConfirm, onGoToShotTasks }) {
   const [showCreate, setShowCreate] = useState(false)
-  const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '' })
+  const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '', disabled_depts: {} })
   const [refFile, setRefFile] = useState(null)
   const [refPreview, setRefPreview] = useState(null)
-  const [syncing, setSyncing] = useState(false)
-  const [fixing, setFixing] = useState(false)
   const refInputRef = useRef(null)
-  const staff = isStaff(user.role)
+  const staff = hasPermission(user, 'create_edit_shots')
   const isMobile = useIsMobile()
 
-  const handleSyncMiro = () => {
-    requestConfirm(
-      'Rebuild entire Miro?',
-      'This operation deletes the entire Miro board and recreates it from scratch. Use "Fix Miro" to fix only missing images.',
-      async () => {
-        setSyncing(true)
-        try { await onSyncMiro() } finally { setSyncing(false) }
-      }
-    )
-  }
-
-  const handleFixMiro = async () => {
-    setFixing(true)
-    try { await onFixMiro() } finally { setFixing(false) }
-  }
-
   const cycleShotStatus = useCallback(async (shot, deptId) => {
-    if (!staff) return
+    if (!staff || !canEditShots) return
     const key = `status_${deptId}`
     const order = ['not_started', 'in_progress', 'review', 'approved']
     const curr = order.indexOf(shot[key])
@@ -45,21 +27,31 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
     await onUpdateShot(shot.id, { [key]: next })
   }, [staff, onUpdateShot])
 
-  const handleMoveShot = useCallback(async (shotId, direction) => {
-    if (!staff) return
-    const shot = shots.find(s => s.id === shotId)
-    if (!shot) return
+  // Drag-drop reorder: move draggedId before targetId within same sequence.
+  // Uses onReorderShots for a single batched optimistic update — instant feel.
+  const handleDrop = useCallback((draggedId, targetId) => {
+    if (!staff || draggedId === targetId) return
+    const dragged = shots.find(s => s.id === draggedId)
+    const target = shots.find(s => s.id === targetId)
+    if (!dragged || !target || dragged.sequence !== target.sequence) return
     const seqShots = shots
-      .filter(s => s.sequence === shot.sequence)
+      .filter(s => s.sequence === dragged.sequence)
       .sort((a, b) => (a.sort_order - b.sort_order) || a.code.localeCompare(b.code))
-    const idx = seqShots.findIndex(s => s.id === shotId)
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (swapIdx < 0 || swapIdx >= seqShots.length) return
-    // Swap positions in array
-    ;[seqShots[idx], seqShots[swapIdx]] = [seqShots[swapIdx], seqShots[idx]]
-    // Reassign sort_order for all shots in this sequence
-    await Promise.all(seqShots.map((s, i) => onUpdateShot(s.id, { sort_order: i })))
-  }, [staff, shots, onUpdateShot])
+    const without = seqShots.filter(s => s.id !== draggedId)
+    const targetIdx = without.findIndex(s => s.id === targetId)
+    without.splice(targetIdx, 0, dragged)
+    // Build only the changes (rows whose sort_order actually moved)
+    const changes = without
+      .map((s, i) => (s.sort_order !== i ? { id: s.id, updates: { sort_order: i } } : null))
+      .filter(Boolean)
+    if (changes.length === 0) return
+    if (onReorderShots) {
+      onReorderShots(changes)
+    } else {
+      // Fallback if batch handler not wired
+      changes.forEach(c => onUpdateShot(c.id, c.updates))
+    }
+  }, [staff, shots, onUpdateShot, onReorderShots])
 
   const handleRefSelect = (e) => {
     const file = e.target.files?.[0]
@@ -72,8 +64,13 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
 
   const handleCreate = async () => {
     if (!newShot.code) return
-    await onCreateShot(newShot, refFile)
-    setNewShot({ code: '', sequence: 'SEQ01', description: '' })
+    const shotData = { code: newShot.code, sequence: newShot.sequence, description: newShot.description }
+    // Only include disabled_depts if any are disabled
+    if (newShot.disabled_depts && Object.keys(newShot.disabled_depts).length > 0) {
+      shotData.disabled_depts = newShot.disabled_depts
+    }
+    await onCreateShot(shotData, refFile)
+    setNewShot({ code: '', sequence: 'SEQ01', description: '', disabled_depts: {} })
     setRefFile(null)
     setRefPreview(null)
     setShowCreate(false)
@@ -101,8 +98,6 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Shot</Btn>}
-            {isAdmin(user.role) && <Btn variant="default" loading={fixing} onClick={handleFixMiro} style={{ fontSize: 12, ...(isMobile ? { padding: '6px 10px' } : {}), display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconWrench size={14} /> Fix Miro</Btn>}
-            {isAdmin(user.role) && <Btn variant="danger" loading={syncing} onClick={handleSyncMiro} style={{ fontSize: 12, ...(isMobile ? { padding: '6px 10px' } : {}), display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconAlertTriangle size={14} /> Rebuild Miro</Btn>}
           </div>
         </div>
       </Fade>
@@ -110,7 +105,7 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
       {/* Header */}
       <div>
       <div style={{
-        display: 'grid', gridTemplateColumns: isMobile ? '2.2fr repeat(6, 1fr)' : '200px repeat(6, 80px)', gap: isMobile ? 2 : 3,
+        display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `200px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 3,
         padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
         position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
       }}>
@@ -136,13 +131,16 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
                     key={shot.id}
                     shot={shot}
                     staff={staff}
+                    canEditShots={canEditShots}
                     onCycle={cycleShotStatus}
                     onDelete={onDeleteShot}
-                    onMove={handleMoveShot}
                     onUploadReference={onUploadReference}
-                    isFirst={idx === 0}
-                    isLast={idx === seqShots.length - 1}
+                    onUploadOutput={onUploadOutput}
+                    onUpdateShot={onUpdateShot}
+                    onDrop={handleDrop}
                     requestConfirm={requestConfirm}
+                    onGoToTasks={onGoToShotTasks}
+                    sequences={seqs}
                   />
                 ))}
               </div>
@@ -168,7 +166,8 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Input value={newShot.code} onChange={v => setNewShot(p => ({ ...p, code: v }))} placeholder="Shot code (e.g. SH010)" />
           <Input value={newShot.sequence} onChange={v => setNewShot(p => ({ ...p, sequence: v }))} placeholder="Sequence (e.g. SEQ01)" />
-          <Input value={newShot.description} onChange={v => setNewShot(p => ({ ...p, description: v }))} placeholder="Description" />
+          <textarea value={newShot.description} onChange={e => setNewShot(p => ({ ...p, description: e.target.value }))} placeholder="Description" rows={4}
+            style={{ fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', width: '100%', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box' }} />
 
           {/* Reference image upload */}
           <div>
@@ -192,6 +191,29 @@ export default function ShotTrackerPage({ shots, user, onUpdateShot, onCreateSho
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><IconCamera size={16} /> Click to select image</span>
               </div>
             )}
+          </div>
+
+          {/* Department toggles */}
+          <div>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Departments (deselect to disable)</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {DEPTS.map(d => {
+                const enabled = !newShot.disabled_depts?.[d.id]
+                return (
+                  <button key={d.id} type="button" onClick={() => setNewShot(p => {
+                    const dd = { ...(p.disabled_depts || {}) }
+                    if (dd[d.id]) { delete dd[d.id] } else { dd[d.id] = true }
+                    return { ...p, disabled_depts: dd }
+                  })} style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: `1.5px solid ${enabled ? d.color : '#CBD5E1'}`,
+                    background: enabled ? `${d.color}18` : '#F1F5F9',
+                    color: enabled ? d.color : '#94A3B8',
+                    transition: 'all 0.15s ease',
+                  }}>{d.label}</button>
+                )
+              })}
+            </div>
           </div>
 
           <Btn variant="primary" onClick={handleCreate} disabled={!newShot.code}>Create Shot</Btn>

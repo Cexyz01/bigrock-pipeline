@@ -7,44 +7,43 @@ import { supabase } from './supabase'
 const FUNCTION_NAME = 'miro-sync'
 
 async function callMiroSync(payload) {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return { data: null, error: 'Not authenticated' }
-
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${FUNCTION_NAME}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify(payload),
+  const { data, error } = await supabase.functions.invoke(FUNCTION_NAME, {
+    body: payload,
   })
+  if (error) return { data: null, error: error.message || 'Miro sync failed' }
+  return { data, error: null }
+}
 
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) return { data: null, error: json.error || `Miro sync failed (${res.status})` }
-  return { data: json, error: null }
+// Create a new Miro board for a project (admin only)
+export async function createMiroBoard(projectId, projectName) {
+  return callMiroSync({
+    action: 'create_board',
+    project_id: projectId,
+    project_name: projectName,
+  })
 }
 
 // Create a shot row on the Miro board
-export async function createMiroShotRow(shotId, shotCode) {
+export async function createMiroShotRow(shotId, shotCode, boardId) {
   return callMiroSync({
     action: 'create_shot_row',
     shot_id: shotId,
     shot_code: shotCode,
+    ...(boardId && { board_id: boardId }),
   })
 }
 
 // Delete a shot row from Miro + Cloudinary
-export async function deleteMiroShotRow(shotId) {
+export async function deleteMiroShotRow(shotId, boardId) {
   return callMiroSync({
     action: 'delete_shot_row',
     shot_id: shotId,
+    ...(boardId && { board_id: boardId }),
   })
 }
 
 // Upload a WIP image to the correct Miro cell
-export async function uploadWipImageToMiro(shotId, department, taskId, imageBase64, uploadedBy) {
+export async function uploadWipImageToMiro(shotId, department, taskId, imageBase64, uploadedBy, boardId) {
   return callMiroSync({
     action: 'upload_wip_image',
     shot_id: shotId,
@@ -52,11 +51,12 @@ export async function uploadWipImageToMiro(shotId, department, taskId, imageBase
     task_id: taskId,
     image_base64: imageBase64,
     uploaded_by: uploadedBy,
+    ...(boardId && { board_id: boardId }),
   })
 }
 
 // Upload multiple WIP images to the correct Miro cell (batch)
-export async function uploadWipImagesToMiro(shotId, department, taskId, imagesBase64, uploadedBy) {
+export async function uploadWipImagesToMiro(shotId, department, taskId, imagesBase64, uploadedBy, boardId) {
   return callMiroSync({
     action: 'upload_wip_images',
     shot_id: shotId,
@@ -64,44 +64,47 @@ export async function uploadWipImagesToMiro(shotId, department, taskId, imagesBa
     task_id: taskId,
     images_base64: imagesBase64,
     uploaded_by: uploadedBy,
+    ...(boardId && { board_id: boardId }),
   })
 }
 
 // Delete all Miro images + Cloudinary assets for a task
-export async function deleteTaskMiroImages(taskId) {
+export async function deleteTaskMiroImages(taskId, boardId) {
   return callMiroSync({
     action: 'delete_task_images',
     task_id: taskId,
+    ...(boardId && { board_id: boardId }),
   })
 }
 
 // Upload a reference image to the Reference column on Miro
-export async function uploadReferenceToMiro(shotId, imageBase64) {
+export async function uploadReferenceToMiro(shotId, imageBase64, boardId) {
   return callMiroSync({
     action: 'upload_reference',
     shot_id: shotId,
     image_base64: imageBase64,
+    ...(boardId && { board_id: boardId }),
   })
 }
 
 // Full sync — rebuilds the entire Miro table from scratch
-export async function fullSyncMiro() {
-  return callMiroSync({ action: 'full_sync' })
+export async function fullSyncMiro(boardId) {
+  return callMiroSync({ action: 'full_sync', ...(boardId && { board_id: boardId }) })
 }
 
 // Fix sync — incremental repair (only fix cells with missing images)
-export async function fixSyncMiro() {
-  return callMiroSync({ action: 'fix_sync' })
+export async function fixSyncMiro(boardId) {
+  return callMiroSync({ action: 'fix_sync', ...(boardId && { board_id: boardId }) })
 }
 
 // Initialize board (same as full sync)
-export async function initMiroBoard() {
-  return callMiroSync({ action: 'init_board' })
+export async function initMiroBoard(boardId) {
+  return callMiroSync({ action: 'init_board', ...(boardId && { board_id: boardId }) })
 }
 
 // Cleanup — wipe all data (shots, tasks, images, Miro board, Cloudinary)
-export async function cleanupAll() {
-  return callMiroSync({ action: 'cleanup' })
+export async function cleanupAll(boardId) {
+  return callMiroSync({ action: 'cleanup', ...(boardId && { board_id: boardId }) })
 }
 
 // Get Cloudinary signed upload params for WIP images (same auth as all other edge calls)

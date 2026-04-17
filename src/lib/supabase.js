@@ -31,13 +31,33 @@ export async function getSession() {
 // ── Profiles ──
 
 export async function getProfile(userId) {
-  const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+  const { data } = await supabase.from('profiles').select('*, role_data:roles(*)').eq('id', userId).single()
+  if (data && data.role_data) {
+    data.role_permissions = data.role_data.permissions || {}
+    data.role_name = data.role_data.name
+    data.role_slug = data.role_data.slug
+  } else if (data) {
+    data.role_permissions = {}
+    data.role_name = data.role || 'Studente'
+    data.role_slug = data.role || 'studente'
+  }
   return data
 }
 
 export async function getAllProfiles() {
-  const { data } = await supabase.from('profiles').select('*').order('full_name')
-  return data || []
+  const { data } = await supabase.from('profiles').select('*, role_data:roles(*)').order('full_name')
+  return (data || []).map(p => {
+    if (p.role_data) {
+      p.role_permissions = p.role_data.permissions || {}
+      p.role_name = p.role_data.name
+      p.role_slug = p.role_data.slug
+    } else {
+      p.role_permissions = {}
+      p.role_name = p.role || 'Studente'
+      p.role_slug = p.role || 'studente'
+    }
+    return p
+  })
 }
 
 export async function updateProfileRole(userId, role, department) {
@@ -89,10 +109,106 @@ export async function uploadAvatar(userId, file) {
   return { url: urlData.publicUrl, error: null }
 }
 
+export async function updateProfileFlag(userId, flag, value) {
+  const { data, error } = await supabase.from('profiles').update({ [flag]: value }).eq('id', userId).select().single()
+  return { data, error }
+}
+
+// ── Super Notifications ──
+
+export async function getUnseenSuperNotifications(userId) {
+  const { data } = await supabase.from('super_notifications')
+    .select('*, sender:profiles!super_notifications_sender_id_fkey(id, full_name, avatar_url)')
+    .eq('target_user_id', userId)
+    .eq('seen', false)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function sendSuperNotification(targetUserId, senderId, message) {
+  const { data, error } = await supabase.from('super_notifications')
+    .insert({ target_user_id: targetUserId, sender_id: senderId, message })
+    .select().single()
+  return { data, error }
+}
+
+export async function markSuperNotificationSeen(id) {
+  return supabase.from('super_notifications').update({ seen: true }).eq('id', id)
+}
+
+// ── Projects ──
+
+export async function getProjects() {
+  const { data } = await supabase.from('projects').select('*').order('created_at')
+  return data || []
+}
+
+export async function getUserProjects(userId) {
+  const { data } = await supabase.from('project_members')
+    .select('project:projects(*)')
+    .eq('user_id', userId)
+    .order('assigned_at')
+  return (data || []).map(d => d.project).filter(Boolean)
+}
+
+export async function createProject(project) {
+  const { data, error } = await supabase.from('projects').insert(project).select().single()
+  return { data, error }
+}
+
+export async function updateProject(id, updates) {
+  const { data, error } = await supabase.from('projects')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  return { data, error }
+}
+
+export async function deleteProject(id) {
+  return supabase.from('projects').delete().eq('id', id)
+}
+
+// ── Project Members ──
+
+export async function getProjectMembers(projectId) {
+  const { data, error } = await supabase.from('project_members')
+    .select('*, user:profiles!project_members_user_id_fkey(id, full_name, email, avatar_url, role, department, mood_emoji)')
+    .eq('project_id', projectId)
+    .order('assigned_at')
+  if (error) console.error('[getProjectMembers] error:', error)
+  return data || []
+}
+
+export async function addProjectMember(projectId, userId, assignedBy) {
+  // Try insert first, ignore conflict if already exists
+  const { data, error } = await supabase.from('project_members')
+    .insert({ project_id: projectId, user_id: userId, assigned_by: assignedBy })
+    .select().single()
+  // If already exists (unique constraint 23505 or HTTP 409), that's fine
+  if (error && (error.code === '23505' || error.message?.includes('409'))) return { data: null, error: null }
+  return { data, error }
+}
+
+export async function removeProjectMember(projectId, userId) {
+  return supabase.from('project_members').delete()
+    .eq('project_id', projectId).eq('user_id', userId)
+}
+
+export async function updateProjectMember(projectId, userId, updates) {
+  const { data, error } = await supabase.from('project_members')
+    .update(updates)
+    .eq('project_id', projectId)
+    .eq('user_id', userId)
+    .select('*, user:profiles!project_members_user_id_fkey(id, full_name, email, avatar_url, role, department, mood_emoji)')
+    .single()
+  return { data, error }
+}
+
 // ── Shots ──
 
-export async function getShots() {
-  const { data } = await supabase.from('shots').select('*').order('sort_order').order('code')
+export async function getShots(projectId) {
+  let query = supabase.from('shots').select('*').order('sort_order').order('code')
+  if (projectId) query = query.eq('project_id', projectId)
+  const { data } = await query
   return data || []
 }
 
@@ -120,6 +236,7 @@ export async function getTasks(filters = {}) {
     shot:shots(id, code, sequence)
   `).order('created_at', { ascending: false })
 
+  if (filters.project_id) query = query.eq('project_id', filters.project_id)
   if (filters.assigned_to) query = query.eq('assigned_to', filters.assigned_to)
   if (filters.department) query = query.eq('department', filters.department)
   if (filters.status) query = query.eq('status', filters.status)
@@ -144,6 +261,16 @@ export async function deleteTask(id) {
 }
 
 // ── WIP Images ──
+
+export async function getStoryboardImages(projectId) {
+  const { data } = await supabase
+    .from('miro_wip_images')
+    .select('id, shot_id, task_id, department, image_url, image_order, img_width, img_height, created_at')
+    .not('image_url', 'is', null)
+    .order('image_order')
+  // Filter client-side by project shots (avoids complex join)
+  return data || []
+}
 
 export async function getTaskWipImages(taskId) {
   const { data } = await supabase.from('miro_wip_images')
@@ -174,8 +301,10 @@ export async function addComment(taskId, authorId, body) {
 
 // ── Calendar ──
 
-export async function getCalendarEvents() {
-  const { data } = await supabase.from('calendar_events').select('*').order('event_date').order('event_time')
+export async function getCalendarEvents(projectId) {
+  let query = supabase.from('calendar_events').select('*').order('event_date').order('event_time')
+  if (projectId) query = query.eq('project_id', projectId)
+  const { data } = await query
   return data || []
 }
 
@@ -212,10 +341,10 @@ export async function markAllNotificationsRead(userId) {
   return supabase.from('notifications').update({ read: true }).eq('user_id', userId).eq('read', false)
 }
 
-export async function sendNotification(userId, type, title, body, linkType, linkId) {
-  return supabase.from('notifications').insert({
-    user_id: userId, type, title, body, link_type: linkType, link_id: linkId
-  })
+export async function sendNotification(userId, type, title, body, linkType, linkId, projectId) {
+  const row = { user_id: userId, type, title, body, link_type: linkType, link_id: linkId }
+  if (projectId) row.project_id = projectId
+  return supabase.from('notifications').insert(row)
 }
 
 // ── Chat ──
@@ -401,12 +530,192 @@ export async function uploadConceptImage(shotId, file) {
   }
 }
 
+// Upload output file for a shot (same Cloudinary flow, folder: bigrock-outputs)
+export async function uploadOutputImage(shotId, file) {
+  try {
+    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+    if (file.size > 30 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 30MB)' } }
+
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: 'get_output_upload_sig', shot_id: shotId }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let sigJson
+    try { sigJson = await sigRes.json() } catch (_) {
+      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
+    }
+    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
+    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
+      return { url: null, error: { message: 'Incomplete signature response' } }
+    }
+
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    // Use auto/upload to support images and video
+    let cloudRes
+    try {
+      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/auto/upload`, {
+        method: 'POST', body: fd,
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Cloudinary upload error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let cloudJson
+    try { cloudJson = await cloudRes.json() } catch (_) {
+      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
+    }
+    if (!cloudRes.ok) {
+      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
+      return { url: null, error: { message: 'Cloudinary: ' + msg } }
+    }
+
+    const fileUrl = cloudJson.secure_url
+    if (!fileUrl) return { url: null, error: { message: 'Cloudinary did not return a URL' } }
+
+    return { url: fileUrl, width: cloudJson.width || null, height: cloudJson.height || null, error: null }
+  } catch (err) {
+    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
+  }
+}
+
+// Upload a timeline file (audio/video) for a shot
+export async function uploadTimelineFile(shotId, file) {
+  try {
+    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+    if (file.size > 20 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 20MB)' } }
+
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: 'get_timeline_upload_sig', shot_id: shotId }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let sigJson
+    try { sigJson = await sigRes.json() } catch (_) {
+      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
+    }
+    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error` } }
+
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    let cloudRes
+    try {
+      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/auto/upload`, {
+        method: 'POST', body: fd,
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Cloudinary upload error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let cloudJson
+    try { cloudJson = await cloudRes.json() } catch (_) {
+      return { url: null, error: { message: `Cloudinary status ${cloudRes.status} invalid JSON` } }
+    }
+    if (!cloudRes.ok) {
+      return { url: null, error: { message: 'Cloudinary: ' + (cloudJson.error?.message || 'Upload failed') } }
+    }
+
+    return { url: cloudJson.secure_url, error: null }
+  } catch (err) {
+    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
+  }
+}
+
+// Upload a WIP file (image or audio) via Cloudinary auto upload
+export async function uploadWipFile(taskId, file) {
+  try {
+    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+    if (file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
+
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: 'get_wip_upload_sig', task_id: taskId }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let sigJson
+    try { sigJson = await sigRes.json() } catch (_) {
+      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
+    }
+    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error` } }
+    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
+      return { url: null, error: { message: 'Incomplete signature response' } }
+    }
+
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    // Use auto/upload to handle both images and audio
+    let cloudRes
+    try {
+      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/auto/upload`, {
+        method: 'POST', body: fd,
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Cloudinary upload error: ' + (networkErr.message || 'connection failed') } }
+    }
+
+    let cloudJson
+    try { cloudJson = await cloudRes.json() } catch (_) {
+      return { url: null, error: { message: `Cloudinary status ${cloudRes.status} invalid JSON` } }
+    }
+    if (!cloudRes.ok) {
+      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed`
+      return { url: null, error: { message: 'Cloudinary: ' + msg } }
+    }
+
+    const fileUrl = cloudJson.secure_url
+    if (!fileUrl) return { url: null, error: { message: 'Cloudinary did not return a URL' } }
+
+    return { url: fileUrl, error: null }
+  } catch (err) {
+    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
+  }
+}
+
 // ── Realtime subscriptions ──
 
-export function subscribeToTable(table, callback) {
+export function subscribeToTable(table, callback, filter) {
+  const config = { event: '*', schema: 'public', table }
+  if (filter) config.filter = filter
   return supabase
-    .channel(`${table}-changes`)
-    .on('postgres_changes', { event: '*', schema: 'public', table }, callback)
+    .channel(`${table}-changes${filter ? '-' + filter : ''}`)
+    .on('postgres_changes', config, callback)
     .subscribe()
 }
 
@@ -1345,4 +1654,98 @@ export function subscribeToGameSession(gameId, callback) {
       filter: `id=eq.${gameId}`,
     }, callback)
     .subscribe()
+}
+
+// ── Roles CRUD ──
+
+export async function getRoles() {
+  const { data, error } = await supabase.from('roles').select('*').order('is_preset', { ascending: false }).order('name')
+  return { data: data || [], error }
+}
+
+export async function createRole(name, slug, description, permissions) {
+  const { data, error } = await supabase.from('roles').insert({ name, slug, description, permissions, is_preset: false }).select().single()
+  return { data, error }
+}
+
+export async function updateRole(roleId, updates) {
+  const { data, error } = await supabase.from('roles').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', roleId).select().single()
+  return { data, error }
+}
+
+export async function deleteRole(roleId) {
+  // First reassign all users with this role to 'studente'
+  const { data: studenteRole } = await supabase.from('roles').select('id').eq('slug', 'studente').single()
+  if (studenteRole) {
+    await supabase.from('profiles').update({ role_id: studenteRole.id, role: 'studente' }).eq('role_id', roleId)
+  }
+  const { error } = await supabase.from('roles').delete().eq('id', roleId)
+  return { error }
+}
+
+export async function assignRole(userId, roleId, roleSlug) {
+  // Update both role_id (new) and role text (legacy compat)
+  const { data, error } = await supabase.from('profiles').update({ role_id: roleId, role: roleSlug || 'studente' }).eq('id', userId).select().single()
+  return { data, error }
+}
+
+// ── Slide Layout ──
+
+export async function updateSlideLayout(taskId, layout) {
+  const { data, error } = await supabase.from('tasks').update({ slide_layout: layout }).eq('id', taskId).select().single()
+  return { data, error }
+}
+
+// ── Storyboard Stickers ──
+
+export async function getStickers(projectId) {
+  const { data } = await supabase.from('storyboard_stickers').select('*').eq('project_id', projectId).order('z_index')
+  return data || []
+}
+
+export async function createSticker(sticker) {
+  const { data, error } = await supabase.from('storyboard_stickers').insert(sticker).select().single()
+  return { data, error }
+}
+
+export async function updateSticker(id, updates) {
+  const { data, error } = await supabase.from('storyboard_stickers').update(updates).eq('id', id).select().single()
+  return { data, error }
+}
+
+export async function deleteSticker(id) {
+  const { error } = await supabase.from('storyboard_stickers').delete().eq('id', id)
+  return { error }
+}
+
+export async function uploadStickerImage(projectId, file) {
+  try {
+    if (!file || !file.size) return { url: null, error: { message: 'No file' } }
+    if (file.size > 5 * 1024 * 1024) return { url: null, error: { message: 'Max 5MB' } }
+
+    // Get signature from edge function using concept upload action (reuses existing signing)
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    const sigRes = await fetch(sigUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+      body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: 'sticker' }),
+    })
+    const sigJson = await sigRes.json()
+    if (!sigRes.ok || !sigJson.cloud_name) return { url: null, error: { message: 'Signature error' } }
+
+    // Upload using the SAME folder the signature was created for
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('folder', sigJson.folder)
+    fd.append('timestamp', String(sigJson.timestamp))
+    fd.append('api_key', String(sigJson.api_key))
+    fd.append('signature', String(sigJson.signature))
+
+    const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, { method: 'POST', body: fd })
+    const cloudJson = await cloudRes.json()
+    if (!cloudRes.ok) return { url: null, error: { message: cloudJson.error?.message || 'Upload failed' } }
+    return { url: cloudJson.secure_url, error: null }
+  } catch (err) {
+    return { url: null, error: { message: err.message } }
+  }
 }

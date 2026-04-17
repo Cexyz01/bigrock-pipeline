@@ -5,7 +5,7 @@ import Av from '../ui/Av'
 import { IconX, IconSmile, IconSend } from '../ui/Icons'
 
 export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCount = 0, onDmRead, isMobile = false }) {
-  const staff = isStaff(user.role)
+  const staff = isStaff(user)
   const channels = ['general']
   if (staff) {
     DEPTS.forEach(d => channels.push(d.id))
@@ -162,8 +162,8 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
   // People available for DM: staff sees students, students see staff
   const dmContacts = (profiles || []).filter(p => {
     if (p.id === user.id) return false
-    if (staff) return p.role === 'studente'
-    return isStaff(p.role)
+    if (staff) return !isStaff(p)
+    return isStaff(p)
   })
 
   const totalDMUnread = conversations.reduce((s, c) => s + c.unread, 0)

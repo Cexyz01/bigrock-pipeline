@@ -13,7 +13,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   const [deleting, setDeleting] = useState(false)
   const fileRef = useRef(null)
 
-  const staff = isStaff(user.role)
+  const staff = isStaff(user)
   const dept = DEPTS.find(d => d.id === user.department)
 
   const handleAvatarUpload = async (e) => {

@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { isStaff, isAdmin, displayRole } from '../../lib/constants'
+import { isStaff, isAdmin, hasPermission, displayRole } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 
 // ── Notification category colors ──
-import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX } from '../ui/Icons'
+import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX, IconFolder, IconSettings, IconTimeline } from '../ui/Icons'
 const NOTIF_CAT = {
   wip_update:    { label: 'WIP',       color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={15} /> },
   task_assigned: { label: 'Assigned',  color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={15} /> },
@@ -19,6 +19,7 @@ import NavBtn from '../ui/NavBtn'
 import Av from '../ui/Av'
 import Btn from '../ui/Btn'
 import CalendarPopup from '../pages/CalendarPopup'
+import ProjectSelector from '../ui/ProjectSelector'
 import bigrockTitle from '../../../Images/titolo_bigrock.png'
 import hubBadge from '../../../Images/hub_bianca_sidebar.png'
 import packIcon from '../../../Images/pack-bigrock.png'
@@ -32,6 +33,8 @@ export default function Sidebar({
   events, onCreateEvent, onDeleteEvent,
   notifications, onMarkRead, onMarkAllRead, onNavigate,
   requestConfirm, unreadCount, tcgGameActive, reviewCount,
+  projects, currentProject, onSelectProject,
+  myPerms,
 }) {
   const isMobile = useIsMobile()
   const [showCalendar, setShowCalendar] = useState(false)
@@ -40,11 +43,8 @@ export default function Sidebar({
   const [packHover, setPackHover] = useState(false)
   const [packPressed, setPackPressed] = useState(false)
   const [showMore, setShowMore] = useState(false)
-  const staff = isStaff(user.role)
-  const admin = isAdmin(user.role)
-
-  // TCG visible: admins always, others only when game is active
-  const showTcg = admin || tcgGameActive
+  // TCG visible: admins/manage_tcg always, others only when game is active
+  const showTcg = hasPermission(user, 'manage_tcg') || tcgGameActive
 
   const mainNav = [
     { id: 'overview', icon: <IconHome size={20} />, label: 'Overview' },
@@ -52,8 +52,9 @@ export default function Sidebar({
     { id: 'tasks', icon: <IconClipboard size={20} />, label: 'Tasks' },
     { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard' },
   ]
-  if (staff) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
-  if (staff) mainNav.push({ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount || 0 })
+  if (hasPermission(user, 'access_timeline')) mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
+  if (hasPermission(user, 'access_activity')) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
+  if (myPerms?.can_review) mainNav.push({ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount || 0 })
 
   const closePopups = () => { setShowCalendar(false); setShowNotifs(false) }
 
@@ -153,15 +154,50 @@ export default function Sidebar({
                 </div>
               </div>
 
+              {/* Project switcher (mobile) */}
+              {projects && projects.length > 1 && (
+                <div style={{ padding: '8px 20px 4px', borderBottom: '1px solid #F1F5F9' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Progetto</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 8 }}>
+                    {projects.map(p => {
+                      const active = p.id === currentProject?.id
+                      return (
+                        <button key={p.id} onClick={() => { onSelectProject(p); setShowMore(false) }} style={{
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                          borderRadius: 10, border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left',
+                          background: active ? 'rgba(242,140,40,0.08)' : 'transparent',
+                        }}>
+                          <span style={{
+                            width: 24, height: 24, borderRadius: 6,
+                            background: active ? '#F28C28' : '#E8ECF1',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700, color: active ? '#fff' : '#64748B',
+                          }}>{p.name.slice(0, 2).toUpperCase()}</span>
+                          <span style={{
+                            fontSize: 13, fontWeight: active ? 600 : 400,
+                            color: active ? '#F28C28' : '#1a1a1a',
+                          }}>{p.name}</span>
+                          {active && <span style={{ marginLeft: 'auto', color: '#F28C28', fontSize: 14 }}>✓</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Menu items */}
               {[
                 { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard', show: true },
-                ...(staff ? [
-                  { id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity', show: true },
-                  { id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount, show: true },
+                ...(hasPermission(user, 'access_timeline') ? [
+                  { id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline', show: true },
                 ] : []),
+                ...(hasPermission(user, 'access_activity') ? [
+                  { id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity', show: true },
+                ] : []),
+                ...(myPerms?.can_review ? [{ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount, show: true }] : []),
                 { id: 'calendar', icon: <IconCalendar size={20} />, label: 'Calendar', show: true, action: () => { setShowCalendar(true); setShowMore(false) } },
                 ...(showTcg ? [{ id: 'pack', icon: <IconCards size={20} />, label: 'Pack', show: true }] : []),
+                ...((hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || hasPermission(user, 'create_projects')) ? [{ id: 'projects', icon: <IconSettings size={20} />, label: 'Gestione', show: true }] : []),
                 { id: 'crew', icon: <IconUsers size={20} />, label: 'Crew', show: true },
                 { id: 'profile', icon: <Av name={user.full_name} size={20} url={user.avatar_url} />, label: 'Profile', show: true },
               ].filter(i => i.show).map(item => (
@@ -271,6 +307,18 @@ export default function Sidebar({
               marginLeft: 4,
             }}
           />
+        </div>
+
+        {/* Projects section: management link + selector */}
+        <div style={{ borderBottom: '1px solid #2d2d2d' }}>
+          {(hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || hasPermission(user, 'create_projects')) && (
+            <div style={{ paddingTop: 6 }}>
+              <NavBtn icon={<IconSettings size={20} />} label="Gestione" active={view === 'projects'} onClick={() => setView('projects')} />
+            </div>
+          )}
+          {projects && projects.length > 0 && (
+            <ProjectSelector projects={projects} currentProject={currentProject} onSelectProject={onSelectProject} expanded={hovered} />
+          )}
         </div>
 
         {/* Notifications */}

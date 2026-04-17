@@ -1,53 +1,61 @@
-import { useState } from 'react'
-import { DEPTS, isStaff, isAdmin, SUPER_ADMIN_EMAIL, displayRole } from '../../lib/constants'
-import { updateProfileRole } from '../../lib/supabase'
+import { useState, useEffect } from 'react'
+import { DEPTS, isStaff, isAdmin, displayRole } from '../../lib/constants'
+import { getProjectMembers } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Av from '../ui/Av'
-import Modal from '../ui/Modal'
-import Select from '../ui/Select'
-import Btn from '../ui/Btn'
 
-export default function CrewPage({ profiles, user }) {
+export default function CrewPage({ profiles, user, currentProject }) {
   const isMobile = useIsMobile()
-  const admin = isAdmin(user.role)
-  const [editUser, setEditUser] = useState(null)
-  const [editRole, setEditRole] = useState('')
-  const [editDept, setEditDept] = useState('')
+  const [memberData, setMemberData] = useState([])
 
+  // Load project members with project_role
+  useEffect(() => {
+    if (!currentProject) return
+    getProjectMembers(currentProject.id).then(setMemberData)
+  }, [currentProject?.id])
+
+  // Build a map of user_id -> project_role
+  const memberRoleMap = {}
+  const memberIds = new Set()
+  memberData.forEach(m => {
+    if (!m.user) return // skip members with missing profile
+    memberIds.add(m.user_id)
+    if (m.project_role) memberRoleMap[m.user_id] = m.project_role
+  })
+
+  // Filter profiles to only project members
+  const visibleProfiles = memberData.length > 0
+    ? profiles.filter(p => memberIds.has(p.id))
+    : profiles
+
+  // Group by project_role for students, staff separate
   const grouped = {}
   DEPTS.forEach(d => grouped[d.id] = [])
   grouped['staff'] = []
   grouped['unassigned'] = []
-  profiles.forEach(p => {
-    if (isStaff(p.role)) grouped['staff'].push(p)
-    else if (p.department && grouped[p.department]) grouped[p.department].push(p)
-    else grouped['unassigned'].push(p)
-  })
-
-  const handleSaveRole = async () => {
-    if (!editUser) return
-    const { data, error } = await updateProfileRole(editUser.id, editRole, editDept || null)
-    if (error) {
-      alert('Error: ' + (error.message || 'Role update failed'))
-      return
+  visibleProfiles.forEach(p => {
+    if (isStaff(p)) {
+      grouped['staff'].push(p)
+    } else {
+      const projRole = memberRoleMap[p.id]
+      if (projRole && grouped[projRole]) grouped[projRole].push(p)
+      else grouped['unassigned'].push(p)
     }
-    setEditUser(null)
-    window.location.reload()
-  }
+  })
 
   const sections = [
     { key: 'staff', label: 'Staff', items: grouped.staff },
     ...DEPTS.map(d => ({ key: d.id, label: d.label, items: grouped[d.id] })),
-    { key: 'unassigned', label: 'Unassigned', items: grouped.unassigned },
+    { key: 'unassigned', label: 'Non assegnati', items: grouped.unassigned },
   ].filter(s => s.items.length > 0)
 
   return (
     <div>
       <Fade>
         <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Crew</h1>
-        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>{profiles.length} members</p>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>{visibleProfiles.length} membri</p>
       </Fade>
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: isMobile ? 12 : 20 }}>
@@ -59,42 +67,22 @@ export default function CrewPage({ profiles, user }) {
                 <span style={{ fontSize: 12, color: '#94A3B8' }}>{sec.items.length}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {sec.items.map(member => {
-                  const isProtected = member.email === SUPER_ADMIN_EMAIL
-                  return (
-                    <MemberRow key={member.id} member={member} admin={admin}
-                      onEdit={isProtected ? null : () => { setEditUser(member); setEditRole(member.role); setEditDept(member.department || '') }} />
-                  )
-                })}
+                {sec.items.map(member => (
+                  <MemberRow key={member.id} member={member} projectRole={memberRoleMap[member.id]} />
+                ))}
               </div>
             </Card>
           </Fade>
         ))}
       </div>
-
-      <Modal open={!!editUser} onClose={() => setEditUser(null)} title={`Edit Role — ${editUser?.full_name}`}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Select value={editRole} onChange={setEditRole}
-            options={[
-              { value: 'admin', label: 'Admin' },
-              { value: 'docente', label: 'Teacher' },
-              { value: 'coordinatore', label: 'Coordinator' },
-              { value: 'studente', label: 'Student' },
-            ]} placeholder="Select role" />
-          {editRole === 'studente' && (
-            <Select value={editDept} onChange={setEditDept}
-              options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Department" />
-          )}
-          <Btn variant="primary" onClick={handleSaveRole}>Save</Btn>
-        </div>
-      </Modal>
     </div>
   )
 }
 
-function MemberRow({ member, admin, onEdit }) {
+function MemberRow({ member, projectRole }) {
   const [h, setH] = useState(false)
-  const staff = isStaff(member.role)
+  const staff = isStaff(member)
+  const dept = projectRole ? DEPTS.find(d => d.id === projectRole) : null
   return (
     <div onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
       style={{
@@ -104,18 +92,11 @@ function MemberRow({ member, admin, onEdit }) {
       <Av name={member.full_name} size={36} url={member.avatar_url} mood={member.mood_emoji} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{member.full_name}</div>
-        {/* #7: Staff don't show department */}
         <div style={{ fontSize: 11, color: '#94A3B8' }}>
           {displayRole(member.role)}
-          {!staff && member.department && (() => {
-            const d = DEPTS.find(dep => dep.id === member.department)
-            return d ? ` · ${d.label}` : ''
-          })()}
+          {!staff && dept && ` · ${dept.label}`}
         </div>
       </div>
-      {admin && h && onEdit && (
-        <button onClick={onEdit} style={{ background: 'none', border: 'none', color: '#F28C28', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Edit</button>
-      )}
     </div>
   )
 }

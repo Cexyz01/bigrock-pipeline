@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { DEPTS, isStaff, displayRole } from '../../lib/constants'
+import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl } from '../../lib/constants'
 import { getWipUpdates, getWipComments } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
@@ -12,6 +12,7 @@ import { IconX, IconImage, IconSend, IconCheck } from '../ui/Icons'
 
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 
 export default function TaskDetailModal({
   task, user, staff, profiles, onClose, onUpdate, onDelete, onReject, onAddWipComment,
@@ -72,9 +73,16 @@ export default function TaskDetailModal({
     onClose()
   }
 
+  const [showRejectComment, setShowRejectComment] = useState(false)
+  const [rejectComment, setRejectComment] = useState('')
+
   const handleReject = async () => {
+    if (!showRejectComment) {
+      setShowRejectComment(true)
+      return
+    }
     setActionLoading('reject')
-    await onReject(task.id)
+    await onReject(task.id, rejectComment.trim())
     setActionLoading(null)
     onClose()
   }
@@ -98,11 +106,12 @@ export default function TaskDetailModal({
       return
     }
     const toAdd = selected.slice(0, available)
-    const oversized = toAdd.filter(f => f.size > MAX_FILE_SIZE)
+    const getMaxSize = (f) => f.type?.startsWith('audio/') ? MAX_AUDIO_SIZE : MAX_FILE_SIZE
+    const oversized = toAdd.filter(f => f.size > getMaxSize(f))
     if (oversized.length > 0) {
-      if (addToast) addToast(`${oversized.length} image(s) too large (max 4MB)`, 'danger')
+      if (addToast) addToast(`${oversized.length} file(s) too large`, 'danger')
     }
-    const valid = toAdd.filter(f => f.size <= MAX_FILE_SIZE)
+    const valid = toAdd.filter(f => f.size <= getMaxSize(f))
     if (valid.length === 0) return
     const newPreviews = valid.map(f => URL.createObjectURL(f))
     setWipFiles(prev => [...prev, ...valid])
@@ -213,8 +222,38 @@ export default function TaskDetailModal({
           {task.status === 'review' && (
             <>
               <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
-              <Btn variant="info" loading={actionLoading === 'reject'} onClick={handleReject} style={{ width: '100%', justifyContent: 'center' }}>Request Changes</Btn>
+              <Btn variant="info" loading={actionLoading === 'reject'} onClick={handleReject} style={{ width: '100%', justifyContent: 'center' }}>
+                {showRejectComment ? 'Invia' : 'Request Changes'}
+              </Btn>
+              {showRejectComment && (
+                <div style={{ width: '100%' }}>
+                  <textarea
+                    value={rejectComment}
+                    onChange={e => setRejectComment(e.target.value)}
+                    placeholder="Commento per lo studente..."
+                    autoFocus
+                    style={{ width: '100%', minHeight: 70, borderRadius: 8, border: '1px solid #CBD5E1', padding: 10, fontSize: 13, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                  />
+                  <button onClick={() => { setShowRejectComment(false); setRejectComment('') }}
+                    style={{ marginTop: 4, fontSize: 11, color: '#64748B', background: 'none', border: 'none', cursor: 'pointer' }}>
+                    Annulla
+                  </button>
+                </div>
+              )}
             </>
+          )}
+          {task.status === 'approved' && isSuperAdmin(user) && (
+            <Btn variant="info" loading={actionLoading === 'reopen'}
+              onClick={() => requestConfirm('Riportare questo task in WIP?', async () => {
+                setActionLoading('reopen')
+                await onUpdate(task.id, { status: 'wip' })
+                if (addToast) addToast('Task riportato in WIP', 'success')
+                setActionLoading(null)
+                onClose()
+              })}
+              style={{ width: '100%', justifyContent: 'center' }}>
+              ↩ Riporta in WIP
+            </Btn>
           )}
           <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>
         </div>
@@ -304,9 +343,16 @@ export default function TaskDetailModal({
                 {update.images && update.images.length > 0 && (
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 6 }}>
                     {update.images.map((imgUrl, imgIdx) => (
-                      <div key={imgIdx} onClick={() => setLightboxUrl(imgUrl)} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', cursor: 'pointer', aspectRatio: '1' }}>
-                        <img src={imgUrl} alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                      </div>
+                      isAudioUrl(imgUrl) ? (
+                        <div key={imgIdx} style={{ gridColumn: 'span 2', borderRadius: 8, border: '1px solid #E2E8F0', padding: 8, background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 20 }}>&#9835;</span>
+                          <audio controls src={imgUrl} style={{ width: '100%', height: 36 }} preload="metadata" />
+                        </div>
+                      ) : (
+                        <div key={imgIdx} onClick={() => setLightboxUrl(imgUrl)} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', cursor: 'pointer', aspectRatio: '1' }}>
+                          <img src={imgUrl} alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        </div>
+                      )
                     ))}
                   </div>
                 )}
@@ -321,15 +367,25 @@ export default function TaskDetailModal({
       {/* Student: WIP publish form */}
       {!staff && isOwner && task.status === 'wip' && (
         <div style={{ borderTop: '1px solid #E8ECF1', padding: isMobile ? 12 : 16, background: '#FAFBFD', flexShrink: 0 }}>
-          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelect} style={{ display: 'none' }} />
+          <input ref={fileInputRef} type="file" accept={task.department === 'sound' ? 'image/*,audio/mpeg,audio/wav,audio/ogg,audio/aac,audio/mp4,audio/x-m4a,audio/flac,audio/webm,.mp3,.wav,.ogg,.aac,.m4a,.flac' : 'image/*'} multiple onChange={handleFilesSelect} style={{ display: 'none' }} />
           {wipPreviews.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
-              {wipPreviews.map((preview, idx) => (
-                <div key={idx} style={{ position: 'relative', width: 70, height: 70, borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: '1px solid #E2E8F0' }}>
-                  <img src={preview} alt={`WIP ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                  <button onClick={() => handleRemoveFile(idx)} style={{ position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>X</button>
-                </div>
-              ))}
+              {wipPreviews.map((preview, idx) => {
+                const isAudio = wipFiles[idx]?.type?.startsWith('audio/')
+                return (
+                  <div key={idx} style={{ position: 'relative', ...(isAudio ? { width: 140, height: 70 } : { width: 70, height: 70 }), borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: '1px solid #E2E8F0', background: isAudio ? '#F8FAFC' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {isAudio ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: 4 }}>
+                        <span style={{ fontSize: 18 }}>&#9835;</span>
+                        <span style={{ fontSize: 9, color: '#64748B', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wipFiles[idx]?.name}</span>
+                      </div>
+                    ) : (
+                      <img src={preview} alt={`WIP ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    )}
+                    <button onClick={() => handleRemoveFile(idx)} style={{ position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>X</button>
+                  </div>
+                )
+              })}
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
@@ -341,7 +397,7 @@ export default function TaskDetailModal({
             </div>
             <Btn variant="primary" loading={publishing} onClick={handlePublishWip} disabled={wipFiles.length === 0 && !wipNote.trim()} style={{ flexShrink: 0, padding: '10px 16px' }}>Publish</Btn>
           </div>
-          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} images · Max 4MB</div>
+          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files (images + audio) · Max 10MB audio / 4MB images' : 'images · Max 4MB'}</div>
         </div>
       )}
       {staff && task.status === 'wip' && hasWipUpdates && (

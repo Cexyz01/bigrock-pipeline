@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { getPackCards, getUserCards, grantCard as grantCardApi, getUserTimer, upsertUserTimer, getPacksRemaining, claimAndOpenPack, getPackConfig, subscribeToTable, supabase } from '../../lib/supabase'
-import { isStaff, isAdmin, PACK_TYPES, PACK_RARITIES } from '../../lib/constants'
+import { hasPermission, PACK_TYPES, PACK_RARITIES } from '../../lib/constants'
 import PackCard, { RARITY_COLORS } from '../pack/PackCard'
 import { ScaledCard } from '../pack/CardRenderer'
 import PackShop from '../pack/PackShop'
@@ -274,7 +274,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
   // Admin can't open packs when game is active (to avoid compromising the game)
   // Non-admin can only open between 9:30 and 18:10 during active game
-  const admin = isAdmin(user.role)
+  const admin = hasPermission(user, 'manage_tcg')
   const isInPackTimeWindow = () => {
     const now = new Date()
     const m = now.getHours() * 60 + now.getMinutes()

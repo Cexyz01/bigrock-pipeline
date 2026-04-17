@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
-import { DEPTS, isStaff } from '../../lib/constants'
+import { DEPTS, hasPermission } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
-import { getProjectStartDate, setProjectStartDate, getProjectEndDate, setProjectEndDate, getAllWipUpdates } from '../../lib/supabase'
+import { getAllWipUpdates, updateProject, getProjectMembers } from '../../lib/supabase'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Av from '../ui/Av'
@@ -10,26 +10,30 @@ import StatusBadge from '../ui/StatusBadge'
 import ImageLightbox from '../ui/ImageLightbox'
 import { IconX } from '../ui/Icons'
 
-export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate }) {
+export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate, currentProject }) {
   const isMobile = useIsMobile()
   const [days, setDays] = useState(14)
   const [selectedCell, setSelectedCell] = useState(null)
-  const [projectStart, setProjectStart] = useState('')
-  const [projectEnd, setProjectEnd] = useState('')
+  const [projectStart, setProjectStart] = useState(currentProject?.start_date || '')
+  const [projectEnd, setProjectEnd] = useState(currentProject?.end_date || '')
   const [savingStart, setSavingStart] = useState(false)
   const [savingEnd, setSavingEnd] = useState(false)
   const [allWips, setAllWips] = useState([])
   const [datesLoaded, setDatesLoaded] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
-  // Load project dates + WIP updates on mount
+  // Load WIP updates on mount
   useEffect(() => {
-    Promise.all([
-      getProjectStartDate().then(v => { if (v) setProjectStart(v) }),
-      getProjectEndDate().then(v => { if (v) setProjectEnd(v) }),
-      getAllWipUpdates().then(setAllWips),
-    ]).then(() => setDatesLoaded(true))
+    getAllWipUpdates().then(setAllWips).then(() => setDatesLoaded(true))
   }, [])
+
+  // Sync dates from currentProject prop
+  useEffect(() => {
+    if (currentProject) {
+      setProjectStart(currentProject.start_date || '')
+      setProjectEnd(currentProject.end_date || '')
+    }
+  }, [currentProject])
 
   // Refresh WIPs when tasks change (e.g. new WIP pushed)
   useEffect(() => {
@@ -39,20 +43,33 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
   const handleStartDateChange = async (e) => {
     const val = e.target.value
     setProjectStart(val)
+    if (!currentProject) return
     setSavingStart(true)
-    await setProjectStartDate(val)
+    await updateProject(currentProject.id, { start_date: val || null })
     setSavingStart(false)
   }
 
   const handleEndDateChange = async (e) => {
     const val = e.target.value
     setProjectEnd(val)
+    if (!currentProject) return
     setSavingEnd(true)
-    await setProjectEndDate(val)
+    await updateProject(currentProject.id, { end_date: val || null })
     setSavingEnd(false)
   }
 
-  const students = profiles.filter(p => p.role === 'studente')
+  const [projectMemberIds, setProjectMemberIds] = useState(null)
+
+  useEffect(() => {
+    if (!currentProject) return
+    getProjectMembers(currentProject.id).then(members => {
+      setProjectMemberIds(new Set(members.map(m => m.user_id)))
+    })
+  }, [currentProject?.id])
+
+  const students = profiles.filter(p =>
+    p.role === 'studente' && (projectMemberIds ? projectMemberIds.has(p.id) : true)
+  )
 
   const dates = useMemo(() => {
     const today = new Date()
@@ -122,7 +139,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap' }}>
             {/* Project start date — staff only */}
-            {user && isStaff(user.role) && (
+            {user && hasPermission(user, 'access_activity') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <label style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>Project start:</label>
                 <input
@@ -150,7 +167,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate 
                 )}
               </div>
             )}
-            {user && isStaff(user.role) && (
+            {user && hasPermission(user, 'access_activity') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <label style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>Project end:</label>
                 <input

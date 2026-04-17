@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { isStaff } from '../../lib/constants'
+import { hasPermission } from '../../lib/constants'
 import Card from '../ui/Card'
 import Btn from '../ui/Btn'
 import Input from '../ui/Input'
@@ -9,7 +9,7 @@ import { IconCheck, IconX } from '../ui/Icons'
 export default function CalendarPopup({ events, user, onCreate, onDelete, requestConfirm, noHeader = false }) {
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ title: '', event_date: '', event_time: '', is_milestone: false, description: '' })
-  const staff = isStaff(user.role)
+  const staff = hasPermission(user, 'manage_calendar')
 
   const handleCreate = async () => {
     if (!form.title || !form.event_date) return

@@ -3,7 +3,7 @@ import {
   getTradeTokens, createTradeInvite,
   sendNotification,
 } from '../../lib/supabase'
-import { isAdmin } from '../../lib/constants'
+import { hasPermission } from '../../lib/constants'
 
 const D = {
   bg: '#1a1a1a', card: '#222222', border: '#2d2d2d',
@@ -16,7 +16,7 @@ export default function PackTrading({ user, profiles, addToast, onInviteSent }) 
   const [targetUser, setTargetUser] = useState('')
   const [inviting, setInviting] = useState(false)
 
-  const admin = isAdmin(user.role)
+  const admin = hasPermission(user, 'manage_tcg')
 
   // Load tokens
   const loadData = useCallback(async () => {
@@ -32,7 +32,7 @@ export default function PackTrading({ user, profiles, addToast, onInviteSent }) 
     if (!profiles) return []
     return profiles.filter(p => {
       if (p.id === user.id) return false
-      if (!admin && isAdmin(p.role)) return false
+      if (!admin && hasPermission(p, 'manage_tcg')) return false
       return true
     })
   }, [profiles, user.id, admin])

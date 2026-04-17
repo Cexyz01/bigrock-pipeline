@@ -193,13 +193,13 @@ button { font-family: inherit; cursor: pointer; }
   .emoji-picker-grid button { width: 38px; height: 38px; }
 }
 
-/* Mobile bottom bar — matches native iOS tab bar: 49px icons + safe area below */
-.mobile-bottom-bar {
-  height: calc(49px + constant(safe-area-inset-bottom)) !important;
-  height: calc(49px + env(safe-area-inset-bottom, 0px)) !important;
-  padding-bottom: constant(safe-area-inset-bottom) !important;
-  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+/* iOS PWA: fill the full viewport including safe areas */
+@supports (height: 100dvh) {
+  .app-shell-mobile {
+    height: 100dvh !important;
+  }
 }
+
 @supports (padding: env(safe-area-inset-top)) {
   .mobile-safe-top {
     padding-top: env(safe-area-inset-top) !important;

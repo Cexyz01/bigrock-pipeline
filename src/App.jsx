@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { isStaff, isAdmin, isSuperAdmin, SUPER_ADMIN_EMAIL } from './lib/constants'
+import { isStaff, isAdmin, isSuperAdmin, hasPermission, SUPER_ADMIN_EMAILS, isAudioUrl } from './lib/constants'
 import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import useIsMobile from './hooks/useIsMobile'
@@ -14,14 +14,16 @@ import {
   getNotifications, markNotificationRead, markAllNotificationsRead, sendNotification,
   subscribeToTable, subscribeToNotifications,
   subscribeToDMs, getDMUnreadCount,
-  uploadConceptImage,
+  uploadConceptImage, uploadOutputImage, uploadTimelineFile,
   getTcgGameActive,
   subscribeToGameInvites, getGameById,
   subscribeToTradeInvites, getTradeById,
   updateLastSeen,
   getWipUpdates, createWipUpdate, uploadWipImage, addWipComment,
-  getWipViews, markWipViewed,
+  getWipViews, markWipViewed, uploadWipFile,
   updateReviewMeta, subscribeToWipUpdates,
+  getProjects, getUserProjects,
+  getUnseenSuperNotifications, markSuperNotificationSeen,
 } from './lib/supabase'
 
 import Sidebar from './components/layout/Sidebar'
@@ -30,11 +32,15 @@ import ToastContainer, { useToast } from './components/ui/Toast'
 import ConfirmDialog, { useConfirm } from './components/ui/ConfirmDialog'
 import InstallBanner from './components/ui/InstallBanner'
 
+import WaitingScreen from './components/pages/WaitingScreen'
+import ProjectManagementPage from './components/pages/ProjectManagementPage'
+import SuperNotifOverlay from './components/ui/SuperNotifOverlay'
 import LoginPage from './components/pages/LoginPage'
 import OverviewPage from './components/pages/OverviewPage'
 import ShotTrackerPage from './components/pages/ShotTrackerPage'
 import TasksPage from './components/pages/TasksPage'
 import StoryboardPage from './components/pages/StoryboardPage'
+import TimelinePage from './components/pages/TimelinePage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
@@ -44,7 +50,7 @@ import GameInviteOverlay from './components/games/GameInviteOverlay'
 import GameSession from './components/games/GameSession'
 import TradeInviteOverlay from './components/pack/TradeInviteOverlay'
 import TradeSession from './components/pack/TradeSession'
-import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fullSyncMiro, fixSyncMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
+import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
 import DevConsole from './components/console/DevConsole'
@@ -64,7 +70,7 @@ export default function App() {
   const [tasks, setTasks] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
-  const [view, setView] = useState('overview')
+  const [view, setViewRaw] = useState('overview')
   const [chatOpen, setChatOpen] = useState(false)
   const [deepLink, setDeepLink] = useState(null)
   const [dmUnreadCount, setDmUnreadCount] = useState(0)
@@ -76,6 +82,25 @@ export default function App() {
   const [activeGameId, setActiveGameId] = useState(null)
   const [pendingTradeInvite, setPendingTradeInvite] = useState(null) // { tradeId, trade, role }
   const [activeTradeId, setActiveTradeId] = useState(null)
+  const [projects, setProjects] = useState([])
+  const [currentProject, setCurrentProject] = useState(null)
+  const [myPerms, setMyPerms] = useState({ can_manage_project: false, can_manage_shots: false, can_review: false })
+  const [superNotifs, setSuperNotifs] = useState([])
+  const [currentSuperNotif, setCurrentSuperNotif] = useState(null)
+
+  // Wrap setView to check for super notifications on every page change
+  const setView = useCallback((v) => {
+    setViewRaw(v)
+    if (user) {
+      getUnseenSuperNotifications(user.id).then(sn => {
+        if (sn.length > 0) {
+          setSuperNotifs(sn)
+          setCurrentSuperNotif(sn[0])
+        }
+      })
+    }
+  }, [user])
+
   const [adminFx, setAdminFx] = useState({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0, gravity: 0 })
   const adminChRef = useRef(null)
   const dmToastedRef = useRef(new Set())
@@ -139,21 +164,71 @@ export default function App() {
       if (!error) profile = data
     }
     // Auto-promote super admin if role is not yet set
-    if (profile && profile.email === SUPER_ADMIN_EMAIL && profile.role !== 'super_admin') {
+    if (profile && SUPER_ADMIN_EMAILS.includes(profile.email) && profile.role !== 'super_admin') {
       const { data: promoted } = await supabase.from('profiles').update({ role: 'super_admin' }).eq('id', profile.id).select().single()
       if (promoted) profile = promoted
     }
     setUser(profile)
     setLoading(false)
-    if (profile) loadData(authUser.id)
+    if (profile) {
+      // Load projects for this user
+      const userProjects = (SUPER_ADMIN_EMAILS.includes(profile.email) || profile.role_permissions?.manage_roles) ? await getProjects() : await getUserProjects(profile.id)
+      setProjects(userProjects)
+      // Auto-select project
+      const savedId = localStorage.getItem('bigrock_current_project')
+      const saved = savedId && userProjects.find(p => p.id === savedId)
+      const selected = saved || userProjects[0] || null
+      setCurrentProject(selected)
+      if (selected) loadData(authUser.id, selected.id)
+      // Load super notifications
+      const sn = await getUnseenSuperNotifications(authUser.id)
+      setSuperNotifs(sn)
+      if (sn.length > 0) setCurrentSuperNotif(sn[0])
+    }
   }
 
-  const loadData = async (userId) => {
+  const loadData = async (userId, projectId) => {
     const [p, sh, t, ev, n, dmUn, gameActive, wv] = await Promise.all([
-      getAllProfiles(), getShots(), getTasks(), getCalendarEvents(), getNotifications(userId), getDMUnreadCount(userId), getTcgGameActive(), getWipViews(userId),
+      getAllProfiles(),
+      getShots(projectId),
+      getTasks({ project_id: projectId }),
+      getCalendarEvents(projectId),
+      getNotifications(userId),
+      getDMUnreadCount(userId),
+      getTcgGameActive(),
+      getWipViews(userId),
     ])
     setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv)
+    // Derive permissions from global role only
+    const myProfile = p.find(pr => pr.id === userId)
+    setMyPerms({
+      can_manage_project: hasPermission(myProfile, 'manage_project_settings'),
+      can_manage_shots: hasPermission(myProfile, 'create_edit_shots'),
+      can_review: hasPermission(myProfile, 'access_review'),
+    })
   }
+
+  const handleSelectProject = useCallback((project) => {
+    setCurrentProject(project)
+    localStorage.setItem('bigrock_current_project', project.id)
+    if (user) loadData(user.id, project.id)
+  }, [user])
+
+  // Refresh projects list (after create/delete)
+  const refreshProjects = useCallback(async () => {
+    if (!user) return
+    const userProjects = hasPermission(user, 'manage_roles') ? await getProjects() : await getUserProjects(user.id)
+    setProjects(userProjects)
+    // If current project was deleted, select first available
+    if (currentProject && !userProjects.find(p => p.id === currentProject.id)) {
+      const next = userProjects[0] || null
+      setCurrentProject(next)
+      if (next) {
+        localStorage.setItem('bigrock_current_project', next.id)
+        loadData(user.id, next.id)
+      }
+    }
+  }, [user, currentProject])
 
   const refreshDmUnread = useCallback(() => {
     if (user) getDMUnreadCount(user.id).then(setDmUnreadCount)
@@ -165,7 +240,7 @@ export default function App() {
   // Admin Console – Ctrl+Shift+D (desktop) or triple-tap (mobile)
   const tapTimesRef = useRef([])
   useEffect(() => {
-    if (!user || !isAdmin(user.role)) return
+    if (!user || !hasPermission(user, 'access_admin_console')) return
     const onKey = (e) => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
         e.preventDefault()
@@ -256,10 +331,11 @@ export default function App() {
 
   // Realtime
   useEffect(() => {
-    if (!user) return
+    if (!user || !currentProject) return
+    const pid = currentProject.id
     const channels = [
-      subscribeToTable('shots', () => getShots().then(setShots)),
-      subscribeToTable('tasks', () => getTasks().then(setTasks)),
+      subscribeToTable('shots', () => getShots(pid).then(setShots), `project_id=eq.${pid}`),
+      subscribeToTable('tasks', () => getTasks({ project_id: pid }).then(setTasks), `project_id=eq.${pid}`),
       subscribeToTable('notifications', () => getNotifications(user.id).then(setNotifications)),
       subscribeToNotifications(user.id, (payload) => {
         const n = payload.new
@@ -276,8 +352,8 @@ export default function App() {
       }),
       // WIP updates realtime: refresh tasks + wipViews
       subscribeToWipUpdates(() => {
-        getTasks().then(setTasks)
-        if (isStaff(user.role)) getWipViews(user.id).then(setWipViews)
+        getTasks({ project_id: pid }).then(setTasks)
+        if (hasPermission(user, 'access_review')) getWipViews(user.id).then(setWipViews)
       }),
       // DM realtime: update badge + toast when chat is closed
       subscribeToDMs(user.id, (payload) => {
@@ -301,7 +377,7 @@ export default function App() {
       }),
     ]
     return () => channels.forEach(ch => supabase.removeChannel(ch))
-  }, [user, profiles, refreshDmUnread])
+  }, [user, currentProject, profiles, refreshDmUnread])
 
   // Game invite subscription (mini-games)
   useEffect(() => {
@@ -351,66 +427,52 @@ export default function App() {
     // Auto-assign sort_order = next available in the same sequence
     const seqShots = shots.filter(s => s.sequence === shot.sequence)
     const maxOrder = seqShots.reduce((max, s) => Math.max(max, s.sort_order || 0), -1)
-    const shotWithOrder = { ...shot, sort_order: maxOrder + 1 }
+    const shotWithOrder = { ...shot, project_id: currentProject.id, sort_order: maxOrder + 1 }
 
-    const { data } = await createShot(shotWithOrder)
+    const { data, error } = await createShot(shotWithOrder)
+    if (error) { addToast(`Errore creazione shot: ${error.message}`, 'danger'); return }
     if (data) {
-      // Sync to Miro — must await so miro_shot_rows exists before reference upload
-      try {
-        const miroRes = await createMiroShotRow(data.id, data.code)
-        if (miroRes.error) addToast(`Miro sync error: ${miroRes.error}`, 'danger')
-      } catch (err) {
-        addToast(`Miro sync failed: ${err.message || err}`, 'danger')
+      // Legacy Miro sync — only if this project has a Miro board configured
+      if (currentProject?.miro_board_id) {
+        try { await createMiroShotRow(data.id, data.code, currentProject.miro_board_id) }
+        catch (err) { console.warn('Miro sync skipped:', err) }
       }
-      // Upload reference image after Miro row is ready
       if (referenceFile) {
         handleUploadReference(data.id, referenceFile)
       }
     }
-    setShots(await getShots())
+    setShots(await getShots(currentProject?.id))
   }
   const handleUpdateShot = async (id, updates) => {
     // Optimistic: update UI instantly, then persist in background
     setShots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
     const { error } = await updateShot(id, updates)
-    if (error) setShots(await getShots()) // revert on failure
+    if (error) setShots(await getShots(currentProject?.id)) // revert on failure
+  }
+  // Batch reorder — single optimistic state update, DB writes fire-and-forget
+  const handleReorderShots = (changes) => {
+    if (!changes || changes.length === 0) return
+    const map = new Map(changes.map(c => [c.id, c.updates]))
+    setShots(prev => prev.map(s => map.has(s.id) ? { ...s, ...map.get(s.id) } : s))
+    // Fire DB writes in parallel, don't await — revert only if any fails
+    Promise.all(changes.map(c => updateShot(c.id, c.updates))).then(results => {
+      if (results.some(r => r.error)) {
+        getShots(currentProject?.id).then(setShots)
+        addToast('Errore salvataggio ordine, ripristino', 'danger')
+      }
+    })
   }
   const handleDeleteShot = async (id) => {
-    // Delete from DB first (CASCADE cleans miro tables), then sync Miro
-    await deleteShot(id)
-    setShots(await getShots())
-    // Trigger Miro rebuild in background (shot already gone from DB)
-    deleteMiroShotRow(id).then(res => {
-      if (res.error) addToast(`Miro delete error: ${res.error}`, 'danger')
-    }).catch(err => addToast(`Miro delete failed: ${err.message || err}`, 'danger'))
-  }
-
-  const handleSyncMiro = async () => {
-    addToast('Syncing Miro...', 'info')
-    try {
-      const res = await fullSyncMiro()
-      if (res.error) {
-        addToast(`Miro sync error: ${res.error}`, 'danger')
-      } else {
-        addToast(`Miro synced! ${res.data?.shots || 0} shots`, 'success')
-      }
-    } catch (err) {
-      addToast(`Miro sync failed: ${err.message || err}`, 'danger')
+    // Delete from DB first (CASCADE cleans related tables)
+    const { error } = await deleteShot(id)
+    if (error) {
+      addToast(`Impossibile eliminare lo shot: ${error.message}`, 'danger')
+      return
     }
-  }
-
-  const handleFixMiro = async () => {
-    addToast('Fixing Miro...', 'info')
-    try {
-      const res = await fixSyncMiro()
-      if (res.error) {
-        addToast(`Fix Miro error: ${res.error}`, 'danger')
-      } else {
-        const d = res.data || {}
-        addToast(`Fix Miro complete! ${d.cells_fixed || 0} cells repaired, ${d.images_fixed || 0} images`, 'success')
-      }
-    } catch (err) {
-      addToast(`Fix Miro failed: ${err.message || err}`, 'danger')
+    setShots(await getShots(currentProject?.id))
+    // Legacy Miro cleanup (background, silent) — only if project has a Miro board
+    if (currentProject?.miro_board_id) {
+      deleteMiroShotRow(id, currentProject.miro_board_id).catch(err => console.warn('Miro cleanup skipped:', err))
     }
   }
 
@@ -429,66 +491,117 @@ export default function App() {
       ref_img_width: dims.w,
       ref_img_height: dims.h,
     })
-    // Also upload to Miro (fire-and-forget)
-    try {
-      const base64 = await fileToBase64(file)
-      await uploadReferenceToMiro(shotId, base64)
-    } catch (err) {
-      console.warn('Miro reference upload:', err)
+    // Legacy Miro reference upload — only if project has a Miro board
+    if (currentProject?.miro_board_id) {
+      try {
+        const base64 = await fileToBase64(file)
+        await uploadReferenceToMiro(shotId, base64, currentProject.miro_board_id)
+      } catch (err) {
+        console.warn('Miro reference upload skipped:', err)
+      }
     }
-    setShots(await getShots())
+    setShots(await getShots(currentProject?.id))
+  }
+
+  const handleUploadOutput = async (shotId, file) => {
+    const { url, width, height } = await uploadOutputImage(shotId, file)
+    if (url) {
+      await updateShot(shotId, {
+        output_cloud_url: url,
+        output_img_width: width || 0,
+        output_img_height: height || 0,
+      })
+      setShots(await getShots(currentProject?.id))
+      addToast('Output uploaded', 'success')
+    } else {
+      addToast('Output upload failed', 'danger')
+    }
+  }
+
+  const handleUploadShotAudio = async (shotId, file) => {
+    const { url, error } = await uploadTimelineFile(shotId, file)
+    if (url) {
+      await updateShot(shotId, { audio_url: url })
+      setShots(await getShots(currentProject?.id))
+      addToast('Audio uploaded', 'success')
+    } else {
+      addToast('Audio upload failed: ' + (error?.message || 'unknown'), 'danger')
+    }
   }
 
   const handleCreateTask = async (task) => {
-    const { data } = await createTask(task)
+    const { data } = await createTask({ ...task, project_id: currentProject.id })
     if (data && task.assigned_to) {
       await sendNotification(task.assigned_to, 'task_assigned', 'New task assigned', task.title, 'task', data.id)
     }
-    setTasks(await getTasks())
+    setTasks(await getTasks({ project_id: currentProject?.id }))
   }
 
   const handleUpdateTask = async (id, updates) => {
+    // Clear revision comment when task is approved or re-submitted for review
+    if (updates.status === 'approved' || updates.status === 'review') {
+      updates.revision_comment = null
+    }
     await updateTask(id, updates)
     const task = tasks.find(t => t.id === id)
     if (updates.status === 'approved' && task?.assigned_to) {
       await sendNotification(task.assigned_to, 'task_approved', 'Task approved!', task.title, 'task', id)
     }
     // Reject notification is handled by handleRejectTask
-    setTasks(await getTasks())
+    setTasks(await getTasks({ project_id: currentProject?.id }))
   }
 
-  const handleRejectTask = async (id) => {
+  const handleRejectTask = async (id, comment = '') => {
     const task = tasks.find(t => t.id === id)
-    // 1. Remove images from Miro (just the specific cell, not a full sync)
-    try { await deleteTaskMiroImages(id) } catch (err) { console.warn('Miro reject cleanup:', err) }
+    // Legacy Miro cleanup — only if project has a Miro board
+    if (currentProject?.miro_board_id) {
+      try { await deleteTaskMiroImages(id, currentProject.miro_board_id) } catch (err) { console.warn('Miro reject cleanup skipped:', err) }
+    }
     // 2. Set status back to WIP
     await updateTask(id, { status: 'wip' })
-    // 3. Notify student
-    if (task?.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_revision', 'Changes requested', task.title, 'task', id)
+    // 3. Add comment to the latest WIP update if provided
+    if (comment.trim()) {
+      try {
+        const { data: wipUpdates } = await supabase.from('task_wip_updates')
+          .select('id').eq('task_id', id).order('created_at', { ascending: false }).limit(1)
+        if (wipUpdates?.length > 0) {
+          await addWipComment(wipUpdates[0].id, user.id, `📌 Modifiche richieste: ${comment.trim()}`)
+        }
+      } catch (err) { console.warn('Failed to add revision comment:', err) }
     }
-    setTasks(await getTasks())
+    // 4. Notify student
+    if (task?.assigned_to) {
+      const msg = comment ? `Changes requested: ${comment}` : 'Changes requested'
+      await sendNotification(task.assigned_to, 'task_revision', msg, task.title, 'task', id)
+    }
+    setTasks(await getTasks({ project_id: currentProject?.id }))
     addToast('Changes requested', 'success')
   }
 
   const handleDeleteTask = async (id) => {
-    // Must await: edge function needs task in DB to find shot_id/department for Miro cell re-layout
-    try { await deleteTaskMiroImages(id) } catch (err) { console.warn('Miro task cleanup:', err) }
-    await deleteTask(id)
-    setTasks(await getTasks())
+    // Legacy Miro cleanup before DB delete — only if project has a Miro board
+    if (currentProject?.miro_board_id) {
+      try { await deleteTaskMiroImages(id, currentProject.miro_board_id) } catch (err) { console.warn('Miro task cleanup skipped:', err) }
+    }
+    const { error } = await deleteTask(id)
+    if (error) { addToast(`Impossibile eliminare il task: ${error.message}`, 'danger'); return }
+    setTasks(await getTasks({ project_id: currentProject?.id }))
   }
 
   // ── WIP Updates ──
 
   const handleCreateWipUpdate = async (taskId, note, files) => {
-    // 1. Upload images to Cloudinary
+    // 1. Upload files to Cloudinary (images via uploadWipImage, audio via uploadWipFile)
     const imageUrls = []
     for (let i = 0; i < files.length; i++) {
-      const { url, error } = await uploadWipImage(taskId, files[i])
+      const isAudio = files[i].type?.startsWith('audio/')
+      const { url, error } = isAudio
+        ? await uploadWipFile(taskId, files[i])
+        : await uploadWipImage(taskId, files[i])
       if (url) imageUrls.push(url)
       if (error) {
-        console.warn('WIP image upload error:', error.message)
-        addToast(`Image ${i + 1} upload failed: ${error.message}`, 'danger')
+        console.warn('WIP upload error:', error.message)
+        addToast(`File ${i + 1} upload failed: ${error.message}`, 'danger')
       }
     }
     if (files.length > 0 && imageUrls.length === 0) {
@@ -507,12 +620,12 @@ export default function App() {
 
     // 4. Notify all staff
     const task = tasks.find(t => t.id === taskId)
-    const staffMembers = profiles.filter(p => isStaff(p.role))
+    const staffMembers = profiles.filter(p => isStaff(p))
     for (const s of staffMembers) {
       await sendNotification(s.id, 'wip_update', 'New WIP update', task?.title || 'Task', 'task', taskId)
     }
 
-    setTasks(await getTasks())
+    setTasks(await getTasks({ project_id: currentProject?.id }))
     addToast('WIP update published!', 'success')
     return data
   }
@@ -533,24 +646,55 @@ export default function App() {
     // 2. Change status to review FIRST — placeCellImages filters by status review/approved
     await updateTask(taskId, { status: 'review' })
 
-    // 3. Upload images to Miro (now the task is "review" so placeCellImages will find it)
+    // 3. Upload files to storyboard — images go to Miro, audio goes directly to miro_wip_images
     if (latestWithImages && task.shot_id) {
-      try {
-        const base64Array = await Promise.all(
-          latestWithImages.images.map(async (url) => {
-            const res = await fetch(url)
-            const blob = await res.blob()
-            return new Promise((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(reader.result)
-              reader.onerror = reject
-              reader.readAsDataURL(blob)
+      const imageUrls = latestWithImages.images.filter(url => !isAudioUrl(url))
+      const audioUrls = latestWithImages.images.filter(url => isAudioUrl(url))
+
+      // Upload images to storyboard (via legacy Miro edge function which also inserts into miro_wip_images)
+      if (imageUrls.length > 0) {
+        try {
+          const base64Array = await Promise.all(
+            imageUrls.map(async (url) => {
+              const res = await fetch(url)
+              const blob = await res.blob()
+              return new Promise((resolve, reject) => {
+                const reader = new FileReader()
+                reader.onload = () => resolve(reader.result)
+                reader.onerror = reject
+                reader.readAsDataURL(blob)
+              })
             })
-          })
-        )
-        await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, user.id)
-      } catch (err) {
-        console.warn('Miro upload failed:', err)
+          )
+          await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, user.id, currentProject?.miro_board_id)
+        } catch (err) {
+          console.warn('Storyboard upload failed:', err)
+        }
+      }
+
+      // Insert audio files directly into miro_wip_images (no Miro sync needed)
+      if (audioUrls.length > 0) {
+        try {
+          const existingImages = await supabase.from('miro_wip_images')
+            .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
+          let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
+
+          for (const audioUrl of audioUrls) {
+            await supabase.from('miro_wip_images').insert({
+              shot_id: task.shot_id,
+              task_id: taskId,
+              department: task.department,
+              miro_item_id: 'audio',
+              uploaded_by: user.id,
+              image_url: audioUrl,
+              image_order: nextOrder++,
+              img_width: 0,
+              img_height: 0,
+            })
+          }
+        } catch (err) {
+          console.warn('Audio insert to storyboard failed:', err)
+        }
       }
     }
 
@@ -559,13 +703,13 @@ export default function App() {
       await sendNotification(task.assigned_to, 'task_review', 'Task submitted for review', task.title, 'task', taskId)
     }
 
-    setTasks(await getTasks())
+    setTasks(await getTasks({ project_id: currentProject?.id }))
     addToast('Task submitted for review!', 'success')
   }
 
   const handleUpdateReviewMeta = async (taskId, reviewTitle, reviewDescription) => {
     await updateReviewMeta(taskId, reviewTitle, reviewDescription)
-    setTasks(await getTasks())
+    setTasks(await getTasks({ project_id: currentProject?.id }))
   }
 
   const handleAddComment = async (taskId, authorId, body) => {
@@ -575,8 +719,8 @@ export default function App() {
       if (authorId !== task.assigned_to && task.assigned_to) {
         await sendNotification(task.assigned_to, 'comment', 'New comment on your task', body.slice(0, 80), 'task', taskId)
       }
-      if (!isStaff(user.role)) {
-        const staffMembers = profiles.filter(p => isStaff(p.role))
+      if (!isStaff(user)) {
+        const staffMembers = profiles.filter(p => isStaff(p))
         for (const s of staffMembers) {
           if (s.id !== authorId) await sendNotification(s.id, 'comment', `Comment from ${user.full_name}`, body.slice(0, 80), 'task', taskId)
         }
@@ -595,8 +739,8 @@ export default function App() {
     return result
   }
 
-  const handleCreateEvent = async (ev) => { await createCalendarEvent(ev); setEvents(await getCalendarEvents()) }
-  const handleDeleteEvent = async (id) => { await deleteCalendarEvent(id); setEvents(await getCalendarEvents()) }
+  const handleCreateEvent = async (ev) => { await createCalendarEvent({ ...ev, project_id: currentProject.id }); setEvents(await getCalendarEvents(currentProject?.id)) }
+  const handleDeleteEvent = async (id) => { await deleteCalendarEvent(id); setEvents(await getCalendarEvents(currentProject?.id)) }
   const handleMarkRead = async (id) => { await markNotificationRead(id); setNotifications(await getNotifications(user.id)) }
   const handleMarkAllRead = async () => { await markAllNotificationsRead(user.id); setNotifications(await getNotifications(user.id)) }
   const handleProfileUpdate = (updatedProfile) => {
@@ -617,6 +761,11 @@ export default function App() {
     </div>
   )
   if (!session || !user) return <LoginPage />
+
+  // Students with no projects see waiting screen
+  if (user.role === 'studente' && projects.length === 0) {
+    return <WaitingScreen user={user} onSignOut={signOut} />
+  }
 
   const unreadCount = notifications.filter(n => !n.read).length
 
@@ -689,12 +838,20 @@ export default function App() {
   const contentPadding = isMobile ? '16px 16px 65px' : '36px 44px'
 
   return (
-    <div className={isMobile ? 'mobile-safe-top' : ''} style={{ display: 'flex', height: isMobile ? 'var(--app-height, 100vh)' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
+    <div className={isMobile ? 'mobile-safe-top app-shell-mobile' : ''} style={{ display: 'flex', height: isMobile ? '100%' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
+      {currentSuperNotif && (
+        <SuperNotifOverlay notification={currentSuperNotif} onDismiss={async () => {
+          await markSuperNotificationSeen(currentSuperNotif.id)
+          const remaining = superNotifs.filter(n => n.id !== currentSuperNotif.id)
+          setSuperNotifs(remaining)
+          setCurrentSuperNotif(remaining.length > 0 ? remaining[0] : null)
+        }} />
+      )}
       {isMobile && <InstallBanner />}
       <AdminEffects effects={adminFx} userId={user.id} matrixMode={matrixMode} onClear={clearAdminFx} />
-      {adminConsoleOpen && isAdmin(user.role) && (
+      {adminConsoleOpen && hasPermission(user, 'access_admin_console') && (
         <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} matrixMode={matrixMode} onMatrixToggle={() => setMatrixMode(p => !p)} onGameChallenge={handleGameChallenge} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
       )}
 
@@ -704,27 +861,31 @@ export default function App() {
         notifications={notifications} onMarkRead={handleMarkRead} onMarkAllRead={handleMarkAllRead} onNavigate={handleNavigate}
         requestConfirm={requestConfirm} unreadCount={unreadCount} tcgGameActive={tcgGameActive}
         reviewCount={tasks.filter(t => t.status === 'review').length}
+        projects={projects} currentProject={currentProject} onSelectProject={handleSelectProject}
+        myPerms={myPerms}
       />
 
       {/* Main content */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {/* Full-bleed views: storyboard, pack — no padding, no maxWidth */}
-        {(view === 'storyboard' || view === 'pack') ? (
+        {/* Full-bleed views: storyboard, timeline, pack — no padding, no maxWidth */}
+        {(view === 'storyboard' || view === 'timeline' || view === 'pack') ? (
           <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 49 } : {}) }}>
-            {view === 'storyboard' && <StoryboardPage />}
-            {view === 'pack' && (isAdmin(user.role) || tcgGameActive) && (
+            {view === 'storyboard' && <StoryboardPage shots={shots} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
+            {view === 'timeline' && hasPermission(user, 'access_timeline') && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
+            {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
             )}
           </div>
         ) : (
           <div style={{ flex: 1, padding: contentPadding, overflowY: 'auto', ...(isMobile ? { overflowX: 'hidden' } : { maxWidth: 1400 }), width: '100%', margin: '0 auto' }}>
-            {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} />}
-            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} onUpdateShot={handleUpdateShot} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onSyncMiro={handleSyncMiro} onFixMiro={handleFixMiro} addToast={addToast} requestConfirm={requestConfirm} />}
+            {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
+            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
             {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
-            {view === 'review' && isStaff(user.role) && <ReviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} onUpdateTask={handleUpdateTask} onUpdateReviewMeta={handleUpdateReviewMeta} addToast={addToast} />}
-            {view === 'crew' && <CrewPage profiles={profiles} user={user} />}
+            {view === 'review' && myPerms.can_review && <ReviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask} onUpdateReviewMeta={handleUpdateReviewMeta} addToast={addToast} requestConfirm={requestConfirm} />}
+            {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
-            {view === 'activity' && isStaff(user.role) && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} />}
+            {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} />}
+            {view === 'projects' && (hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || myPerms.can_manage_project || hasPermission(user, 'create_projects')) && <ProjectManagementPage user={user} profiles={profiles} projects={projects} myPerms={myPerms} onRefreshProjects={refreshProjects} onRefreshProfiles={async () => { const p = await getAllProfiles(); setProfiles(p) }} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'notifications' && renderMobileNotifications()}
           </div>
         )}
