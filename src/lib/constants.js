@@ -14,8 +14,8 @@ export const DEPTS = [
   { id: 'sound',         label: 'Sound',           color: '#14B8A6' },
 ]
 
-// Modeling and texturing belong to assets, not shots.
-export const ASSET_DEPT_IDS = ['modeling', 'texturing']
+// Modeling, texturing and rigging belong to assets, not shots.
+export const ASSET_DEPT_IDS = ['modeling', 'texturing', 'rigging']
 export const ASSET_DEPTS = DEPTS.filter(d => ASSET_DEPT_IDS.includes(d.id))
 export const SHOT_DEPTS = DEPTS.filter(d => !ASSET_DEPT_IDS.includes(d.id))
 
