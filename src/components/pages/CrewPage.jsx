@@ -93,7 +93,7 @@ function MemberRow({ member, projectRole }) {
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{member.full_name}</div>
         <div style={{ fontSize: 11, color: '#94A3B8' }}>
-          {displayRole(member.role)}
+          {member.role === 'super_admin' ? 'Admin' : displayRole(member.role)}
           {!staff && dept && ` · ${dept.label}`}
         </div>
       </div>
