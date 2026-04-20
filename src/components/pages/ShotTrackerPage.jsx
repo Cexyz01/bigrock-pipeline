@@ -174,14 +174,14 @@ export default function ShotTrackerPage({
 
       {/* Tab switcher */}
       <Fade delay={40}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
           <Pill label={`Shots${shots.length ? ` · ${shots.length}` : ''}`} active={activeTab === 'shots'} onClick={() => setActiveTab('shots')} />
           <Pill label={`Assets${assets.length ? ` · ${assets.length}` : ''}`} active={activeTab === 'assets'} onClick={() => setActiveTab('assets')} />
         </div>
       </Fade>
 
       {activeTab === 'assets' && (
-        <div style={{ width: 'fit-content', maxWidth: '100%', margin: '0 auto' }}>
+        <div style={{ width: 'fit-content', maxWidth: '100%' }}>
           <div style={{
             display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `280px repeat(${ASSET_DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
             padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
@@ -221,7 +221,7 @@ export default function ShotTrackerPage({
       )}
 
       {activeTab === 'shots' && (
-        <div style={{ width: 'fit-content', maxWidth: '100%', margin: '0 auto' }}>
+        <div style={{ width: 'fit-content', maxWidth: '100%' }}>
           <div style={{
             display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `280px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
             padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
@@ -268,7 +268,7 @@ export default function ShotTrackerPage({
           )}
 
           {/* Legend (only inside Shots tab) */}
-          <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap' }}>
             {SHOT_STATUSES.map(st => (
               <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `${st.id === 'review' ? '2.5px' : '1.5px'} solid ${st.id === 'review' ? '#2563EB' : `${st.color}50`}` }} />
