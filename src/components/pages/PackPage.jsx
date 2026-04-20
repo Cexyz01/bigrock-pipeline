@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { getPackCards, getUserCards, grantCard as grantCardApi, getUserTimer, upsertUserTimer, getPacksRemaining, claimAndOpenPack, getPackConfig, subscribeToTable, supabase } from '../../lib/supabase'
+import { getPackCards, getUserCards, getUserTimer, upsertUserTimer, getPacksRemaining, claimAndOpenPack, getPackConfig, subscribeToTable, supabase } from '../../lib/supabase'
 import { hasPermission, PACK_TYPES, PACK_RARITIES } from '../../lib/constants'
 import PackCard, { RARITY_COLORS } from '../pack/PackCard'
 import { ScaledCard } from '../pack/CardRenderer'
@@ -81,11 +81,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [flyRect, setFlyRect] = useState(null) // bounding rect of clicked pack in shop
   const [preOpenOwned, setPreOpenOwned] = useState(null) // snapshot of ownedSet before pack open
 
-  // Staff grant
-  const [grantOpen, setGrantOpen] = useState(false)
-  const [grantUser, setGrantUser] = useState('')
-  const [grantNum, setGrantNum] = useState('')
-  const [granting, setGranting] = useState(false)
 
   // "New" badge in collection — track which cards user has seen (hovered) at least once
   const SEEN_KEY = `tcg_seen_${user.id}`
@@ -255,22 +250,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     loadAll()
   }
 
-  const handleGrant = async () => {
-    if (!grantUser || grantNum === '') return
-    setGranting(true)
-    const num = parseInt(grantNum, 10)
-    const { error } = await grantCardApi(grantUser, num, 'staff_reward')
-    if (error) {
-      addToast(error.message?.includes('duplicate') ? 'User already has this card' : `Error: ${error.message}`, 'error')
-    } else {
-      addToast('Card assigned!', 'success')
-      loadAll()
-    }
-    setGranting(false)
-    setGrantOpen(false)
-    setGrantUser('')
-    setGrantNum('')
-  }
 
   // Admin can't open packs when game is active (to avoid compromising the game)
   // Non-admin can only open between 9:30 and 18:10 during active game
@@ -474,18 +453,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                     </button>
                   ))}
 
-                  {admin && (
-                    <button
-                      onClick={() => setGrantOpen(true)}
-                      style={{
-                        marginLeft: 'auto', padding: '4px 14px', borderRadius: 14,
-                        border: '1.5px solid #F28C2840', fontSize: 11, fontWeight: 600,
-                        cursor: 'pointer', background: 'transparent', color: '#F5B862', transition: 'all 0.2s',
-                      }}
-                    >
-                      + Assign card
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -603,66 +570,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
           padding: 28, animation: 'modalIn 0.2s ease',
         }}>
           <CardDetail card={selected} owned={selectedOwned} rarity={RARITY_COLORS[selected.rarity]} copies={copiesMap[selected.number] || []} cards={cards} copiesPerRarity={copiesPerRarity} tiltRef={detailTiltRef} shineRef={detailShineRef} isMobile={isMobile} />
-        </div>
-      </div>,
-      document.body
-    )}
-
-    {/* Grant Card Modal — portal to body */}
-    {grantOpen && createPortal(
-      <div
-        onClick={() => setGrantOpen(false)}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 9000,
-          background: 'rgba(0,0,0,0.7)',
-          backdropFilter: 'blur(10px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          userSelect: 'none', WebkitUserSelect: 'none',
-        }}
-      >
-        <div onClick={e => e.stopPropagation()} style={{
-          background: D.card, border: `1px solid ${D.border}`, borderRadius: 20,
-          padding: 28, width: '90%', maxWidth: 400,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-          animation: 'modalIn 0.2s ease',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: D.text, margin: 0 }}>Assign card</h2>
-            <button onClick={() => setGrantOpen(false)} style={{
-              background: '#2d2d2d', border: 'none', color: D.muted, borderRadius: 8,
-              width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            }}>
-              <IconX size={16} />
-            </button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: D.sub, display: 'block', marginBottom: 4 }}>User</label>
-              <select value={grantUser} onChange={e => setGrantUser(e.target.value)} style={{
-                width: '100%', padding: '8px 12px', borderRadius: 10, border: `1.5px solid ${D.border}`,
-                fontSize: 13, background: D.bg, color: D.text, outline: 'none',
-              }}>
-                <option value="">Select user...</option>
-                {(profiles || []).map(p => (
-                  <option key={p.id} value={p.id}>{p.full_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: D.sub, display: 'block', marginBottom: 4 }}>Card number (0-119)</label>
-              <input type="number" min="0" max="119" value={grantNum} onChange={e => setGrantNum(e.target.value)} style={{
-                width: '100%', padding: '8px 12px', borderRadius: 10, border: `1.5px solid ${D.border}`,
-                fontSize: 13, background: D.bg, color: D.text, outline: 'none', boxSizing: 'border-box',
-              }} placeholder="e.g. 42" />
-            </div>
-            <button onClick={handleGrant} disabled={granting || !grantUser || grantNum === ''} style={{
-              padding: '10px 0', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 700,
-              cursor: granting ? 'wait' : 'pointer', background: '#F28C28', color: '#fff',
-              opacity: (granting || !grantUser || grantNum === '') ? 0.5 : 1, transition: 'opacity 0.2s',
-            }}>
-              {granting ? 'Assigning...' : 'Assign'}
-            </button>
-          </div>
         </div>
       </div>,
       document.body
