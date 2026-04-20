@@ -9,7 +9,7 @@ const iconBtnStyle = {
   transition: 'opacity 0.15s ease',
 }
 
-const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `200px repeat(${ASSET_DEPTS.length}, 72px) 56px`
+const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `minmax(220px, 1fr) repeat(${ASSET_DEPTS.length}, 80px) 64px`
 
 const thumbUrl = (url, w = 56, h = 56) => {
   if (!url) return null

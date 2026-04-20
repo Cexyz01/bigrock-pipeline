@@ -9,7 +9,7 @@ const iconBtnStyle = {
   transition: 'opacity 0.15s ease',
 }
 
-const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `200px repeat(${DEPTS.length}, 72px) 56px`
+const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `minmax(220px, 1fr) repeat(${DEPTS.length}, 80px) 64px`
 
 // Cloudinary thumbnail transform
 const thumbUrl = (url, w = 56, h = 56) => {
