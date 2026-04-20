@@ -3,6 +3,7 @@ import { SHOT_DEPTS as DEPTS, ASSET_DEPTS, SHOT_STATUSES, hasPermission, ACCENT 
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
+import Pill from '../ui/Pill'
 import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import EmptyState from '../ui/EmptyState'
@@ -16,6 +17,7 @@ export default function ShotTrackerPage({
   onCreateAsset, onUpdateAsset, onDeleteAsset, onReorderAssets, onUploadAssetReference, onUploadAssetOutput,
   addToast, requestConfirm, onGoToShotTasks, onGoToAssetTasks,
 }) {
+  const [activeTab, setActiveTab] = useState('shots')
   const [showCreate, setShowCreate] = useState(false)
   const [newShot, setNewShot] = useState({ code: '', sequence: 'SEQ01', description: '', disabled_depts: {} })
   const [refFile, setRefFile] = useState(null)
@@ -164,112 +166,118 @@ export default function ShotTrackerPage({
             <p style={{ fontSize: isMobile ? 12 : 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {staff && <Btn variant="primary" onClick={() => setShowCreateAsset(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Asset</Btn>}
-            {staff && <Btn variant="primary" onClick={() => setShowCreate(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Shot</Btn>}
+            {staff && activeTab === 'assets' && <Btn variant="primary" onClick={() => setShowCreateAsset(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Asset</Btn>}
+            {staff && activeTab === 'shots' && <Btn variant="primary" onClick={() => setShowCreate(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Shot</Btn>}
           </div>
         </div>
       </Fade>
 
-      {/* ── Assets section ─────────────────────────── */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', padding: '4px 8px 10px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Assets</div>
-        <div style={{
-          display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `200px repeat(${ASSET_DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 3,
-          padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
-        }}>
-          <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Asset</div>
-          {ASSET_DEPTS.map(d => (
-            <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
-            </div>
-          ))}
+      {/* Tab switcher */}
+      <Fade delay={40}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, justifyContent: 'center' }}>
+          <Pill label={`Shots${shots.length ? ` · ${shots.length}` : ''}`} active={activeTab === 'shots'} onClick={() => setActiveTab('shots')} />
+          <Pill label={`Assets${assets.length ? ` · ${assets.length}` : ''}`} active={activeTab === 'assets'} onClick={() => setActiveTab('assets')} />
         </div>
-        {sortedAssets.length === 0 ? (
-          <EmptyState title="No assets" sub={staff ? 'Add the first asset to get started' : 'Assets will appear here'} />
-        ) : (
-          <div>
-            {sortedAssets.map((asset, idx) => (
-              <Fade key={asset.id} delay={idx * 30}>
-                <AssetRow
-                  asset={asset}
-                  staff={staff}
-                  canEdit={canEditShots}
-                  onCycle={cycleAssetStatus}
-                  onDelete={onDeleteAsset}
-                  onUploadReference={onUploadAssetReference}
-                  onUploadOutput={onUploadAssetOutput}
-                  onUpdate={onUpdateAsset}
-                  onDrop={handleAssetDrop}
-                  requestConfirm={requestConfirm}
-                  onGoToTasks={onGoToAssetTasks}
-                />
-              </Fade>
+      </Fade>
+
+      {activeTab === 'assets' && (
+        <div style={{ width: 'fit-content', maxWidth: '100%', margin: '0 auto' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `200px repeat(${ASSET_DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 3,
+            padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
+            position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
+          }}>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Asset</div>
+            {ASSET_DEPTS.map(d => (
+              <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
+              </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* ── Shots section ──────────────────────────── */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', padding: '4px 8px 10px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Shots</div>
-
-      {/* Header */}
-      <div>
-      <div style={{
-        display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `200px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 3,
-        padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
-        position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
-      }}>
-        <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Shot</div>
-        {DEPTS.map(d => (
-          <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {shots.length === 0 ? (
-        <EmptyState title="No shots" sub={staff ? 'Add the first shot to get started' : 'Shots will appear here'} />
-      ) : (
-        seqs.map((seq, si) => {
-          const seqShots = shots.filter(sh => sh.sequence === seq)
-          return (
-            <Fade key={seq} delay={si * 60}>
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
-                {seqShots.map((shot, idx) => (
-                  <ShotRow
-                    key={shot.id}
-                    shot={shot}
+          {sortedAssets.length === 0 ? (
+            <EmptyState title="No assets" sub={staff ? 'Add the first asset to get started' : 'Assets will appear here'} />
+          ) : (
+            <div>
+              {sortedAssets.map((asset, idx) => (
+                <Fade key={asset.id} delay={idx * 30}>
+                  <AssetRow
+                    asset={asset}
                     staff={staff}
-                    canEditShots={canEditShots}
-                    onCycle={cycleShotStatus}
-                    onDelete={onDeleteShot}
-                    onUploadReference={onUploadReference}
-                    onUploadOutput={onUploadOutput}
-                    onUpdateShot={onUpdateShot}
-                    onDrop={handleDrop}
+                    canEdit={canEditShots}
+                    onCycle={cycleAssetStatus}
+                    onDelete={onDeleteAsset}
+                    onUploadReference={onUploadAssetReference}
+                    onUploadOutput={onUploadAssetOutput}
+                    onUpdate={onUpdateAsset}
+                    onDrop={handleAssetDrop}
                     requestConfirm={requestConfirm}
-                    onGoToTasks={onGoToShotTasks}
-                    sequences={seqs}
+                    onGoToTasks={onGoToAssetTasks}
                   />
-                ))}
-              </div>
-            </Fade>
-          )
-        })
+                </Fade>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
-      </div>{/* close scroll wrapper */}
-
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap' }}>
-        {SHOT_STATUSES.map(st => (
-          <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `${st.id === 'review' ? '2.5px' : '1.5px'} solid ${st.id === 'review' ? '#2563EB' : `${st.color}50`}` }} />
-            <span style={{ fontSize: 11, color: '#64748B' }}>{st.label}</span>
+      {activeTab === 'shots' && (
+        <div style={{ width: 'fit-content', maxWidth: '100%', margin: '0 auto' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `200px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 3,
+            padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
+            position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
+          }}>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Shot</div>
+            {DEPTS.map(d => (
+              <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+
+          {shots.length === 0 ? (
+            <EmptyState title="No shots" sub={staff ? 'Add the first shot to get started' : 'Shots will appear here'} />
+          ) : (
+            seqs.map((seq, si) => {
+              const seqShots = shots.filter(sh => sh.sequence === seq)
+              return (
+                <Fade key={seq} delay={si * 60}>
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
+                    {seqShots.map((shot) => (
+                      <ShotRow
+                        key={shot.id}
+                        shot={shot}
+                        staff={staff}
+                        canEditShots={canEditShots}
+                        onCycle={cycleShotStatus}
+                        onDelete={onDeleteShot}
+                        onUploadReference={onUploadReference}
+                        onUploadOutput={onUploadOutput}
+                        onUpdateShot={onUpdateShot}
+                        onDrop={handleDrop}
+                        requestConfirm={requestConfirm}
+                        onGoToTasks={onGoToShotTasks}
+                        sequences={seqs}
+                      />
+                    ))}
+                  </div>
+                </Fade>
+              )
+            })
+          )}
+
+          {/* Legend (only inside Shots tab) */}
+          <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap', justifyContent: 'center' }}>
+            {SHOT_STATUSES.map(st => (
+              <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `${st.id === 'review' ? '2.5px' : '1.5px'} solid ${st.id === 'review' ? '#2563EB' : `${st.color}50`}` }} />
+                <span style={{ fontSize: 11, color: '#64748B' }}>{st.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       <Modal open={showCreate} onClose={handleCloseCreate} title="Add Shot">
