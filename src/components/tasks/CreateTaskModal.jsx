@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { DEPTS, ACCENT } from '../../lib/constants'
+import { SHOT_DEPTS, ASSET_DEPTS, ACCENT } from '../../lib/constants'
 import Modal from '../ui/Modal'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 import Btn from '../ui/Btn'
 
-export default function CreateTaskModal({ open, onClose, shots, students, user, onCreate }) {
-  const [form, setForm] = useState({ title: '', description: '', department: '', assigned_to: '', shot_id: '', startNow: false })
+export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate }) {
+  // target: 'shot' or 'asset'
+  const [target, setTarget] = useState('shot')
+  const [form, setForm] = useState({ title: '', description: '', department: '', assigned_to: '', shot_id: '', asset_id: '', startNow: false })
+
+  const depts = target === 'asset' ? ASSET_DEPTS : SHOT_DEPTS
 
   const handleCreate = async () => {
     if (!form.title || !form.department) return
@@ -15,25 +19,55 @@ export default function CreateTaskModal({ open, onClose, shots, students, user, 
       description: form.description,
       department: form.department,
       assigned_to: form.assigned_to || null,
-      shot_id: form.shot_id || null,
+      shot_id: target === 'shot' ? (form.shot_id || null) : null,
+      asset_id: target === 'asset' ? (form.asset_id || null) : null,
       created_by: user.id,
       status: form.startNow ? 'wip' : 'todo',
     })
-    setForm({ title: '', description: '', department: '', assigned_to: '', shot_id: '', startNow: false })
+    setForm({ title: '', description: '', department: '', assigned_to: '', shot_id: '', asset_id: '', startNow: false })
+    setTarget('shot')
     onClose()
   }
+
+  const handleSetTarget = (next) => {
+    setTarget(next)
+    // Reset department when switching, since available depts differ
+    setForm(f => ({ ...f, department: '', shot_id: '', asset_id: '' }))
+  }
+
+  const tabBtnStyle = (active) => ({
+    flex: 1, padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    borderRadius: 8, border: `1.5px solid ${active ? ACCENT : '#E2E8F0'}`,
+    background: active ? `${ACCENT}18` : '#fff',
+    color: active ? ACCENT : '#64748B', transition: 'all 0.15s ease',
+  })
 
   return (
     <Modal open={open} onClose={onClose} title="New Task">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Target type switcher */}
+        <div>
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Tipologia task</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={() => handleSetTarget('shot')} style={tabBtnStyle(target === 'shot')}>Shot</button>
+            <button type="button" onClick={() => handleSetTarget('asset')} style={tabBtnStyle(target === 'asset')}>Asset</button>
+          </div>
+        </div>
+
         <Input value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Task title" />
         <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Description (optional)" multiline />
         <Select value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))}
-          options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" />
+          options={depts.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" />
         <Select value={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
           options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assign to student (optional)" />
-        <Select value={form.shot_id} onChange={v => setForm(f => ({ ...f, shot_id: v || null }))}
-          options={shots.map(s => ({ value: s.id, label: `${s.code} — ${s.description || s.sequence}` }))} placeholder="Link to shot (optional)" />
+
+        {target === 'shot' ? (
+          <Select value={form.shot_id} onChange={v => setForm(f => ({ ...f, shot_id: v || null }))}
+            options={shots.map(s => ({ value: s.id, label: `${s.code} — ${s.description || s.sequence}` }))} placeholder="Link to shot (optional)" />
+        ) : (
+          <Select value={form.asset_id} onChange={v => setForm(f => ({ ...f, asset_id: v || null }))}
+            options={assets.map(a => ({ value: a.id, label: a.name }))} placeholder="Link to asset (optional)" />
+        )}
 
         {/* Start immediately checkbox */}
         <label

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react'
-import { SHOT_DEPTS as DEPTS, ACCENT, isDeptEnabled, isVideoUrl } from '../../lib/constants'
+import { ASSET_DEPTS, ACCENT, isVideoUrl } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
-import ShotCell from './ShotCell'
+import ShotCell from '../shots/ShotCell'
 import { IconEdit, IconCheck, IconX, IconTrash, IconImage } from '../ui/Icons'
 
 const iconBtnStyle = {
@@ -9,9 +9,8 @@ const iconBtnStyle = {
   transition: 'opacity 0.15s ease',
 }
 
-const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `200px repeat(${DEPTS.length}, 72px) 56px`
+const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `200px repeat(${ASSET_DEPTS.length}, 72px) 56px`
 
-// Cloudinary thumbnail transform
 const thumbUrl = (url, w = 56, h = 56) => {
   if (!url) return null
   const idx = url.indexOf('/upload/')
@@ -19,7 +18,6 @@ const thumbUrl = (url, w = 56, h = 56) => {
   return url.slice(0, idx + 8) + `c_fill,w_${w},h_${h},f_auto/` + url.slice(idx + 8)
 }
 
-// Bigger preview transform
 const previewUrl = (url) => {
   if (!url) return null
   const idx = url.indexOf('/upload/')
@@ -27,91 +25,77 @@ const previewUrl = (url) => {
   return url.slice(0, idx + 8) + 'c_fit,w_400,h_260,f_auto/' + url.slice(idx + 8)
 }
 
-const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, onUploadReference, onUploadOutput, onUpdateShot, onDragStart, onDragOver, onDrop, requestConfirm, canEditShots, onGoToTasks, sequences = [] }) {
+const AssetRow = React.memo(function AssetRow({
+  asset, staff, canEdit, onCycle, onDelete, onUploadReference, onUploadOutput, onUpdate,
+  onDragStart, onDragOver, onDrop, requestConfirm, onGoToTasks,
+}) {
   const isMobile = useIsMobile()
   const [h, setH] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadingOutput, setUploadingOutput] = useState(false)
   const [editing, setEditing] = useState(false)
-  const [editCode, setEditCode] = useState('')
+  const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
-  const [editSequence, setEditSequence] = useState('')
-  const [editDisabledDepts, setEditDisabledDepts] = useState({})
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef(null)
   const outputFileRef = useRef(null)
 
   const handleDelete = useCallback(() => {
-    requestConfirm(`Eliminare lo shot ${shot.code}?`, () => onDelete(shot.id))
-  }, [shot.id, shot.code, onDelete, requestConfirm])
+    requestConfirm(`Eliminare l'asset ${asset.name}?`, () => onDelete(asset.id))
+  }, [asset.id, asset.name, onDelete, requestConfirm])
 
   const handleFileSelect = useCallback(async (e) => {
     const file = e.target.files?.[0]
     if (!file || !onUploadReference) return
     if (file.size > 5 * 1024 * 1024) return
     setUploading(true)
-    try { await onUploadReference(shot.id, file) } finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
-  }, [shot.id, onUploadReference])
+    try { await onUploadReference(asset.id, file) } finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
+  }, [asset.id, onUploadReference])
 
   const handleOutputSelect = useCallback(async (e) => {
     const file = e.target.files?.[0]
     if (!file || !onUploadOutput) return
     if (file.size > 30 * 1024 * 1024) return
     setUploadingOutput(true)
-    try { await onUploadOutput(shot.id, file) } finally { setUploadingOutput(false); if (outputFileRef.current) outputFileRef.current.value = '' }
-  }, [shot.id, onUploadOutput])
+    try { await onUploadOutput(asset.id, file) } finally { setUploadingOutput(false); if (outputFileRef.current) outputFileRef.current.value = '' }
+  }, [asset.id, onUploadOutput])
 
   const startEditing = useCallback(() => {
-    setEditCode(shot.code || '')
-    setEditDesc(shot.description || '')
-    setEditSequence(shot.sequence || '')
-    setEditDisabledDepts(shot.disabled_depts || {})
+    setEditName(asset.name || '')
+    setEditDesc(asset.description || '')
     setEditing(true)
-  }, [shot.code, shot.description, shot.sequence, shot.disabled_depts])
+  }, [asset.name, asset.description])
 
   const cancelEditing = useCallback(() => setEditing(false), [])
 
-  const toggleDept = useCallback((deptId) => {
-    setEditDisabledDepts(prev => {
-      const next = { ...prev }
-      if (next[deptId]) { delete next[deptId] } else { next[deptId] = true }
-      return next
-    })
-  }, [])
-
   const saveEditing = useCallback(async () => {
-    if (!editCode.trim()) return
+    if (!editName.trim()) return
     const updates = {}
-    if (editCode.trim() !== shot.code) updates.code = editCode.trim()
-    if (editDesc !== (shot.description || '')) updates.description = editDesc
-    if (editSequence.trim() && editSequence.trim() !== shot.sequence) updates.sequence = editSequence.trim()
-    const prevDD = JSON.stringify(shot.disabled_depts || {})
-    const newDD = JSON.stringify(editDisabledDepts)
-    if (prevDD !== newDD) updates.disabled_depts = editDisabledDepts
+    if (editName.trim() !== asset.name) updates.name = editName.trim()
+    if (editDesc !== (asset.description || '')) updates.description = editDesc
     if (Object.keys(updates).length === 0) { setEditing(false); return }
     setSaving(true)
-    try { await onUpdateShot(shot.id, updates); setEditing(false) } finally { setSaving(false) }
-  }, [editCode, editDesc, editSequence, editDisabledDepts, shot.id, shot.code, shot.description, shot.sequence, shot.disabled_depts, onUpdateShot])
+    try { await onUpdate(asset.id, updates); setEditing(false) } finally { setSaving(false) }
+  }, [editName, editDesc, asset.id, asset.name, asset.description, onUpdate])
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) saveEditing()
     if (e.key === 'Escape') cancelEditing()
   }, [saveEditing, cancelEditing])
 
-  // Drag handlers
   const handleDragStart = useCallback((e) => {
     e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', shot.id)
-    onDragStart?.(shot.id)
-  }, [shot.id, onDragStart])
+    e.dataTransfer.setData('text/plain', asset.id)
+    onDragStart?.(asset.id)
+  }, [asset.id, onDragStart])
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     setDragOver(true)
-    onDragOver?.(shot.id)
-  }, [shot.id, onDragOver])
+    onDragOver?.(asset.id)
+  }, [asset.id, onDragOver])
 
   const handleDragLeave = useCallback(() => setDragOver(false), [])
 
@@ -119,66 +103,28 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
     e.preventDefault()
     setDragOver(false)
     const draggedId = e.dataTransfer.getData('text/plain')
-    if (draggedId && draggedId !== shot.id) {
-      onDrop?.(draggedId, shot.id)
+    if (draggedId && draggedId !== asset.id) {
+      onDrop?.(draggedId, asset.id)
     }
-  }, [shot.id, onDrop])
+  }, [asset.id, onDrop])
 
   if (editing) {
-    const refImg = shot.ref_cloud_url || shot.concept_image_url
-    const outImg = shot.output_cloud_url
+    const refImg = asset.ref_cloud_url
+    const outImg = asset.output_cloud_url
     return (
       <div style={{
         padding: isMobile ? 10 : 16, borderRadius: 10,
         background: 'rgba(242,140,40,0.04)', border: `1px solid ${ACCENT}30`,
         margin: '4px 0',
       }}>
-        {/* Top row: code + sequence + description */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-          <input value={editCode} onChange={e => setEditCode(e.target.value)} onKeyDown={handleKeyDown} placeholder="Shot code" autoFocus
-            style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 6, padding: '5px 8px', outline: 'none', background: '#fff', width: 140 }} />
-          <input
-            list={`seq-list-${shot.id}`}
-            value={editSequence}
-            onChange={e => setEditSequence(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Sequenza"
-            style={{ fontSize: 12, fontWeight: 600, color: '#475569', border: '1px solid #E2E8F0', borderRadius: 6, padding: '5px 8px', outline: 'none', background: '#fff', width: 120 }}
-          />
-          <datalist id={`seq-list-${shot.id}`}>
-            {sequences.map(s => <option key={s} value={s} />)}
-          </datalist>
+          <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Asset name" autoFocus
+            style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 6, padding: '5px 8px', outline: 'none', background: '#fff', width: 200 }} />
           <input value={editDesc} onChange={e => setEditDesc(e.target.value)} onKeyDown={handleKeyDown} placeholder="Description"
             style={{ fontSize: 12, color: '#475569', border: '1px solid #E2E8F0', borderRadius: 6, padding: '5px 8px', outline: 'none', background: '#fff', flex: 1, minWidth: 180, fontFamily: 'inherit' }} />
         </div>
 
-        {/* Department toggles — horizontal squares */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Departments</div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {DEPTS.map(d => {
-              const enabled = !editDisabledDepts[d.id]
-              return (
-                <button key={d.id} onClick={() => toggleDept(d.id)} title={d.label} style={{
-                  width: 64, height: 28, borderRadius: 6, fontSize: 9, fontWeight: 600, cursor: 'pointer',
-                  border: `2px solid ${enabled ? d.color : '#CBD5E1'}`,
-                  background: enabled ? `${d.color}25` : '#F1F5F9',
-                  color: enabled ? d.color : '#B0B8C4',
-                  transition: 'all 0.15s ease',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
-                  textTransform: 'uppercase', letterSpacing: '0.02em',
-                }}>
-                  {enabled && <span style={{ fontSize: 11 }}>✓</span>}
-                  {isMobile ? d.label.slice(0, 4) : d.label.length > 8 ? d.label.slice(0, 7) + '.' : d.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Reference & Output previews */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-          {/* Reference */}
           <div style={{ flex: '1 1 180px', minWidth: 160 }}>
             <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Reference</div>
             <input ref={fileRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
@@ -203,7 +149,6 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
             )}
           </div>
 
-          {/* Output */}
           <div style={{ flex: '1 1 180px', minWidth: 160 }}>
             <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Output</div>
             <input ref={outputFileRef} type="file" accept="image/*,video/*" onChange={handleOutputSelect} style={{ display: 'none' }} />
@@ -236,9 +181,8 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
           </div>
         </div>
 
-        {/* Bottom actions: Save, Cancel, Delete */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button onClick={saveEditing} disabled={saving || !editCode.trim()} style={{
+          <button onClick={saveEditing} disabled={saving || !editName.trim()} style={{
             background: ACCENT, color: '#fff', border: 'none', borderRadius: 6,
             padding: '5px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
             opacity: saving ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 4,
@@ -253,21 +197,21 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
             background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', borderRadius: 6,
             padding: '5px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 4,
-          }}><IconTrash size={12} /> Elimina Shot</button>
+          }}><IconTrash size={12} /> Elimina Asset</button>
         </div>
       </div>
     )
   }
 
-  const refThumb = thumbUrl(shot.ref_cloud_url || shot.concept_image_url)
+  const refThumb = thumbUrl(asset.ref_cloud_url)
 
   return (
     <div
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
-      onDragOver={staff && canEditShots ? handleDragOver : undefined}
-      onDragLeave={staff && canEditShots ? handleDragLeave : undefined}
-      onDrop={staff && canEditShots ? handleDropCb : undefined}
+      onDragOver={staff && canEdit ? handleDragOver : undefined}
+      onDragLeave={staff && canEdit ? handleDragLeave : undefined}
+      onDrop={staff && canEdit ? handleDropCb : undefined}
       style={{
         display: 'grid', gridTemplateColumns: GRID_COLS(isMobile), gap: isMobile ? 2 : 3,
         padding: isMobile ? '6px 0' : '10px 0', borderRadius: 8,
@@ -277,8 +221,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
       }}
     >
       <div style={{ paddingLeft: isMobile ? 4 : 8, display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, minWidth: 0, overflow: 'hidden' }}>
-        {/* Drag handle */}
-        {staff && canEditShots && !isMobile && (
+        {staff && canEdit && !isMobile && (
           <div
             draggable
             onDragStart={handleDragStart}
@@ -297,38 +240,35 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
           </div>
         )}
 
-        {/* Reference thumbnail */}
         {refThumb && !isMobile && (
           <img src={refThumb} alt="" style={{ width: 28, height: 28, borderRadius: 5, objectFit: 'cover', flexShrink: 0, border: '1px solid #E2E8F0' }} />
         )}
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6 }}>
-            <span style={{ fontSize: isMobile ? 11 : 14, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shot.code}</span>
+            <span style={{ fontSize: isMobile ? 11 : 14, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{asset.name}</span>
           </div>
-          {!isMobile && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shot.description}</div>}
+          {!isMobile && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{asset.description}</div>}
         </div>
-        {/* Edit button on hover */}
-        {h && !isMobile && staff && canEditShots && (
+        {h && !isMobile && staff && canEdit && (
           <button onClick={startEditing} style={{ ...iconBtnStyle, color: '#2563EB' }}
             onMouseEnter={e => { e.currentTarget.style.opacity = '1' }} onMouseLeave={e => { e.currentTarget.style.opacity = '0.5' }}
-            title="Modifica shot"><IconEdit size={14} /></button>
+            title="Modifica asset"><IconEdit size={14} /></button>
         )}
       </div>
-      {DEPTS.map(dept => (
+      {ASSET_DEPTS.map(dept => (
         <ShotCell
           key={dept.id}
-          status={shot[`status_${dept.id}`]}
-          onClick={() => onCycle(shot, dept.id)}
-          clickable={staff && isDeptEnabled(shot, dept.id)}
-          disabled={!isDeptEnabled(shot, dept.id)}
+          status={asset[`status_${dept.id}`]}
+          onClick={() => onCycle(asset, dept.id)}
+          clickable={staff}
+          disabled={false}
         />
       ))}
-      {/* Tasks link — last grid column */}
       {!isMobile && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {onGoToTasks && (
-            <button onClick={() => onGoToTasks(shot.id)} style={{
+            <button onClick={() => onGoToTasks(asset.id)} style={{
               background: 'none', border: 'none', fontSize: 10, cursor: 'pointer',
               padding: '2px 4px', borderRadius: 4, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap',
               transition: 'all 0.15s ease',
@@ -343,20 +283,17 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
   )
 }, (prev, next) => {
   if (prev.staff !== next.staff) return false
-  if (prev.canEditShots !== next.canEditShots) return false
-  if (prev.shot.id !== next.shot.id) return false
-  if (prev.shot.sort_order !== next.shot.sort_order) return false
-  if (prev.shot.code !== next.shot.code) return false
-  if (prev.shot.sequence !== next.shot.sequence) return false
-  if (prev.shot.description !== next.shot.description) return false
-  if (prev.shot.concept_image_url !== next.shot.concept_image_url) return false
-  if (prev.shot.ref_cloud_url !== next.shot.ref_cloud_url) return false
-  if (prev.shot.output_cloud_url !== next.shot.output_cloud_url) return false
-  if (JSON.stringify(prev.shot.disabled_depts) !== JSON.stringify(next.shot.disabled_depts)) return false
-  for (const d of DEPTS) {
-    if (prev.shot[`status_${d.id}`] !== next.shot[`status_${d.id}`]) return false
+  if (prev.canEdit !== next.canEdit) return false
+  if (prev.asset.id !== next.asset.id) return false
+  if (prev.asset.sort_order !== next.asset.sort_order) return false
+  if (prev.asset.name !== next.asset.name) return false
+  if (prev.asset.description !== next.asset.description) return false
+  if (prev.asset.ref_cloud_url !== next.asset.ref_cloud_url) return false
+  if (prev.asset.output_cloud_url !== next.asset.output_cloud_url) return false
+  for (const d of ASSET_DEPTS) {
+    if (prev.asset[`status_${d.id}`] !== next.asset[`status_${d.id}`]) return false
   }
   return true
 })
 
-export default ShotRow
+export default AssetRow

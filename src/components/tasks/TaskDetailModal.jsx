@@ -183,6 +183,12 @@ export default function TaskDetailModal({
   // ── Shared content renderers ──
   const renderInfoContent = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {task.asset && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Asset</span>
+          <span style={{ fontSize: 12, color: '#7C3AED', background: 'rgba(167,139,250,0.12)', padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(167,139,250,0.4)' }}>{task.asset.name}</span>
+        </div>
+      )}
       {task.shot && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Shot</span>

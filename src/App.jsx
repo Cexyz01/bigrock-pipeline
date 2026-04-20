@@ -8,6 +8,7 @@ import {
   supabase, signOut,
   getProfile, getAllProfiles,
   getShots, createShot, updateShot, deleteShot,
+  getAssets, createAsset, updateAsset, deleteAsset,
   getTasks, createTask, updateTask, deleteTask,
   addComment,
   getCalendarEvents, createCalendarEvent, deleteCalendarEvent,
@@ -67,6 +68,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [profiles, setProfiles] = useState([])
   const [shots, setShots] = useState([])
+  const [assets, setAssets] = useState([])
   const [tasks, setTasks] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
@@ -188,9 +190,10 @@ export default function App() {
   }
 
   const loadData = async (userId, projectId) => {
-    const [p, sh, t, ev, n, dmUn, gameActive, wv] = await Promise.all([
+    const [p, sh, as, t, ev, n, dmUn, gameActive, wv] = await Promise.all([
       getAllProfiles(),
       getShots(projectId),
+      getAssets(projectId),
       getTasks({ project_id: projectId }),
       getCalendarEvents(projectId),
       getNotifications(userId),
@@ -198,7 +201,7 @@ export default function App() {
       getTcgGameActive(),
       getWipViews(userId),
     ])
-    setProfiles(p); setShots(sh); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv)
+    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv)
     // Derive permissions from global role only
     const myProfile = p.find(pr => pr.id === userId)
     setMyPerms({
@@ -335,6 +338,7 @@ export default function App() {
     const pid = currentProject.id
     const channels = [
       subscribeToTable('shots', () => getShots(pid).then(setShots), `project_id=eq.${pid}`),
+      subscribeToTable('assets', () => getAssets(pid).then(setAssets), `project_id=eq.${pid}`),
       subscribeToTable('tasks', () => getTasks({ project_id: pid }).then(setTasks), `project_id=eq.${pid}`),
       subscribeToTable('notifications', () => getNotifications(user.id).then(setNotifications)),
       subscribeToNotifications(user.id, (payload) => {
@@ -526,6 +530,66 @@ export default function App() {
       addToast('Audio uploaded', 'success')
     } else {
       addToast('Audio upload failed: ' + (error?.message || 'unknown'), 'danger')
+    }
+  }
+
+  // ── Assets ──
+  const handleCreateAsset = async (asset, referenceFile) => {
+    const maxOrder = assets.reduce((max, a) => Math.max(max, a.sort_order || 0), -1)
+    const payload = { ...asset, project_id: currentProject.id, created_by: user.id, sort_order: maxOrder + 1 }
+    const { data, error } = await createAsset(payload)
+    if (error) { addToast(`Errore creazione asset: ${error.message}`, 'danger'); return }
+    if (data && referenceFile) handleUploadAssetReference(data.id, referenceFile)
+    setAssets(await getAssets(currentProject?.id))
+  }
+
+  const handleUpdateAsset = async (id, updates) => {
+    setAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a))
+    const { error } = await updateAsset(id, updates)
+    if (error) setAssets(await getAssets(currentProject?.id))
+  }
+
+  const handleReorderAssets = (changes) => {
+    if (!changes || changes.length === 0) return
+    const map = new Map(changes.map(c => [c.id, c.updates]))
+    setAssets(prev => prev.map(a => map.has(a.id) ? { ...a, ...map.get(a.id) } : a))
+    Promise.all(changes.map(c => updateAsset(c.id, c.updates))).then(results => {
+      if (results.some(r => r.error)) {
+        getAssets(currentProject?.id).then(setAssets)
+        addToast('Errore salvataggio ordine asset, ripristino', 'danger')
+      }
+    })
+  }
+
+  const handleDeleteAsset = async (id) => {
+    const { error } = await deleteAsset(id)
+    if (error) { addToast(`Impossibile eliminare l'asset: ${error.message}`, 'danger'); return }
+    setAssets(await getAssets(currentProject?.id))
+    setTasks(await getTasks({ project_id: currentProject?.id }))
+  }
+
+  const handleUploadAssetReference = async (assetId, file) => {
+    const dims = await new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => { resolve({ w: img.naturalWidth, h: img.naturalHeight }); URL.revokeObjectURL(img.src) }
+      img.onerror = () => resolve({ w: 0, h: 0 })
+      img.src = URL.createObjectURL(file)
+    })
+    // Reuse the concept upload signature endpoint — it only generates a Cloudinary signature,
+    // shot_id is just an opaque identifier in the payload.
+    const { url, error } = await uploadConceptImage(assetId, file)
+    if (error) { addToast('Asset reference upload failed: ' + error.message, 'danger'); return }
+    if (url) await updateAsset(assetId, { ref_cloud_url: url, ref_img_width: dims.w, ref_img_height: dims.h })
+    setAssets(await getAssets(currentProject?.id))
+  }
+
+  const handleUploadAssetOutput = async (assetId, file) => {
+    const { url, width, height, error } = await uploadOutputImage(assetId, file)
+    if (error) { addToast('Asset output upload failed: ' + error.message, 'danger'); return }
+    if (url) {
+      await updateAsset(assetId, { output_cloud_url: url, output_img_width: width || 0, output_img_height: height || 0 })
+      setAssets(await getAssets(currentProject?.id))
+      addToast('Output uploaded', 'success')
     }
   }
 
@@ -879,8 +943,8 @@ export default function App() {
         ) : (
           <div style={{ flex: 1, padding: contentPadding, overflowY: 'auto', ...(isMobile ? { overflowX: 'hidden' } : { maxWidth: 1400 }), width: '100%', margin: '0 auto' }}>
             {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
-            {view === 'shots' && <ShotTrackerPage shots={shots} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'review' && myPerms.can_review && <ReviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask} onUpdateReviewMeta={handleUpdateReviewMeta} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}

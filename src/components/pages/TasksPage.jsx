@@ -24,13 +24,13 @@ const statusRowHoverBg = {
 }
 
 export default function TasksPage({
-  tasks, shots, profiles, user,
+  tasks, shots, assets = [], profiles, user,
   onCreateTask, onUpdateTask, onDeleteTask, onRejectTask, onAddWipComment,
   onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
   wipViews,
   addToast, requestConfirm, deepLink, clearDeepLink,
 }) {
-  const [filter, setFilter] = useState({ dept: '', status: '', user: '', shot: '' })
+  const [filter, setFilter] = useState({ dept: '', status: '', user: '', shot: '', asset: '' })
   const [showCreate, setShowCreate] = useState(false)
   const [selectedTask, setSelectedTask] = useState(null)
   const [viewMode, setViewMode] = useState('all')
@@ -45,7 +45,11 @@ export default function TasksPage({
       clearDeepLink()
     }
     if (deepLink?.type === 'shotFilter' && deepLink?.id) {
-      setFilter(f => ({ ...f, shot: deepLink.id }))
+      setFilter(f => ({ ...f, shot: deepLink.id, asset: '' }))
+      clearDeepLink()
+    }
+    if (deepLink?.type === 'assetFilter' && deepLink?.id) {
+      setFilter(f => ({ ...f, asset: deepLink.id, shot: '' }))
       clearDeepLink()
     }
   }, [deepLink, tasks])
@@ -65,42 +69,57 @@ export default function TasksPage({
     if (filter.status && t.status !== filter.status) return false
     if (filter.user && t.assigned_to !== filter.user) return false
     if (filter.shot && t.shot_id !== filter.shot) return false
+    if (filter.asset && t.asset_id !== filter.asset) return false
     return true
   })
 
   const students = profiles.filter(p => p.role === 'studente')
 
-  // Group tasks by shot — always use live shots array for names and order
-  const groupedByShot = useMemo(() => {
-    // Build a lookup from the live shots array
+  // Group tasks by container (asset, then shot, then unassigned).
+  // Asset groups are listed first.
+  const groupedTasks = useMemo(() => {
     const shotLookup = {}
     shots.forEach((s, i) => { shotLookup[s.id] = { ...s, _sortIdx: i } })
+    const assetLookup = {}
+    assets.forEach((a, i) => { assetLookup[a.id] = { ...a, _sortIdx: i } })
 
-    const groups = []
-    const shotMap = {}
+    const assetGroups = {}
+    const shotGroups = {}
+    let noneGroup = null
+
     filteredTasks.forEach(t => {
-      const shotId = t.shot_id || '__none__'
-      if (!shotMap[shotId]) {
-        // Always prefer live shot data over stale joined t.shot
-        const shot = shotId !== '__none__' ? (shotLookup[shotId] || t.shot || null) : null
-        shotMap[shotId] = { shotId, shot, tasks: [] }
-        groups.push(shotMap[shotId])
+      if (t.asset_id) {
+        const key = t.asset_id
+        if (!assetGroups[key]) {
+          const asset = assetLookup[key] || t.asset || null
+          assetGroups[key] = { kind: 'asset', key: 'a:' + key, asset, tasks: [] }
+        }
+        assetGroups[key].tasks.push(t)
+      } else if (t.shot_id) {
+        const key = t.shot_id
+        if (!shotGroups[key]) {
+          const shot = shotLookup[key] || t.shot || null
+          shotGroups[key] = { kind: 'shot', key: 's:' + key, shot, tasks: [] }
+        }
+        shotGroups[key].tasks.push(t)
+      } else {
+        if (!noneGroup) noneGroup = { kind: 'none', key: 'none', tasks: [] }
+        noneGroup.tasks.push(t)
       }
-      shotMap[shotId].tasks.push(t)
     })
-    // Sort by shot sort_order (same as Shot Tracker), no-shot last
-    groups.sort((a, b) => {
-      if (!a.shot && b.shot) return 1
-      if (a.shot && !b.shot) return -1
-      if (a.shot && b.shot) {
-        const seqCmp = (a.shot.sequence || '').localeCompare(b.shot.sequence || '')
-        if (seqCmp !== 0) return seqCmp
-        return (a.shot._sortIdx ?? a.shot.sort_order ?? 0) - (b.shot._sortIdx ?? b.shot.sort_order ?? 0)
-      }
-      return 0
+
+    const assetArr = Object.values(assetGroups).sort((a, b) => {
+      const ai = a.asset?._sortIdx ?? a.asset?.sort_order ?? 0
+      const bi = b.asset?._sortIdx ?? b.asset?.sort_order ?? 0
+      return ai - bi
     })
-    return groups
-  }, [filteredTasks, shots])
+    const shotArr = Object.values(shotGroups).sort((a, b) => {
+      const seqCmp = (a.shot?.sequence || '').localeCompare(b.shot?.sequence || '')
+      if (seqCmp !== 0) return seqCmp
+      return (a.shot?._sortIdx ?? a.shot?.sort_order ?? 0) - (b.shot?._sortIdx ?? b.shot?.sort_order ?? 0)
+    })
+    return [...assetArr, ...shotArr, ...(noneGroup ? [noneGroup] : [])]
+  }, [filteredTasks, shots, assets])
 
   const selectStyle = { padding: '7px 14px', fontSize: 12, borderRadius: 12 }
 
@@ -134,27 +153,43 @@ export default function TasksPage({
               style={selectStyle} />
           )}
           {shots.length > 0 && (
-            <Select value={filter.shot} onChange={v => setFilter(f => ({ ...f, shot: v }))}
+            <Select value={filter.shot} onChange={v => setFilter(f => ({ ...f, shot: v, asset: v ? '' : f.asset }))}
               options={shots.map(s => ({ value: s.id, label: s.code }))} placeholder="All shots"
+              style={selectStyle} />
+          )}
+          {assets.length > 0 && (
+            <Select value={filter.asset} onChange={v => setFilter(f => ({ ...f, asset: v, shot: v ? '' : f.shot }))}
+              options={assets.map(a => ({ value: a.id, label: a.name }))} placeholder="All assets"
               style={selectStyle} />
           )}
         </div>
       </Fade>
 
-      {/* Task list grouped by shot */}
+      {/* Task list grouped by asset / shot */}
       {filteredTasks.length === 0 ? (
         <EmptyState icon={<IconClipboard size={48} color="#94A3B8" />} title="No tasks" sub={staff ? 'Create the first task' : 'No tasks assigned'} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {groupedByShot.map((group, gi) => (
-            <Fade key={group.shotId} delay={gi * 40}>
+          {groupedTasks.map((group, gi) => (
+            <Fade key={group.key} delay={gi * 40}>
               <div>
-                {/* Shot header */}
+                {/* Group header */}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
-                  padding: '8px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0',
+                  padding: '8px 12px',
+                  background: group.kind === 'asset' ? 'rgba(167,139,250,0.08)' : '#F8FAFC',
+                  borderRadius: 10,
+                  border: `1px solid ${group.kind === 'asset' ? 'rgba(167,139,250,0.4)' : '#E2E8F0'}`,
                 }}>
-                  {group.shot ? (
+                  {group.kind === 'asset' && group.asset ? (
+                    <>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: '#A78BFA', textTransform: 'uppercase', letterSpacing: '0.06em', background: 'rgba(167,139,250,0.18)', padding: '2px 6px', borderRadius: 4 }}>Asset</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a1a' }}>{group.asset.name}</span>
+                      {group.asset.description && (
+                        <span style={{ fontSize: 11, color: '#94A3B8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>— {group.asset.description}</span>
+                      )}
+                    </>
+                  ) : group.kind === 'shot' && group.shot ? (
                     <>
                       <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a1a' }}>{group.shot.code}</span>
                       <span style={{ fontSize: 11, color: '#94A3B8' }}>{group.shot.sequence}</span>
@@ -163,11 +198,11 @@ export default function TasksPage({
                       )}
                     </>
                   ) : (
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#94A3B8' }}>No Shot</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#94A3B8' }}>No Shot / Asset</span>
                   )}
                   <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, marginLeft: 'auto', flexShrink: 0 }}>{group.tasks.length} task{group.tasks.length !== 1 ? 's' : ''}</span>
                 </div>
-                {/* Tasks under this shot */}
+                {/* Tasks under this group */}
                 <div style={{
                   display: 'grid',
                   gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))',
@@ -190,7 +225,7 @@ export default function TasksPage({
 
       {/* Create Task Modal */}
       <CreateTaskModal open={showCreate} onClose={() => setShowCreate(false)}
-        shots={shots} students={students} user={user} onCreate={onCreateTask} />
+        shots={shots} assets={assets} students={students} user={user} onCreate={onCreateTask} />
 
       {/* Task Detail Modal */}
       {selectedTask && (

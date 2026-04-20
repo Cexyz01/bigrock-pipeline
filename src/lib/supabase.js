@@ -226,6 +226,31 @@ export async function deleteShot(id) {
   return supabase.from('shots').delete().eq('id', id)
 }
 
+// ── Assets ──
+
+export async function getAssets(projectId) {
+  let query = supabase.from('assets').select('*').order('sort_order').order('name')
+  if (projectId) query = query.eq('project_id', projectId)
+  const { data } = await query
+  return data || []
+}
+
+export async function createAsset(asset) {
+  const { data, error } = await supabase.from('assets').insert(asset).select().single()
+  return { data, error }
+}
+
+export async function updateAsset(id, updates) {
+  const { data, error } = await supabase.from('assets')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  return { data, error }
+}
+
+export async function deleteAsset(id) {
+  return supabase.from('assets').delete().eq('id', id)
+}
+
 // ── Tasks ──
 
 export async function getTasks(filters = {}) {
@@ -233,7 +258,8 @@ export async function getTasks(filters = {}) {
     *,
     assigned_user:profiles!tasks_assigned_to_fkey(id, full_name, email, department, mood_emoji, avatar_url),
     creator:profiles!tasks_created_by_fkey(id, full_name),
-    shot:shots(id, code, sequence)
+    shot:shots(id, code, sequence),
+    asset:assets(id, name)
   `).order('created_at', { ascending: false })
 
   if (filters.project_id) query = query.eq('project_id', filters.project_id)
@@ -241,6 +267,7 @@ export async function getTasks(filters = {}) {
   if (filters.department) query = query.eq('department', filters.department)
   if (filters.status) query = query.eq('status', filters.status)
   if (filters.shot_id) query = query.eq('shot_id', filters.shot_id)
+  if (filters.asset_id) query = query.eq('asset_id', filters.asset_id)
 
   const { data } = await query
   return data || []
