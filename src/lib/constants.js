@@ -14,10 +14,11 @@ export const DEPTS = [
   { id: 'sound',         label: 'Sound',           color: '#14B8A6' },
 ]
 
-// Modeling, texturing and rigging belong to assets, not shots.
-export const ASSET_DEPT_IDS = ['modeling', 'texturing', 'rigging']
+// Department assignment per entity type — depts can belong to both (e.g. concept).
+export const SHOT_DEPT_IDS = ['concept', 'animation', 'compositing', 'lighting', 'test_ai', 'sound']
+export const ASSET_DEPT_IDS = ['concept', 'modeling', 'texturing', 'rigging']
+export const SHOT_DEPTS = DEPTS.filter(d => SHOT_DEPT_IDS.includes(d.id))
 export const ASSET_DEPTS = DEPTS.filter(d => ASSET_DEPT_IDS.includes(d.id))
-export const SHOT_DEPTS = DEPTS.filter(d => !ASSET_DEPT_IDS.includes(d.id))
 
 export const isDeptEnabled = (shot, deptId) => !shot.disabled_depts?.[deptId]
 export const AUDIO_EXTS = ['mp3','wav','ogg','aac','m4a','flac']
