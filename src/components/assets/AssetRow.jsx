@@ -9,7 +9,7 @@ const iconBtnStyle = {
   transition: 'opacity 0.15s ease',
 }
 
-const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `minmax(220px, 1.5fr) repeat(${ASSET_DEPTS.length}, minmax(80px, 1fr)) 64px`
+const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `280px repeat(${ASSET_DEPTS.length}, 72px) 56px`
 
 const thumbUrl = (url, w = 56, h = 56) => {
   if (!url) return null
@@ -213,7 +213,7 @@ const AssetRow = React.memo(function AssetRow({
       onDragLeave={staff && canEdit ? handleDragLeave : undefined}
       onDrop={staff && canEdit ? handleDropCb : undefined}
       style={{
-        display: 'grid', gridTemplateColumns: GRID_COLS(isMobile), gap: isMobile ? 2 : 3,
+        display: 'grid', gridTemplateColumns: GRID_COLS(isMobile), gap: isMobile ? 2 : 10,
         padding: isMobile ? '6px 0' : '10px 0', borderRadius: 8,
         background: dragOver ? 'rgba(242,140,40,0.08)' : h ? '#F8FAFC' : 'transparent',
         borderTop: dragOver ? `2px solid ${ACCENT}` : '2px solid transparent',

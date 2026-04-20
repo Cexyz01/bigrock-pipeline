@@ -181,9 +181,9 @@ export default function ShotTrackerPage({
       </Fade>
 
       {activeTab === 'assets' && (
-        <div style={{ width: '100%' }}>
+        <div style={{ width: 'fit-content', maxWidth: '100%', margin: '0 auto' }}>
           <div style={{
-            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `minmax(220px, 1.5fr) repeat(${ASSET_DEPTS.length}, minmax(80px, 1fr)) 64px`, gap: isMobile ? 2 : 3,
+            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `280px repeat(${ASSET_DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
             padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
             position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
           }}>
@@ -221,9 +221,9 @@ export default function ShotTrackerPage({
       )}
 
       {activeTab === 'shots' && (
-        <div style={{ width: '100%' }}>
+        <div style={{ width: 'fit-content', maxWidth: '100%', margin: '0 auto' }}>
           <div style={{
-            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `minmax(220px, 1.5fr) repeat(${DEPTS.length}, minmax(80px, 1fr)) 64px`, gap: isMobile ? 2 : 3,
+            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `280px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
             padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
             position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
           }}>

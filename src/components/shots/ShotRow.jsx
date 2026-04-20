@@ -9,7 +9,7 @@ const iconBtnStyle = {
   transition: 'opacity 0.15s ease',
 }
 
-const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `minmax(220px, 1.5fr) repeat(${DEPTS.length}, minmax(80px, 1fr)) 64px`
+const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `280px repeat(${DEPTS.length}, 72px) 56px`
 
 // Cloudinary thumbnail transform
 const thumbUrl = (url, w = 56, h = 56) => {
@@ -269,7 +269,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
       onDragLeave={staff && canEditShots ? handleDragLeave : undefined}
       onDrop={staff && canEditShots ? handleDropCb : undefined}
       style={{
-        display: 'grid', gridTemplateColumns: GRID_COLS(isMobile), gap: isMobile ? 2 : 3,
+        display: 'grid', gridTemplateColumns: GRID_COLS(isMobile), gap: isMobile ? 2 : 10,
         padding: isMobile ? '6px 0' : '10px 0', borderRadius: 8,
         background: dragOver ? 'rgba(242,140,40,0.08)' : h ? '#F8FAFC' : 'transparent',
         borderTop: dragOver ? `2px solid ${ACCENT}` : '2px solid transparent',
