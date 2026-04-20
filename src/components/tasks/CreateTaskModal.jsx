@@ -12,6 +12,18 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
 
   const depts = target === 'asset' ? ASSET_DEPTS : SHOT_DEPTS
 
+  const sortedShots = [...(shots || [])].sort((a, b) =>
+    (a.sequence || '').localeCompare(b.sequence || '') ||
+    ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+    (a.code || '').localeCompare(b.code || '')
+  )
+  const sortedAssets = [...(assets || [])].sort((a, b) =>
+    ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+    (a.name || '').localeCompare(b.name || '')
+  )
+
+  const truncate = (s, n = 40) => !s ? '' : (s.length > n ? s.slice(0, n - 1) + '…' : s)
+
   const handleCreate = async () => {
     if (!form.title || !form.department) return
     await onCreate({
@@ -63,10 +75,15 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
 
         {target === 'shot' ? (
           <Select value={form.shot_id} onChange={v => setForm(f => ({ ...f, shot_id: v || null }))}
-            options={shots.map(s => ({ value: s.id, label: `${s.code} — ${s.description || s.sequence}` }))} placeholder="Link to shot (optional)" />
+            style={{ fontSize: 12 }}
+            options={sortedShots.map(s => {
+              const desc = s.description ? truncate(s.description) : s.sequence
+              return { value: s.id, label: `${s.code}  ·  ${desc || ''}` }
+            })} placeholder="Link to shot (optional)" />
         ) : (
           <Select value={form.asset_id} onChange={v => setForm(f => ({ ...f, asset_id: v || null }))}
-            options={assets.map(a => ({ value: a.id, label: a.name }))} placeholder="Link to asset (optional)" />
+            style={{ fontSize: 12 }}
+            options={sortedAssets.map(a => ({ value: a.id, label: a.name }))} placeholder="Link to asset (optional)" />
         )}
 
         {/* Start immediately checkbox */}

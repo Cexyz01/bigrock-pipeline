@@ -1,14 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { DEPTS, SHOT_STATUSES, getShotStatus, ACCENT, isDeptEnabled, isAudioUrl } from '../../lib/constants'
+import { SHOT_DEPTS, ASSET_DEPTS, SHOT_STATUSES, getShotStatus, ACCENT, isDeptEnabled, isAudioUrl } from '../../lib/constants'
 import { supabase, getStoryboardImages, getStickers, createSticker, updateSticker, deleteSticker, uploadStickerImage } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import { IconX, IconSearch, IconLayout, IconTarget } from '../ui/Icons'
 
 // ── Constants ──
 const STATUS_KEY = dept => `status_${dept === 'compositing' ? 'compositing' : dept}`
-const DEPT_LABELS = ['Shot', 'Reference', 'Description', ...DEPTS.map(d => d.label)]
-const DEPT_COLORS = [null, null, null, ...DEPTS.map(d => d.color)]
 const HDR_H = 44
 const CELL_GAP = 4
 
@@ -198,9 +196,8 @@ function refThumbUrl(url, w = 320, h = 180) {
   return url
 }
 
-const RefCell = memo(function RefCell({ shot, onClick, cellH }) {
+const RefCell = memo(function RefCell({ url, onClick, cellH }) {
   const [hov, setHov] = useState(false)
-  const url = shot.ref_cloud_url || shot.concept_image_url
   if (!url) return <div style={{ height: cellH }} />
   return (
     <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
@@ -211,12 +208,12 @@ const RefCell = memo(function RefCell({ shot, onClick, cellH }) {
 })
 
 // Row height: base 240px, grows only when multiple images need grid rows
-function computeRowH(shot, imageMap) {
+function computeRowH(item, imageMap, depts) {
   const BASE = 240
   let maxGridH = 0
 
-  for (const d of DEPTS) {
-    const imgs = imageMap[`${shot.id}__${d.id}`] || []
+  for (const d of depts) {
+    const imgs = imageMap[`${item.id}__${d.id}`] || []
     if (imgs.length <= 1) continue
     // Multiple images in 2-col grid — each row ~160px
     const rows = Math.ceil(imgs.length / 2)
@@ -231,7 +228,9 @@ function computeRowH(shot, imageMap) {
 // CANVAS / BOARD VIEW — pan & zoom whiteboard
 // ══════════════════════════════════════════════════
 
-function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRef, funMode, stickers, onStickerUpdate, onStickerDelete, onStickerDrop }) {
+function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, openCellImage, openRef, funMode, stickers, onStickerUpdate, onStickerDelete, onStickerDrop }) {
+  const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
+  const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
   const containerRef = useRef(null)
   const [scale, setScale] = useState(0.55)
   const [pan, setPan] = useState(null) // null = needs centering
@@ -301,17 +300,17 @@ function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRe
   }, [dragging, handleMouseMove, handleMouseUp])
 
   // Calculate board layout positions
-  const totalCols = 3 + DEPTS.length // shot + ref + desc + 6 depts
-  const boardW = B_SHOT_W + B_REF_W + B_DESC_W + DEPTS.length * B_CELL_W + (totalCols - 1) * B_GAP + 60
+  const totalCols = 3 + depts.length
+  const boardW = B_SHOT_W + B_REF_W + B_DESC_W + depts.length * B_CELL_W + (totalCols - 1) * B_GAP + 60
   let currentY = 0
 
   const rowPositions = []
-  for (const [seq, seqShots] of sequences) {
-    rowPositions.push({ type: 'seq', seq, y: currentY, count: seqShots.length })
+  for (const [seq, seqItems] of sequences) {
+    rowPositions.push({ type: 'seq', seq, y: currentY, count: seqItems.length })
     currentY += B_SEQ_H + B_GAP
-    for (const shot of seqShots) {
-      const cellH = computeRowH(shot, imageMap)
-      rowPositions.push({ type: 'shot', shot, y: currentY, cellH })
+    for (const item of seqItems) {
+      const cellH = computeRowH(item, imageMap, depts)
+      rowPositions.push({ type: 'shot', shot: item, y: currentY, cellH })
       currentY += cellH + B_GAP
     }
     currentY += 10 // extra gap between sequences
@@ -319,13 +318,13 @@ function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRe
   const boardH = currentY + 60
 
   const colX = (i) => {
-    const widths = [B_SHOT_W, B_REF_W, B_DESC_W, ...DEPTS.map(() => B_CELL_W)]
+    const widths = [B_SHOT_W, B_REF_W, B_DESC_W, ...depts.map(() => B_CELL_W)]
     let x = 30
     for (let c = 0; c < i; c++) x += widths[c] + B_GAP
     return x
   }
 
-  const colWidths = [B_SHOT_W, B_REF_W, B_DESC_W, ...DEPTS.map(() => B_CELL_W)]
+  const colWidths = [B_SHOT_W, B_REF_W, B_DESC_W, ...depts.map(() => B_CELL_W)]
 
   // Center board horizontally on first render
   const centerPan = useCallback(() => {
@@ -431,10 +430,12 @@ function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRe
             )
           }
 
-          const { shot, cellH } = row
+          const { shot: item, cellH } = row
+          const code = getCode(item)
+          const description = getDescription(item)
           return (
-            <div key={shot.id} style={{ position: 'absolute', left: 0, top: y, width: boardW, height: cellH, overflow: 'hidden' }}>
-              {/* Shot code */}
+            <div key={item.id} style={{ position: 'absolute', left: 0, top: y, width: boardW, height: cellH, overflow: 'hidden' }}>
+              {/* Item code */}
               <div style={{
                 position: 'absolute', left: colX(0), top: 0,
                 width: B_SHOT_W, height: cellH,
@@ -442,10 +443,10 @@ function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRe
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
               }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', textAlign: 'center' }}>{shot.code}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', textAlign: 'center' }}>{code}</span>
                 <div style={{ display: 'flex', gap: 4, marginTop: 10 }}>
-                  {DEPTS.map(d => {
-                    const st = getShotStatus(shot[STATUS_KEY(d.id)])
+                  {depts.map(d => {
+                    const st = getShotStatus(getDeptStatus(item, d.id))
                     return <div key={d.id} style={{ width: 16, height: 5, borderRadius: 3, background: st.color, opacity: 0.7 }} title={`${d.label}: ${st.label}`} />
                   })}
                 </div>
@@ -453,7 +454,7 @@ function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRe
 
               {/* Reference */}
               <div style={{ position: 'absolute', left: colX(1), top: 0, width: B_REF_W, height: cellH, overflow: 'hidden' }}>
-                <RefCell shot={shot} onClick={() => openRef(shot)} cellH={cellH} />
+                <RefCell url={getRefUrl(item)} onClick={() => openRef(item)} cellH={cellH} />
               </div>
 
               {/* Description */}
@@ -464,23 +465,23 @@ function CanvasBoard({ sequences, imageMap, filteredShots, openCellImage, openRe
                 padding: '12px 14px', overflow: 'hidden',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
               }}>
-                {shot.description ? (
-                  <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>{shot.description}</span>
+                {description ? (
+                  <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>{description}</span>
                 ) : (
                   <span style={{ fontSize: 12, color: '#C8CDD4', fontStyle: 'italic' }}>Nessuna descrizione</span>
                 )}
               </div>
 
               {/* Dept cells */}
-              {DEPTS.map((d, di) => {
-                const key = `${shot.id}__${d.id}`
+              {depts.map((d, di) => {
+                const key = `${item.id}__${d.id}`
                 const imgs = imageMap[key] || []
-                const status = shot[STATUS_KEY(d.id)] || 'not_started'
-                const deptDisabled = !isDeptEnabled(shot, d.id)
+                const status = getDeptStatus(item, d.id) || 'not_started'
+                const deptDisabled = getDeptDisabled ? getDeptDisabled(item, d.id) : false
                 return (
                   <div key={d.id} style={{ position: 'absolute', left: colX(3 + di), top: 0, width: B_CELL_W, height: cellH }}>
                     <BoardCell images={imgs} status={status} cellH={cellH} disabled={deptDisabled}
-                      onClickImage={(idx) => openCellImage(shot.id, shot.code, d.id, d.label, status, idx)} />
+                      onClickImage={(idx) => openCellImage(item.id, code, d.id, d.label, status, idx)} />
                   </div>
                 )
               })}
@@ -635,7 +636,7 @@ const zoomBtnStyle = {
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════
 
-export default function StoryboardPage({ shots, tasks, profiles, user, currentProject, addToast }) {
+export default function StoryboardPage({ shots, assets = [], tasks, profiles, user, currentProject, addToast }) {
   const isMobile = useIsMobile()
   const [wipImages, setWipImages] = useState([])
   const [loading, setLoading] = useState(true)
@@ -646,6 +647,7 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
   const [funMode, setFunMode] = useState(() => localStorage.getItem('storyboard_fun') === 'true')
   const [stickers, setStickers] = useState([])
   const [uploadingSticker, setUploadingSticker] = useState(false)
+  const [activeTab, setActiveTab] = useState('shots')
 
   const toggleFun = () => {
     const next = !funMode
@@ -657,9 +659,10 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
     if (!currentProject?.id) return
     const data = await getStoryboardImages(currentProject.id)
     const shotIds = new Set((shots || []).map(s => s.id))
-    setWipImages(data.filter(img => shotIds.has(img.shot_id)))
+    const assetIds = new Set((assets || []).map(a => a.id))
+    setWipImages(data.filter(img => (img.shot_id && shotIds.has(img.shot_id)) || (img.asset_id && assetIds.has(img.asset_id))))
     setLoading(false)
-  }, [currentProject?.id, shots])
+  }, [currentProject?.id, shots, assets])
 
   const busyStickerIds = useRef(new Set()) // IDs currently being manipulated locally
 
@@ -723,10 +726,22 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
     await deleteSticker(id)
   }
 
-  const imageMap = useMemo(() => {
+  const shotImageMap = useMemo(() => {
     const map = {}
     for (const img of wipImages) {
+      if (!img.shot_id) continue
       const key = `${img.shot_id}__${img.department}`
+      if (!map[key]) map[key] = []
+      map[key].push(img)
+    }
+    return map
+  }, [wipImages])
+
+  const assetImageMap = useMemo(() => {
+    const map = {}
+    for (const img of wipImages) {
+      if (!img.asset_id) continue
+      const key = `${img.asset_id}__${img.department}`
       if (!map[key]) map[key] = []
       map[key].push(img)
     }
@@ -739,9 +754,16 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
     let list = shots || []
     if (filterSeq !== 'all') list = list.filter(s => s.sequence === filterSeq)
     if (searchText) { const q = searchText.toLowerCase(); list = list.filter(s => s.code?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q)) }
-    if (filterStatus !== 'all') list = list.filter(s => DEPTS.some(d => s[STATUS_KEY(d.id)] === filterStatus))
+    if (filterStatus !== 'all') list = list.filter(s => SHOT_DEPTS.some(d => s[STATUS_KEY(d.id)] === filterStatus))
     return list
   }, [shots, filterSeq, searchText, filterStatus])
+
+  const filteredAssets = useMemo(() => {
+    let list = assets || []
+    if (searchText) { const q = searchText.toLowerCase(); list = list.filter(a => a.name?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q)) }
+    if (filterStatus !== 'all') list = list.filter(a => ASSET_DEPTS.some(d => a[STATUS_KEY(d.id)] === filterStatus))
+    return list
+  }, [assets, searchText, filterStatus])
 
   const sequences = useMemo(() => {
     const groups = {}
@@ -749,23 +771,42 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
   }, [filteredShots])
 
+  const assetSequences = useMemo(() => {
+    if (filteredAssets.length === 0) return []
+    return [['Assets', filteredAssets]]
+  }, [filteredAssets])
+
   const handleNav = useCallback((dir) => {
     setLightbox(prev => { if (!prev) return prev; const len = prev.images.length; return { ...prev, index: (prev.index + dir + len) % len } })
   }, [])
 
-  const openCellImage = useCallback((shotId, shotCode, deptId, deptLabel, status, imgIndex) => {
-    const imgs = imageMap[`${shotId}__${deptId}`]
+  const openShotCellImage = useCallback((shotId, shotCode, deptId, deptLabel, status, imgIndex) => {
+    const imgs = shotImageMap[`${shotId}__${deptId}`]
     if (!imgs?.length) return
     setLightbox({ images: imgs, index: imgIndex, shotCode, deptLabel, statusObj: getShotStatus(status) })
-  }, [imageMap])
+  }, [shotImageMap])
 
-  const openRef = useCallback((shot) => {
+  const openAssetCellImage = useCallback((assetId, assetName, deptId, deptLabel, status, imgIndex) => {
+    const imgs = assetImageMap[`${assetId}__${deptId}`]
+    if (!imgs?.length) return
+    setLightbox({ images: imgs, index: imgIndex, shotCode: assetName, deptLabel, statusObj: getShotStatus(status) })
+  }, [assetImageMap])
+
+  const openShotRef = useCallback((shot) => {
     const url = shot.ref_cloud_url || shot.concept_image_url
     if (!url) return
     setLightbox({ images: [{ id: 'ref', image_url: url }], index: 0, shotCode: shot.code, deptLabel: 'Reference', statusObj: null })
   }, [])
 
+  const openAssetRef = useCallback((asset) => {
+    const url = asset.ref_cloud_url
+    if (!url) return
+    setLightbox({ images: [{ id: 'ref', image_url: url }], index: 0, shotCode: asset.name, deptLabel: 'Reference', statusObj: null })
+  }, [])
+
   const totalImages = wipImages.length
+  const isShotsTab = activeTab === 'shots'
+  const currentCount = isShotsTab ? filteredShots.length : filteredAssets.length
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#E8ECF1' }}>
       {/* Header */}
@@ -775,11 +816,28 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
         display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, zIndex: 20,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <div>
-            <h1 style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Storyboard</h1>
-            <span style={{ fontSize: 11, color: '#94A3B8' }}>
-              {filteredShots.length} shot{filteredShots.length !== 1 ? 's' : ''} &middot; {totalImages} immagin{totalImages !== 1 ? 'i' : 'e'}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div>
+              <h1 style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Storyboard</h1>
+              <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                {isShotsTab
+                  ? <>{filteredShots.length} shot{filteredShots.length !== 1 ? 's' : ''} &middot; {totalImages} immagin{totalImages !== 1 ? 'i' : 'e'}</>
+                  : <>{filteredAssets.length} asset{filteredAssets.length !== 1 ? 's' : ''} &middot; {totalImages} immagin{totalImages !== 1 ? 'i' : 'e'}</>}
+              </span>
+            </div>
+            {/* Tab switcher */}
+            <div style={{ display: 'inline-flex', background: '#F1F5F9', borderRadius: 999, padding: 3, gap: 2 }}>
+              {['shots', 'assets'].map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                  padding: '5px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 600,
+                  background: activeTab === tab ? '#fff' : 'transparent',
+                  color: activeTab === tab ? ACCENT : '#64748B',
+                  boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s',
+                }}>{tab === 'shots' ? 'Shots' : 'Assets'}</button>
+              ))}
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Fun/Serious toggle */}
@@ -796,16 +854,18 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
             )}
             <div style={{ position: 'relative', minWidth: isMobile ? 120 : 180 }}>
               <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex' }}><IconSearch size={14} color="#94A3B8" /></div>
-              <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Cerca shot..."
+              <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder={isShotsTab ? 'Cerca shot...' : 'Cerca asset...'}
                 style={{ width: '100%', padding: '6px 10px 6px 30px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 13, background: '#F8FAFC', outline: 'none' }} />
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <FilterPill label="Tutti" active={filterSeq === 'all'} onClick={() => setFilterSeq('all')} />
-          {allSequences.map(seq => <FilterPill key={seq} label={seq} active={filterSeq === seq} onClick={() => setFilterSeq(seq)} />)}
-          <div style={{ width: 1, height: 18, background: '#E2E8F0', margin: '0 4px' }} />
+          {isShotsTab && (<>
+            <FilterPill label="Tutti" active={filterSeq === 'all'} onClick={() => setFilterSeq('all')} />
+            {allSequences.map(seq => <FilterPill key={seq} label={seq} active={filterSeq === seq} onClick={() => setFilterSeq(seq)} />)}
+            <div style={{ width: 1, height: 18, background: '#E2E8F0', margin: '0 4px' }} />
+          </>)}
           {SHOT_STATUSES.map(st => <FilterPill key={st.id} label={st.label} active={filterStatus === st.id} onClick={() => setFilterStatus(filterStatus === st.id ? 'all' : st.id)} dotColor={st.color} />)}
         </div>
       </div>
@@ -813,11 +873,31 @@ export default function StoryboardPage({ shots, tasks, profiles, user, currentPr
       {/* Content */}
       {loading ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', fontSize: 14 }}>Caricamento...</div>
-      ) : filteredShots.length === 0 ? (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', fontSize: 14 }}>Nessuno shot trovato</div>
+      ) : currentCount === 0 ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', fontSize: 14 }}>
+          {isShotsTab ? 'Nessuno shot trovato' : 'Nessun asset trovato'}
+        </div>
+      ) : isShotsTab ? (
+        <CanvasBoard
+          sequences={sequences} imageMap={shotImageMap} depts={SHOT_DEPTS}
+          getCode={s => s.code}
+          getRefUrl={s => s.ref_cloud_url || s.concept_image_url}
+          getDescription={s => s.description}
+          getDeptStatus={(s, dId) => s[STATUS_KEY(dId)]}
+          getDeptDisabled={(s, dId) => !isDeptEnabled(s, dId)}
+          openCellImage={openShotCellImage} openRef={openShotRef}
+          funMode={funMode} stickers={stickers}
+          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onStickerDrop={handleStickerDrop} />
       ) : (
-        <CanvasBoard sequences={sequences} imageMap={imageMap} filteredShots={filteredShots} openCellImage={openCellImage} openRef={openRef}
-          funMode={funMode} stickers={stickers} onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onStickerDrop={handleStickerDrop} />
+        <CanvasBoard
+          sequences={assetSequences} imageMap={assetImageMap} depts={ASSET_DEPTS}
+          getCode={a => a.name}
+          getRefUrl={a => a.ref_cloud_url}
+          getDescription={a => a.description}
+          getDeptStatus={(a, dId) => a[STATUS_KEY(dId)]}
+          openCellImage={openAssetCellImage} openRef={openAssetRef}
+          funMode={false} stickers={[]}
+          onStickerUpdate={() => {}} onStickerDelete={() => {}} onStickerDrop={() => {}} />
       )}
 
       {lightbox && <GalleryLightbox images={lightbox.images} index={lightbox.index} shotCode={lightbox.shotCode} deptLabel={lightbox.deptLabel} statusObj={lightbox.statusObj} onClose={() => setLightbox(null)} onNav={handleNav} />}

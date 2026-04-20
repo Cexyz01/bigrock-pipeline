@@ -710,13 +710,14 @@ export default function App() {
     // 2. Change status to review FIRST — placeCellImages filters by status review/approved
     await updateTask(taskId, { status: 'review' })
 
-    // 3. Upload files to storyboard — images go to Miro, audio goes directly to miro_wip_images
-    if (latestWithImages && task.shot_id) {
+    // 3. Upload files to storyboard — images go to Miro (shots) or direct insert (assets), audio always direct
+    if (latestWithImages && (task.shot_id || task.asset_id)) {
       const imageUrls = latestWithImages.images.filter(url => !isAudioUrl(url))
       const audioUrls = latestWithImages.images.filter(url => isAudioUrl(url))
+      const isAssetTask = !task.shot_id && task.asset_id
 
-      // Upload images to storyboard (via legacy Miro edge function which also inserts into miro_wip_images)
-      if (imageUrls.length > 0) {
+      // Shot tasks: upload images to Miro (which also inserts into miro_wip_images)
+      if (imageUrls.length > 0 && !isAssetTask) {
         try {
           const base64Array = await Promise.all(
             imageUrls.map(async (url) => {
@@ -736,7 +737,32 @@ export default function App() {
         }
       }
 
-      // Insert audio files directly into miro_wip_images (no Miro sync needed)
+      // Asset tasks: skip Miro and insert image rows directly
+      if (imageUrls.length > 0 && isAssetTask) {
+        try {
+          const existingImages = await supabase.from('miro_wip_images')
+            .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
+          let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
+          for (const imgUrl of imageUrls) {
+            await supabase.from('miro_wip_images').insert({
+              shot_id: null,
+              asset_id: task.asset_id,
+              task_id: taskId,
+              department: task.department,
+              miro_item_id: 'asset',
+              uploaded_by: user.id,
+              image_url: imgUrl,
+              image_order: nextOrder++,
+              img_width: 0,
+              img_height: 0,
+            })
+          }
+        } catch (err) {
+          console.warn('Asset image insert to storyboard failed:', err)
+        }
+      }
+
+      // Insert audio files directly into miro_wip_images (works for both)
       if (audioUrls.length > 0) {
         try {
           const existingImages = await supabase.from('miro_wip_images')
@@ -745,7 +771,8 @@ export default function App() {
 
           for (const audioUrl of audioUrls) {
             await supabase.from('miro_wip_images').insert({
-              shot_id: task.shot_id,
+              shot_id: task.shot_id || null,
+              asset_id: task.asset_id || null,
               task_id: taskId,
               department: task.department,
               miro_item_id: 'audio',
@@ -934,7 +961,7 @@ export default function App() {
         {/* Full-bleed views: storyboard, timeline, pack — no padding, no maxWidth */}
         {(view === 'storyboard' || view === 'timeline' || view === 'pack') ? (
           <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 49 } : {}) }}>
-            {view === 'storyboard' && <StoryboardPage shots={shots} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
+            {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
             {view === 'timeline' && hasPermission(user, 'access_timeline') && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
             {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />

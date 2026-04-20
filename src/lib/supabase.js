@@ -292,7 +292,7 @@ export async function deleteTask(id) {
 export async function getStoryboardImages(projectId) {
   const { data } = await supabase
     .from('miro_wip_images')
-    .select('id, shot_id, task_id, department, image_url, image_order, img_width, img_height, created_at')
+    .select('id, shot_id, asset_id, task_id, department, image_url, image_order, img_width, img_height, created_at')
     .not('image_url', 'is', null)
     .order('image_order')
   // Filter client-side by project shots (avoids complex join)
