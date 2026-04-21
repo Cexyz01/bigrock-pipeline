@@ -1040,6 +1040,21 @@ async function handleGetTimelineUploadSig(_supabase: any, params: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// CLOUDINARY USAGE — plan quota + storage/bandwidth/credits
+// ══════════════════════════════════════════════════════════════
+
+async function handleCloudinaryUsage() {
+  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
+  const auth = btoa(`${CLD_KEY}:${CLD_SECRET}`)
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/usage`, {
+    headers: { Authorization: `Basic ${auth}` },
+  })
+  if (!res.ok) return err(`Cloudinary usage failed: ${res.status} ${await res.text()}`, 500)
+  const data = await res.json()
+  return ok(data)
+}
+
+// ══════════════════════════════════════════════════════════════
 // FIX SYNC — Incremental repair (only fix cells with missing images)
 // ══════════════════════════════════════════════════════════════
 
@@ -1147,6 +1162,7 @@ serve(async (req) => {
       case "get_concept_upload_sig": return await handleGetConceptUploadSig(supabase, params)
       case "get_output_upload_sig": return await handleGetOutputUploadSig(supabase, params)
       case "get_timeline_upload_sig": return await handleGetTimelineUploadSig(supabase, params)
+      case "cloudinary_usage":  return await handleCloudinaryUsage()
       default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {

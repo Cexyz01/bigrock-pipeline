@@ -115,6 +115,11 @@ export async function getWipUploadSig(taskId) {
   })
 }
 
+// Get Cloudinary plan usage (admin only — the edge function holds the secret)
+export async function getCloudinaryUsage() {
+  return callMiroSync({ action: 'cloudinary_usage' })
+}
+
 // Convert a File to base64 data URL string
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {

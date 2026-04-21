@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { isAdmin, isStaff, hasPermission, ACCENT, DEPTS, PERMISSION_CATALOG, ALL_PERMISSION_IDS, displayRole, SUPER_ADMIN_EMAILS } from '../../lib/constants'
 import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole } from '../../lib/supabase'
+import { getCloudinaryUsage } from '../../lib/miro'
 import Btn from '../ui/Btn'
 import Modal from '../ui/Modal'
 import Input from '../ui/Input'
@@ -617,30 +618,180 @@ function AdminTab({ user, profiles, addToast }) {
   }
 
   return (
+    <>
+      <div style={{ marginBottom: 20 }}>
+        <CloudinaryUsageCard addToast={addToast} />
+      </div>
+      <Card>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', marginBottom: 12 }}>Super Notifica</div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: '0 0 200px' }}>
+            <label style={labelStyle}>Destinatario</label>
+            <select value={snTarget} onChange={e => setSnTarget(e.target.value)}
+              style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #E8ECF1', fontSize: 12, outline: 'none' }}>
+              <option value="">— Seleziona —</option>
+              {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <label style={labelStyle}>Messaggio</label>
+            <Input value={snMessage} onChange={setSnMessage} placeholder="Scrivi il messaggio..." />
+          </div>
+          <Btn variant="primary" onClick={handleSendSuperNotif} disabled={snSending || !snTarget || !snMessage.trim()}>
+            {snSending ? 'Invio...' : 'Invia'}
+          </Btn>
+        </div>
+        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 8 }}>
+          Verrà mostrata come overlay quando l'utente apre il sito. Lettura obbligatoria (5s timer).
+        </div>
+      </Card>
+    </>
+  )
+}
+
+// ═══════════════════════════════════════════════
+// CLOUDINARY USAGE CARD
+// ═══════════════════════════════════════════════
+
+function CloudinaryUsageCard({ addToast }) {
+  const [usage, setUsage] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const load = async () => {
+    setLoading(true); setError(null)
+    const { data, error } = await getCloudinaryUsage()
+    setLoading(false)
+    if (error) { setError(error); return }
+    setUsage(data)
+  }
+
+  useEffect(() => { load() }, [])
+
+  return (
     <Card>
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', marginBottom: 12 }}>Super Notifica</div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ flex: '0 0 200px' }}>
-          <label style={labelStyle}>Destinatario</label>
-          <select value={snTarget} onChange={e => setSnTarget(e.target.value)}
-            style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #E8ECF1', fontSize: 12, outline: 'none' }}>
-            <option value="">— Seleziona —</option>
-            {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-          </select>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>Cloudinary</div>
+          <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+            Stato di utilizzo del piano — serve per capire quando fare upgrade
+          </div>
         </div>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <label style={labelStyle}>Messaggio</label>
-          <Input value={snMessage} onChange={setSnMessage} placeholder="Scrivi il messaggio..." />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {usage?.plan && (
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#1a1a1a', background: '#F1F5F9', padding: '4px 10px', borderRadius: 999 }}>
+              Piano: {usage.plan}
+            </span>
+          )}
+          <Btn variant="secondary" onClick={load} disabled={loading}>
+            {loading ? '...' : 'Aggiorna'}
+          </Btn>
         </div>
-        <Btn variant="primary" onClick={handleSendSuperNotif} disabled={snSending || !snTarget || !snMessage.trim()}>
-          {snSending ? 'Invio...' : 'Invia'}
-        </Btn>
       </div>
-      <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 8 }}>
-        Verrà mostrata come overlay quando l'utente apre il sito. Lettura obbligatoria (5s timer).
-      </div>
+
+      {error && (
+        <div style={{ fontSize: 12, color: '#DC2626', padding: '10px 12px', background: '#FEF2F2', borderRadius: 8 }}>
+          Errore: {error}
+        </div>
+      )}
+
+      {loading && !usage && (
+        <div style={{ fontSize: 12, color: '#94A3B8', padding: '10px 0' }}>Caricamento...</div>
+      )}
+
+      {usage && (
+        <>
+          <CreditsBar credits={usage.credits} />
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Breakdown utilizzo
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+            <MiniStat
+              label="Storage"
+              primary={formatBytes(usage.storage?.usage)}
+              secondary={`${formatCredits(usage.storage?.credits_usage)} crediti`}
+            />
+            <MiniStat
+              label="Bandwidth (mese)"
+              primary={formatBytes(usage.bandwidth?.usage)}
+              secondary={`${formatCredits(usage.bandwidth?.credits_usage)} crediti`}
+            />
+            <MiniStat
+              label="Transformations (mese)"
+              primary={formatNumber(usage.transformations?.usage)}
+              secondary={`${formatCredits(usage.transformations?.credits_usage)} crediti`}
+            />
+            <MiniStat
+              label="Risorse totali"
+              primary={formatNumber(usage.resources)}
+              secondary={`${formatNumber(usage.derived_resources)} derivate`}
+            />
+          </div>
+        </>
+      )}
+
+      {usage?.last_updated && (
+        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 12 }}>
+          Ultimo aggiornamento Cloudinary: {usage.last_updated}
+        </div>
+      )}
     </Card>
   )
+}
+
+function CreditsBar({ credits }) {
+  const used = credits?.usage ?? 0
+  const limit = credits?.limit ?? 25
+  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
+  const barColor = pct >= 90 ? '#DC2626' : pct >= 70 ? '#F59E0B' : ACCENT
+  const hint = pct >= 90 ? 'Piano quasi saturo — valuta upgrade'
+    : pct >= 70 ? 'Attenzione: utilizzo elevato'
+    : 'Utilizzo nella norma'
+  return (
+    <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B' }}>CREDITI MENSILI</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
+            {formatCredits(used)} <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 14 }}>/ {limit}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: barColor }}>{pct.toFixed(1)}%</div>
+      </div>
+      <div style={{ height: 8, background: '#E8ECF1', borderRadius: 999, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: barColor, transition: 'width 0.3s' }} />
+      </div>
+      <div style={{ fontSize: 11, color: barColor, marginTop: 8, fontWeight: 500 }}>{hint}</div>
+    </div>
+  )
+}
+
+function MiniStat({ label, primary, secondary }) {
+  return (
+    <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a1a', marginTop: 4 }}>{primary}</div>
+      <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>{secondary}</div>
+    </div>
+  )
+}
+
+function formatBytes(b) {
+  if (b == null) return '—'
+  if (b === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(b) / Math.log(1024))
+  return `${(b / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`
+}
+
+function formatNumber(n) {
+  if (n == null) return '—'
+  return n.toLocaleString('it-IT')
+}
+
+function formatCredits(c) {
+  if (c == null) return '—'
+  return Number(c).toFixed(2)
 }
 
 // ═══════════════════════════════════════════════
