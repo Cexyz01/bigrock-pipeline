@@ -683,7 +683,7 @@ function CloudinaryUsageCard({ addToast }) {
               Piano: {usage.plan}
             </span>
           )}
-          <Btn variant="secondary" onClick={load} disabled={loading}>
+          <Btn onClick={load} disabled={loading}>
             {loading ? '...' : 'Aggiorna'}
           </Btn>
         </div>
