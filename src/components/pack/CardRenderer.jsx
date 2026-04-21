@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import { IconCards } from '../ui/Icons'
+import { cld } from '../../lib/cld'
 import bigrockLogo from '../../../Images/bigrock.png'
 
 // ── Rarity visual config ──
@@ -210,7 +211,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
         <div style={{
           flex: isFullArt ? 1 : '0 0 55%',
           background: card.image_url ? undefined : `linear-gradient(135deg, ${r.bg}, #222222)`,
-          backgroundImage: card.image_url ? `url(${card.image_url})` : undefined,
+          backgroundImage: card.image_url ? `url(${cld(card.image_url, { w: 600, h: 840, fit: 'fill' })})` : undefined,
           backgroundPosition: card.image_url && card.image_position
             ? `${card.image_position.x}% ${card.image_position.y}%` : 'center',
           backgroundSize: card.image_url && card.image_position

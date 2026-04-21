@@ -15,14 +15,14 @@ const thumbUrl = (url, w = 56, h = 56) => {
   if (!url) return null
   const idx = url.indexOf('/upload/')
   if (idx === -1) return url
-  return url.slice(0, idx + 8) + `c_fill,w_${w},h_${h},f_auto/` + url.slice(idx + 8)
+  return url.slice(0, idx + 8) + `c_fill,w_${w},h_${h},q_auto,f_auto/` + url.slice(idx + 8)
 }
 
 const previewUrl = (url) => {
   if (!url) return null
   const idx = url.indexOf('/upload/')
   if (idx === -1) return url
-  return url.slice(0, idx + 8) + 'c_fit,w_400,h_260,f_auto/' + url.slice(idx + 8)
+  return url.slice(0, idx + 8) + 'c_fit,w_400,h_260,q_auto,f_auto/' + url.slice(idx + 8)
 }
 
 const AssetRow = React.memo(function AssetRow({

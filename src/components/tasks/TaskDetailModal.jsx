@@ -9,6 +9,7 @@ import Input from '../ui/Input'
 import Select from '../ui/Select'
 import ImageLightbox from '../ui/ImageLightbox'
 import { IconX, IconImage, IconSend, IconCheck } from '../ui/Icons'
+import { cld } from '../../lib/cld'
 
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
@@ -356,7 +357,7 @@ export default function TaskDetailModal({
                         </div>
                       ) : (
                         <div key={imgIdx} onClick={() => setLightboxUrl(imgUrl)} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', cursor: 'pointer', aspectRatio: '1' }}>
-                          <img src={imgUrl} alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          <img src={cld(imgUrl, { w: 400, h: 400, fit: 'fill' })} alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         </div>
                       )
                     ))}

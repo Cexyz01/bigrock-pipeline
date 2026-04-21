@@ -4,6 +4,7 @@ import { SHOT_DEPTS, ASSET_DEPTS, SHOT_STATUSES, getShotStatus, ACCENT, isDeptEn
 import { supabase, getStoryboardImages, getStickers, createSticker, updateSticker, deleteSticker, uploadStickerImage } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import { IconX, IconSearch, IconLayout, IconTarget } from '../ui/Icons'
+import { cld } from '../../lib/cld'
 
 // ── Constants ──
 const STATUS_KEY = dept => `status_${dept === 'compositing' ? 'compositing' : dept}`
@@ -70,7 +71,7 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
           <audio controls src={img.image_url} autoPlay style={{ minWidth: 300 }} />
         </div>
       ) : (
-        <img src={img.image_url} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '80vh', borderRadius: 6, objectFit: 'contain', cursor: 'default', boxShadow: '0 8px 60px rgba(0,0,0,0.5)' }} />
+        <img src={cld(img.image_url, { w: 1920, h: 1920, fit: 'limit' })} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '80vh', borderRadius: 6, objectFit: 'contain', cursor: 'default', boxShadow: '0 8px 60px rgba(0,0,0,0.5)' }} />
       )}
       {images.length > 1 && <>
         <button onClick={e => { e.stopPropagation(); onNav(-1) }} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, backdropFilter: 'blur(4px)' }}>&lsaquo;</button>
@@ -583,7 +584,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete }) {
         outline: show ? '2px solid #F28C28' : 'none',
         borderRadius: 4,
       }}>
-      <img src={sticker.image_url} alt="" draggable={false}
+      <img src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })} alt="" draggable={false}
         style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none', userSelect: 'none' }} />
 
       {show && <>

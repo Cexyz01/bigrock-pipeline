@@ -1,7 +1,9 @@
+import { cld } from '../../lib/cld'
+
 export default function Av({ name, size = 30, url, mood }) {
   if (url) return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
-      <img src={url} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: '2px solid #F0F2F5' }} />
+      <img src={cld(url, { w: size * 2, h: size * 2, fit: 'fill' })} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: '2px solid #F0F2F5' }} />
       {mood && <span style={{ position: 'absolute', bottom: -2, right: -2, fontSize: size * 0.38, lineHeight: 1 }}>{mood}</span>}
     </div>
   )

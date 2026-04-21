@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { cld } from '../../lib/cld'
 
 export default function ImageLightbox({ src, onClose }) {
   useEffect(() => {
@@ -24,7 +25,7 @@ export default function ImageLightbox({ src, onClose }) {
       }}
     >
       <img
-        src={src}
+        src={cld(src, { w: 1920, h: 1920, fit: 'limit' })}
         alt=""
         onClick={(e) => e.stopPropagation()}
         style={{
