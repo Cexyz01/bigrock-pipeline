@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { DEPTS } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import StatusBadge from '../ui/StatusBadge'
@@ -14,11 +14,39 @@ const statusHoverBg = {
   approved: '#6EE7B7', review: '#FCD34D', wip: '#93C5FD', todo: '#CBD5E1',
 }
 
-export default function TaskCard({ task, user, staff, onClick, wipViews }) {
+export default function TaskCard({ task, user, staff, onClick, wipViews, onStart, draggable = false, onDragStart, onDrop }) {
   const isMobile = useIsMobile()
   const [h, setH] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const dept = DEPTS.find(d => d.id === task.department)
   const isOwner = task.assigned_to === user.id
+  const canStart = task.status === 'todo' && (isOwner || staff) && onStart
+
+  const handleStartClick = useCallback((e) => {
+    e.stopPropagation()
+    onStart?.(task)
+  }, [task, onStart])
+
+  const handleDragStartCb = useCallback((e) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', task.id)
+    onDragStart?.(task.id)
+  }, [task.id, onDragStart])
+
+  const handleDragOverCb = useCallback((e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOver(true)
+  }, [])
+
+  const handleDragLeaveCb = useCallback(() => setDragOver(false), [])
+
+  const handleDropCb = useCallback((e) => {
+    e.preventDefault()
+    setDragOver(false)
+    const draggedId = e.dataTransfer.getData('text/plain')
+    if (draggedId && draggedId !== task.id) onDrop?.(draggedId, task.id)
+  }, [task.id, onDrop])
 
   // WIP badge: show when task has new WIP updates unseen by this staff member
   const showWipBadge = staff && task.last_wip_at && (() => {
@@ -32,15 +60,20 @@ export default function TaskCard({ task, user, staff, onClick, wipViews }) {
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={draggable ? handleDragStartCb : undefined}
+      onDragOver={draggable ? handleDragOverCb : undefined}
+      onDragLeave={draggable ? handleDragLeaveCb : undefined}
+      onDrop={draggable ? handleDropCb : undefined}
       style={{
-        padding: isMobile ? 14 : 18, borderRadius: isMobile ? 14 : 20, cursor: 'pointer', minHeight: isMobile ? 96 : 128,
+        padding: isMobile ? 14 : 18, borderRadius: isMobile ? 14 : 20, cursor: draggable ? 'grab' : 'pointer', minHeight: isMobile ? 96 : 128,
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         background: h ? (statusHoverBg[task.status] || '#F8FAFC') : (statusBg[task.status] || '#fff'),
-        border: `1px solid ${statusBorder[task.status] || '#E8ECF1'}`,
+        border: `1px solid ${dragOver ? '#F28C28' : (statusBorder[task.status] || '#E8ECF1')}`,
         borderLeft: isOwner ? `3px solid #F28C28` : `3px solid ${statusBorder[task.status] || '#E8ECF1'}`,
         transition: 'all 0.15s ease',
         transform: h ? 'translateY(-2px)' : 'none',
-        boxShadow: h ? '0 8px 24px rgba(0,0,0,0.08)' : 'none',
+        boxShadow: dragOver ? '0 0 0 2px #F28C28' : (h ? '0 8px 24px rgba(0,0,0,0.08)' : 'none'),
         position: 'relative',
       }}
     >
@@ -79,7 +112,19 @@ export default function TaskCard({ task, user, staff, onClick, wipViews }) {
           )}
           {task.shot && <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 10, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>}
         </div>
-        <StatusBadge status={task.status} type="task" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {canStart && (
+            <button onClick={handleStartClick} style={{
+              fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 8,
+              background: '#F28C28', color: '#fff', border: 'none', cursor: 'pointer',
+              transition: 'background 0.15s ease',
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = '#E07A1E'}
+              onMouseLeave={e => e.currentTarget.style.background = '#F28C28'}
+            >▶ Start</button>
+          )}
+          <StatusBadge status={task.status} type="task" />
+        </div>
       </div>
 
       {/* Keyframes for WIP pulse */}

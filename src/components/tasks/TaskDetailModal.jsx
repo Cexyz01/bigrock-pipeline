@@ -22,6 +22,19 @@ export default function TaskDetailModal({
 }) {
   const isMobile = useIsMobile()
   const [mobileTab, setMobileTab] = useState('info') // mobile: info | wip
+  // Staff edit mode for title/description/department
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(task.title || '')
+  const [editDesc, setEditDesc] = useState(task.description || '')
+  const [editDept, setEditDept] = useState(task.department || '')
+  const [savingEdit, setSavingEdit] = useState(false)
+  // Reset edit fields if task identity changes
+  useEffect(() => {
+    setEditTitle(task.title || '')
+    setEditDesc(task.description || '')
+    setEditDept(task.department || '')
+    setEditing(false)
+  }, [task.id])
   const [wipUpdates, setWipUpdates] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
@@ -65,6 +78,29 @@ export default function TaskDetailModal({
   }, [])
 
   // ── Handlers ──
+
+  const handleSaveEdit = async () => {
+    if (!editTitle.trim()) {
+      addToast?.('Il titolo non può essere vuoto', 'danger')
+      return
+    }
+    setSavingEdit(true)
+    await onUpdate(task.id, {
+      title: editTitle.trim(),
+      description: editDesc.trim() || null,
+      department: editDept || null,
+    })
+    addToast?.('Modifiche salvate', 'success')
+    setSavingEdit(false)
+    setEditing(false)
+  }
+
+  const handleCancelEdit = () => {
+    setEditTitle(task.title || '')
+    setEditDesc(task.description || '')
+    setEditDept(task.department || '')
+    setEditing(false)
+  }
 
   const handleAction = async (action, updates, successMsg) => {
     setActionLoading(action)
@@ -210,7 +246,23 @@ export default function TaskDetailModal({
       {staff && (
         <Select value={task.assigned_to || ''} onChange={handleAssign} options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assign to student..." style={{ fontSize: 12 }} />
       )}
-      {task.description && (
+      {staff && editing ? (
+        <>
+          <div>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Title</span>
+            <Input value={editTitle} onChange={setEditTitle} placeholder="Task title" />
+          </div>
+          <div>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Department</span>
+            <Select value={editDept} onChange={setEditDept} options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" style={{ fontSize: 13 }} />
+          </div>
+          <div>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" rows={4}
+              style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box' }} />
+          </div>
+        </>
+      ) : task.description && (
         <div>
           <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
           <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.6, margin: 0, padding: '10px 14px', background: '#F8FAFC', borderRadius: 12 }}>{task.description}</p>
@@ -220,13 +272,21 @@ export default function TaskDetailModal({
       {staff && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Actions</span>
-          {task.status === 'todo' && (
+          {editing ? (
+            <>
+              <Btn variant="primary" loading={savingEdit} onClick={handleSaveEdit} style={{ width: '100%', justifyContent: 'center' }}>Salva Modifiche</Btn>
+              <Btn variant="info" onClick={handleCancelEdit} style={{ width: '100%', justifyContent: 'center' }}>Annulla</Btn>
+            </>
+          ) : (
+            <Btn variant="info" onClick={() => setEditing(true)} style={{ width: '100%', justifyContent: 'center' }}>✎ Modifica</Btn>
+          )}
+          {!editing && task.status === 'todo' && (
             <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task started!')} style={{ width: '100%', justifyContent: 'center' }}>Start</Btn>
           )}
-          {task.status === 'wip' && hasWipUpdates && (
+          {!editing && task.status === 'wip' && hasWipUpdates && (
             <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ width: '100%', justifyContent: 'center' }}>Submit for Review</Btn>
           )}
-          {task.status === 'review' && (
+          {!editing && task.status === 'review' && (
             <>
               <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
               <Btn variant="info" loading={actionLoading === 'reject'} onClick={handleReject} style={{ width: '100%', justifyContent: 'center' }}>
@@ -249,7 +309,7 @@ export default function TaskDetailModal({
               )}
             </>
           )}
-          {task.status === 'approved' && isSuperAdmin(user) && (
+          {!editing && task.status === 'approved' && isSuperAdmin(user) && (
             <Btn variant="info" loading={actionLoading === 'reopen'}
               onClick={() => requestConfirm('Riportare questo task in WIP?', async () => {
                 setActionLoading('reopen')
@@ -262,7 +322,7 @@ export default function TaskDetailModal({
               ↩ Riporta in WIP
             </Btn>
           )}
-          <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>
+          {!editing && <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>}
         </div>
       )}
     </div>

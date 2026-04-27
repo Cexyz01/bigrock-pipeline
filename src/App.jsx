@@ -601,6 +601,19 @@ export default function App() {
     setTasks(await getTasks({ project_id: currentProject?.id }))
   }
 
+  // Batch reorder tasks within a group — optimistic update, parallel DB writes
+  const handleReorderTasks = (changes) => {
+    if (!changes || changes.length === 0) return
+    const map = new Map(changes.map(c => [c.id, c.updates]))
+    setTasks(prev => prev.map(t => map.has(t.id) ? { ...t, ...map.get(t.id) } : t))
+    Promise.all(changes.map(c => updateTask(c.id, c.updates))).then(results => {
+      if (results.some(r => r?.error)) {
+        getTasks({ project_id: currentProject?.id }).then(setTasks)
+        addToast('Errore salvataggio ordine, ripristino', 'danger')
+      }
+    })
+  }
+
   const handleUpdateTask = async (id, updates) => {
     // Clear revision comment when task is approved or re-submitted for review
     if (updates.status === 'approved' || updates.status === 'review') {
@@ -972,7 +985,7 @@ export default function App() {
           <div style={{ padding: contentPadding, ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             {view === 'overview' && <OverviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'review' && myPerms.can_review && <ReviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask} onUpdateReviewMeta={handleUpdateReviewMeta} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}

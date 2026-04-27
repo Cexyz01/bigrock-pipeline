@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { DEPTS, TASK_STATUSES, hasPermission, ACCENT } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
@@ -25,7 +25,7 @@ const statusRowHoverBg = {
 
 export default function TasksPage({
   tasks, shots, assets = [], profiles, user,
-  onCreateTask, onUpdateTask, onDeleteTask, onRejectTask, onAddWipComment,
+  onCreateTask, onUpdateTask, onReorderTasks, onDeleteTask, onRejectTask, onAddWipComment,
   onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
   wipViews,
   addToast, requestConfirm, deepLink, clearDeepLink,
@@ -108,6 +108,17 @@ export default function TasksPage({
       }
     })
 
+    // Sort each group's tasks: oldest first (sort_order ASC, then created_at ASC)
+    const sortTasks = (arr) => arr.sort((a, b) => {
+      const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER
+      const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER
+      if (ao !== bo) return ao - bo
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    })
+    Object.values(assetGroups).forEach(g => sortTasks(g.tasks))
+    Object.values(shotGroups).forEach(g => sortTasks(g.tasks))
+    if (noneGroup) sortTasks(noneGroup.tasks)
+
     const assetArr = Object.values(assetGroups).sort((a, b) => {
       const ai = a.asset?._sortIdx ?? a.asset?.sort_order ?? 0
       const bi = b.asset?._sortIdx ?? b.asset?.sort_order ?? 0
@@ -122,6 +133,42 @@ export default function TasksPage({
   }, [filteredTasks, shots, assets])
 
   const selectStyle = { padding: '7px 14px', fontSize: 12, borderRadius: 12 }
+
+  // Drag-reorder within the same group (asset/shot/none).
+  const handleTaskDrop = useCallback((draggedId, targetId) => {
+    if (draggedId === targetId) return
+    const dragged = tasks.find(t => t.id === draggedId)
+    const target = tasks.find(t => t.id === targetId)
+    if (!dragged || !target) return
+    const sameGroup = (dragged.asset_id || null) === (target.asset_id || null)
+                  && (dragged.shot_id || null) === (target.shot_id || null)
+    if (!sameGroup) return
+
+    const groupKey = dragged.asset_id || dragged.shot_id || 'none'
+    const groupTasks = tasks
+      .filter(t => (t.asset_id || t.shot_id || 'none') === groupKey)
+      .sort((a, b) => {
+        const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER
+        const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER
+        if (ao !== bo) return ao - bo
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      })
+
+    const without = groupTasks.filter(t => t.id !== draggedId)
+    const targetIdx = without.findIndex(t => t.id === targetId)
+    without.splice(targetIdx, 0, dragged)
+    const changes = without
+      .map((t, i) => (t.sort_order !== i ? { id: t.id, updates: { sort_order: i } } : null))
+      .filter(Boolean)
+    if (changes.length === 0) return
+    if (onReorderTasks) onReorderTasks(changes)
+    else changes.forEach(c => onUpdateTask(c.id, c.updates))
+  }, [tasks, onReorderTasks, onUpdateTask])
+
+  const handleStartTask = useCallback((task) => {
+    onUpdateTask(task.id, { status: 'wip' })
+    if (addToast) addToast('Task avviato', 'success')
+  }, [onUpdateTask, addToast])
 
   return (
     <div>
@@ -214,6 +261,9 @@ export default function TasksPage({
                       task={task} user={user} staff={staff}
                       onClick={() => setSelectedTask(task)}
                       wipViews={wipViews}
+                      onStart={handleStartTask}
+                      draggable
+                      onDrop={handleTaskDrop}
                     />
                   ))}
                 </div>
