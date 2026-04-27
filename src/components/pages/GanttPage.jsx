@@ -76,11 +76,15 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
 
   // ── Drag/resize handling ──
   const scrollRef = useRef(null)
+  // Suppress the click that fires after a real drag (pointerup → click).
+  const dragMovedRef = useRef(false)
+
   const handlePointerDown = useCallback((e, item, mode) => {
     if (!canEdit) return
     e.preventDefault()
     e.stopPropagation()
     e.target.setPointerCapture?.(e.pointerId)
+    dragMovedRef.current = false
     setDrag({
       id: item.id, mode,
       startX: e.clientX,
@@ -92,6 +96,8 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
   const handlePointerMove = useCallback((e) => {
     if (!drag) return
     const deltaDays = Math.round((e.clientX - drag.startX) / dayW)
+    // Track ANY pointer movement past a small threshold so we can suppress the trailing click.
+    if (Math.abs(e.clientX - drag.startX) > 3) dragMovedRef.current = true
     if (deltaDays === 0) return
     setLocalItems(prev => prev.map(it => {
       if (it.id !== drag.id) return it
@@ -324,7 +330,12 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
               return (
                 <div key={item.id}
                   onPointerDown={canEdit ? (ev) => handlePointerDown(ev, item, 'move') : undefined}
-                  onClick={(ev) => { if (drag) return; ev.stopPropagation(); setEditing(item) }}
+                  onClick={(ev) => {
+                    // Swallow the click that follows a real drag — pointerup fires before click,
+                    // but the user shouldn't see the modal pop open as a side effect of moving the bar.
+                    if (dragMovedRef.current) { ev.stopPropagation(); dragMovedRef.current = false; return }
+                  }}
+                  onDoubleClick={(ev) => { ev.stopPropagation(); setEditing(item) }}
                   style={{
                     position: 'absolute', left: x, top, width: w, height: ROW_H - 12,
                     background: `linear-gradient(135deg, ${item.color} 0%, ${shade(item.color, -10)} 100%)`,
