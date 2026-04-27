@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useLayoutEffect } from 'react'
 import { SHOT_DEPTS as DEPTS, ASSET_DEPTS, SHOT_STATUSES, hasPermission, ACCENT } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
@@ -31,6 +31,17 @@ export default function ShotTrackerPage({
   const assetRefInputRef = useRef(null)
   const staff = hasPermission(user, 'create_edit_shots')
   const isMobile = useIsMobile()
+  const headerRef = useRef(null)
+  const [headerH, setHeaderH] = useState(0)
+  useLayoutEffect(() => {
+    if (!headerRef.current) return
+    const el = headerRef.current
+    const update = () => setHeaderH(el.offsetHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [activeTab, isMobile])
 
   // ── Asset handlers ────────────────────────────────────
   const cycleAssetStatus = useCallback(async (asset, deptId) => {
@@ -182,7 +193,7 @@ export default function ShotTrackerPage({
 
   return (
     <div style={{ maxWidth: '100%' }}>
-      <div style={{ position: 'sticky', top: 0, background: '#F0F2F5', zIndex: 5, paddingTop: isMobile ? 8 : 12, marginBottom: 6 }}>
+      <div ref={headerRef} style={{ position: 'sticky', top: 0, background: '#F0F2F5', zIndex: 5, paddingTop: isMobile ? 8 : 12, marginBottom: 6 }}>
         <Fade>
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center',
@@ -248,7 +259,7 @@ export default function ShotTrackerPage({
               return (
                 <Fade key={seq} delay={si * 60}>
                   <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em' }}>{seq}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', padding: '10px 8px 6px', letterSpacing: '0.04em', position: 'sticky', top: headerH, background: '#F0F2F5', zIndex: 4 }}>{seq}</div>
                     {seqShots.map((shot) => (
                       <ShotRow
                         key={shot.id}
