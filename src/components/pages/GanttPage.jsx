@@ -25,13 +25,13 @@ const workingDays = (a, b) => {
 const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'G', 'V', 'S']
 
-// Day zoom uses a fixed pixel-per-day. Week zoom is computed at render time so that
-// roughly 6 weeks (42 days) fit horizontally in the available width.
+// Both zoom modes auto-size so the same N weeks fit horizontally; only the header style differs
+// (Week 1/2/3 chunks vs per-day labels).
 const ZOOMS = {
   week: { label: 'Settimana' },
-  day:  { label: 'Giorno', dayW: 56 },
+  day:  { label: 'Giorno' },
 }
-const WEEKS_VISIBLE_TARGET = 6
+const WEEKS_VISIBLE_TARGET = 5
 
 const LANE_W = 200
 const ROW_H = 48
@@ -47,10 +47,8 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
 
   useEffect(() => { setLocalItems(items) }, [items])
 
-  // Day zoom uses a fixed dayW; Week zoom computes dayW so ~6 weeks (42 days) fit in the viewport.
-  const dayW = zoom === 'week'
-    ? Math.max(10, Math.floor((containerW - LANE_W) / (WEEKS_VISIBLE_TARGET * 7)))
-    : ZOOMS[zoom].dayW
+  // Both zooms fit ~5 weeks horizontally. Only the header presentation differs.
+  const dayW = Math.max(10, Math.floor((containerW - LANE_W) / (WEEKS_VISIBLE_TARGET * 7)))
 
   // Compute visible range. If the project has explicit start_date/end_date, use them as the
   // hard window — nothing outside that range is shown. Otherwise auto-fit around items + today.
