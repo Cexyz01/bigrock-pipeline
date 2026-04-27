@@ -25,11 +25,13 @@ const workingDays = (a, b) => {
 const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'G', 'V', 'S']
 
+// Day zoom uses a fixed pixel-per-day. Week zoom is computed at render time so that
+// roughly 6 weeks (42 days) fit horizontally in the available width.
 const ZOOMS = {
-  week:  { dayW: 18, label: 'Settimana' },
-  day:   { dayW: 32, label: 'Giorno' },
-  hour:  { dayW: 56, label: 'Espanso' },
+  week: { label: 'Settimana' },
+  day:  { label: 'Giorno', dayW: 56 },
 }
+const WEEKS_VISIBLE_TARGET = 6
 
 const LANE_W = 200
 const ROW_H = 48
@@ -38,13 +40,17 @@ const HEADER_H = 64
 export default function GanttPage({ items, lanes: laneRecords = [], currentProject, user, onCreate, onUpdate, onDelete, onCreateLane, onUpdateLane, onDeleteLane, onUpdateProjectDates, addToast, requestConfirm }) {
   const canEdit = hasPermission(user, 'create_edit_tasks') || hasPermission(user, 'manage_project_settings')
   const [zoom, setZoom] = useState('day')
+  const [containerW, setContainerW] = useState(1200)
   const [editing, setEditing] = useState(null) // null | 'new' | itemObject
   const [drag, setDrag] = useState(null) // { id, mode, startX, origStart, origEnd }
   const [localItems, setLocalItems] = useState(items)
 
   useEffect(() => { setLocalItems(items) }, [items])
 
-  const dayW = ZOOMS[zoom].dayW
+  // Day zoom uses a fixed dayW; Week zoom computes dayW so ~6 weeks (42 days) fit in the viewport.
+  const dayW = zoom === 'week'
+    ? Math.max(10, Math.floor((containerW - LANE_W) / (WEEKS_VISIBLE_TARGET * 7)))
+    : ZOOMS[zoom].dayW
 
   // Compute visible range. If the project has explicit start_date/end_date, use them as the
   // hard window — nothing outside that range is shown. Otherwise auto-fit around items + today.
@@ -94,6 +100,17 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
 
   // ── Drag/resize handling ──
   const scrollRef = useRef(null)
+
+  // Measure scroll container width so the Week zoom can fit 6 weeks horizontally.
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const el = scrollRef.current
+    const update = () => setContainerW(el.clientWidth)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   // Suppress the click that fires after a real drag (pointerup → click).
   const dragMovedRef = useRef(false)
   // Track the last applied delta so we skip redundant updates without missing the 0-crossing.
