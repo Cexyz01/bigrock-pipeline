@@ -299,6 +299,7 @@ export default function TasksPage({
       {selectedTask && (
         <TaskDetailModal
           task={selectedTask} user={user} staff={staff} profiles={profiles}
+          projectStartDate={currentProject?.start_date || null}
           onClose={() => setSelectedTask(null)}
           onUpdate={onUpdateTask} onSetAssignees={onSetAssignees} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}
           onCreateWipUpdate={onCreateWipUpdate}

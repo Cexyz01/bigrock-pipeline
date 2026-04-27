@@ -17,7 +17,8 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 
 export default function TaskDetailModal({
-  task, user, staff, profiles, onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
+  task, user, staff, profiles, projectStartDate = null,
+  onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
   onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
   addToast, requestConfirm,
 }) {
@@ -27,17 +28,22 @@ export default function TaskDetailModal({
   const [editTitle, setEditTitle] = useState(task.title || '')
   const [editDesc, setEditDesc] = useState(task.description || '')
   const [editDept, setEditDept] = useState(task.department || '')
-  const [editStartDate, setEditStartDate] = useState(task.start_date || '')
+  const [editStartDate, setEditStartDate] = useState(task.start_date || projectStartDate || '')
   const [editDuration, setEditDuration] = useState(task.duration_days || 1)
   const [savedFlash, setSavedFlash] = useState(false)
+  // Track initial date-field value so blurring without a user edit doesn't auto-persist
+  // the project default (only persist if user actually changes it).
+  const initialStartRef = useRef(task.start_date || projectStartDate || '')
   // Reset edit fields if task identity changes
   useEffect(() => {
     setEditTitle(task.title || '')
     setEditDesc(task.description || '')
     setEditDept(task.department || '')
-    setEditStartDate(task.start_date || '')
+    const initStart = task.start_date || projectStartDate || ''
+    setEditStartDate(initStart)
+    initialStartRef.current = initStart
     setEditDuration(task.duration_days || 1)
-  }, [task.id])
+  }, [task.id, projectStartDate])
 
   const flashSaved = () => {
     setSavedFlash(true)
@@ -61,6 +67,9 @@ export default function TaskDetailModal({
     if (val !== task.department) saveField('department', val || null)
   }
   const blurStartDate = () => {
+    // Don't auto-persist the project-default fallback: only save if the user actually
+    // typed something different from what we initially seeded the input with.
+    if (editStartDate === initialStartRef.current) return
     const next = editStartDate || null
     if (next !== (task.start_date || null)) saveField('start_date', next)
   }
@@ -234,89 +243,107 @@ export default function TaskDetailModal({
   const hasWipUpdates = wipUpdates.length > 0
 
   // ── Shared content renderers ──
+  // Visual hierarchy:
+  //   Section headers   → 10px / 700 / uppercase / letter-spaced gray
+  //   Field labels      → 11px / 600 gray
+  //   Inputs            → 13px regular
+  //   Container chips   → small pills in the section header line
+  const sectionHeader = { fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em' }
+  const fieldLabel = { fontSize: 11, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }
+  const compactInput = { width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 8, padding: '8px 10px', outline: 'none', background: '#fff', boxSizing: 'border-box', fontFamily: 'inherit' }
+
   const renderInfoContent = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {task.asset && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Asset</span>
-          <span style={{ fontSize: 12, color: '#7C3AED', background: 'rgba(167,139,250,0.12)', padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(167,139,250,0.4)' }}>{task.asset.name}</span>
+      {/* PIANIFICAZIONE — pinned at top */}
+      {staff && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={sectionHeader}>Pianificazione</span>
+            {savedFlash && <span style={{ fontSize: 10, color: '#10B981', fontWeight: 700 }}>✓ Salvato</span>}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1.4 }}>
+              <span style={fieldLabel}>Inizio</span>
+              <input type="date" value={editStartDate}
+                onChange={e => setEditStartDate(e.target.value)} onBlur={blurStartDate}
+                style={compactInput} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={fieldLabel}>Durata (g)</span>
+              <input type="number" min={1} value={editDuration}
+                onChange={e => setEditDuration(e.target.value)} onBlur={blurDuration}
+                style={compactInput} />
+            </div>
+          </div>
         </div>
       )}
-      {task.shot && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Shot</span>
-          <span style={{ fontSize: 12, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 6, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>
+
+      {/* DETTAGLI */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+          <span style={sectionHeader}>Dettagli</span>
+          {/* Container chip in header for context */}
+          {task.asset && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED', background: 'rgba(167,139,250,0.12)', padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(167,139,250,0.35)' }}>ASSET · {task.asset.name}</span>
+          )}
+          {task.shot && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 6, border: '1px solid #E2E8F0' }}>SHOT · {task.shot.code}</span>
+          )}
         </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginTop: 4 }}>Assigned</span>
-        {assignees.length === 0 ? (
-          <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {staff ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <span style={fieldLabel}>Titolo</span>
+              <Input value={editTitle} onChange={setEditTitle} onBlur={blurTitle} placeholder="Task title"
+                style={{ fontSize: 14, fontWeight: 600 }} />
+            </div>
+            <div>
+              <span style={fieldLabel}>Dipartimento</span>
+              <Select value={editDept} onChange={changeDept} options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" style={{ fontSize: 13 }} />
+            </div>
+            <div>
+              <span style={fieldLabel}>Descrizione</span>
+              <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} onBlur={blurDesc} placeholder="Descrizione del task..." rows={3}
+                style={{ ...compactInput, resize: 'vertical', lineHeight: 1.5, minHeight: 64 }} />
+            </div>
+          </div>
+        ) : task.description ? (
+          <div>
+            <span style={fieldLabel}>Descrizione</span>
+            <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.55, margin: 0, padding: '10px 12px', background: '#F8FAFC', borderRadius: 8 }}>{task.description}</p>
+          </div>
+        ) : null}
+      </div>
+
+      {/* ASSEGNATARI */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={sectionHeader}>Assegnatari</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B' }}>{assignees.length}</span>
+        </div>
+        {assignees.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
             {assignees.map(a => (
-              <div key={a.user.id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F1F5F9', padding: '3px 10px 3px 3px', borderRadius: 999, border: '1px solid #E2E8F0' }}>
-                <Av name={a.user.full_name} size={20} url={a.user.avatar_url} />
-                <span style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 500 }}>{a.user.full_name}</span>
+              <div key={a.user.id} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#F1F5F9', padding: '2px 8px 2px 2px', borderRadius: 999, border: '1px solid #E2E8F0' }}>
+                <Av name={a.user.full_name} size={18} url={a.user.avatar_url} />
+                <span style={{ fontSize: 11, color: '#1a1a1a', fontWeight: 500 }}>{a.user.full_name}</span>
               </div>
             ))}
           </div>
         )}
-      </div>
-      {staff && (
-        <div>
-          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginBottom: 6 }}>Manage assignees (click to toggle)</div>
+        {staff && (
           <AssigneePicker
             students={students}
             selectedIds={assignees.map(a => a.user.id)}
             onToggle={toggleAssignee}
             selectedDept={task.department}
+            compact
           />
-        </div>
-      )}
-      {staff ? (
-        <>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Title</span>
-              {savedFlash && <span style={{ fontSize: 10, color: '#10B981', fontWeight: 600 }}>✓ Salvato</span>}
-            </div>
-            <Input value={editTitle} onChange={setEditTitle} onBlur={blurTitle} placeholder="Task title" />
-          </div>
-          <div>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Department</span>
-            <Select value={editDept} onChange={changeDept} options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" style={{ fontSize: 13 }} />
-          </div>
-          <div>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
-            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} onBlur={blurDesc} placeholder="Description" rows={4}
-              style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Inizio</span>
-              <input type="date" value={editStartDate}
-                onChange={e => setEditStartDate(e.target.value)} onBlur={blurStartDate}
-                style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Durata (giorni)</span>
-              <input type="number" min={1} value={editDuration}
-                onChange={e => setEditDuration(e.target.value)} onBlur={blurDuration}
-                style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
-            </div>
-          </div>
-        </>
-      ) : task.description && (
-        <div>
-          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
-          <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.6, margin: 0, padding: '10px 14px', background: '#F8FAFC', borderRadius: 12 }}>{task.description}</p>
-        </div>
-      )}
-      <div style={{ height: 1, background: '#E8ECF1', margin: '4px 0' }} />
+        )}
+      </div>
       {staff && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Actions</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 10, borderTop: '1px solid #E8ECF1' }}>
+          <span style={{ ...sectionHeader, marginBottom: 4 }}>Azioni</span>
           {task.status === 'todo' && (
             <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task started!')} style={{ width: '100%', justifyContent: 'center' }}>Start</Btn>
           )}
@@ -574,7 +601,7 @@ export default function TaskDetailModal({
       >
         <div onClick={e => e.stopPropagation()} style={{
           background: '#fff', borderRadius: 20,
-          width: '94%', maxWidth: 960, height: '85vh', maxHeight: 700,
+          width: '94%', maxWidth: 1000, height: '90vh', maxHeight: 800,
           display: 'flex', flexDirection: 'column',
           boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
           animation: 'scaleIn 0.2s ease',
@@ -604,12 +631,12 @@ export default function TaskDetailModal({
 
           {/* Body — two panels */}
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-            {/* ──── Left Panel (300px) — Info only ──── */}
+            {/* ──── Left Panel — Info only ──── */}
             <div style={{
-              width: 300, flexShrink: 0, borderRight: '1px solid #E8ECF1',
+              width: 340, flexShrink: 0, borderRight: '1px solid #E8ECF1',
               display: 'flex', flexDirection: 'column',
             }}>
-              <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
                 {renderInfoContent()}
               </div>
             </div>

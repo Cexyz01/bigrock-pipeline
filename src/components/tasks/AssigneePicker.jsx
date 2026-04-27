@@ -4,7 +4,7 @@ import { DEPTS, ACCENT } from '../../lib/constants'
 // Reusable assignee multi-picker for tasks.
 // Groups students by their profile department. The dept matching `selectedDept`
 // is rendered first. Includes a search filter for large rosters.
-export default function AssigneePicker({ students, selectedIds, onToggle, selectedDept, accent = ACCENT }) {
+export default function AssigneePicker({ students, selectedIds, onToggle, selectedDept, accent = ACCENT, compact = false }) {
   const [search, setSearch] = useState('')
 
   const groups = useMemo(() => {
@@ -51,7 +51,7 @@ export default function AssigneePicker({ students, selectedIds, onToggle, select
           outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit',
         }}
       />
-      <div style={{ maxHeight: 240, overflowY: 'auto', padding: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ maxHeight: compact ? 140 : 240, overflowY: 'auto', padding: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {groups.length === 0 && (
           <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic', padding: '8px 0' }}>
             {totalCount === 0 ? 'No students available' : 'Nessun risultato'}
