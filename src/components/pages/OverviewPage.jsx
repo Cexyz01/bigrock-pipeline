@@ -1,14 +1,23 @@
-import { DEPTS, SHOT_STATUSES, hasPermission, isDeptEnabled } from '../../lib/constants'
+import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, hasPermission, isDeptEnabled } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Bar from '../ui/Bar'
 
-export default function OverviewPage({ shots, tasks, profiles, user, currentProject }) {
+export default function OverviewPage({ shots, assets = [], tasks, profiles, user, currentProject }) {
   const isMobile = useIsMobile()
-  const total = shots.reduce((s, sh) => s + DEPTS.filter(d => isDeptEnabled(sh, d.id)).length, 0)
-  const done = shots.reduce((s, sh) => s + DEPTS.filter(d => isDeptEnabled(sh, d.id) && (sh[`status_${d.id}`] === 'approved' || sh[`status_${d.id}`] === 'review')).length, 0)
-  const wip = shots.reduce((s, sh) => s + DEPTS.filter(d => isDeptEnabled(sh, d.id) && sh[`status_${d.id}`] === 'in_progress').length, 0)
+
+  // Count cells across both shots and assets, respecting which depts apply to each entity
+  const countCells = (entities, deptIds, predicate) => entities.reduce(
+    (sum, e) => sum + deptIds.filter(id => isDeptEnabled(e, id) && predicate(e[`status_${id}`])).length,
+    0,
+  )
+  const anyStatus = () => true
+  const total = countCells(shots, SHOT_DEPT_IDS, anyStatus) + countCells(assets, ASSET_DEPT_IDS, anyStatus)
+  const done = countCells(shots, SHOT_DEPT_IDS, st => st === 'approved' || st === 'review')
+            + countCells(assets, ASSET_DEPT_IDS, st => st === 'approved' || st === 'review')
+  const wip  = countCells(shots, SHOT_DEPT_IDS, st => st === 'in_progress')
+            + countCells(assets, ASSET_DEPT_IDS, st => st === 'in_progress')
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   const myTasks = tasks.filter(t => t.assigned_to === user.id)
   const reviewTasks = tasks.filter(t => t.status === 'review')
@@ -16,6 +25,7 @@ export default function OverviewPage({ shots, tasks, profiles, user, currentProj
   // Dept color map for stat cards
   const statCards = [
     { l: 'Shots', v: shots.length, c: '#1a1a1a' },
+    { l: 'Assets', v: assets.length, c: '#1a1a1a' },
     { l: 'Completed', v: done, c: '#10B981' },
     { l: 'In Progress', v: wip, c: '#2563EB' },
     { l: hasPermission(user, 'access_review') ? 'To Review' : 'My Tasks', v: hasPermission(user, 'access_review') ? reviewTasks.length : myTasks.length, c: '#F28C28' },
@@ -35,7 +45,7 @@ export default function OverviewPage({ shots, tasks, profiles, user, currentProj
         <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>BigRock Hub Overview</p>
       </Fade>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? 12 : 20, marginBottom: isMobile ? 20 : 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${statCards.length}, 1fr)`, gap: isMobile ? 12 : 20, marginBottom: isMobile ? 20 : 32 }}>
         {statCards.map((s, i) => (
           <Fade key={s.l} delay={i * 50}>
             <div style={{
@@ -59,7 +69,8 @@ export default function OverviewPage({ shots, tasks, profiles, user, currentProj
           <Bar value={pct} h={8} />
           <div style={{ display: 'flex', gap: 20, marginTop: 20, flexWrap: 'wrap' }}>
             {SHOT_STATUSES.map(st => {
-              const c = shots.reduce((s, sh) => s + DEPTS.filter(d => isDeptEnabled(sh, d.id) && sh[`status_${d.id}`] === st.id).length, 0)
+              const c = countCells(shots, SHOT_DEPT_IDS, s => s === st.id)
+                      + countCells(assets, ASSET_DEPT_IDS, s => s === st.id)
               return (
                 <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.color }} />
@@ -77,11 +88,24 @@ export default function OverviewPage({ shots, tasks, profiles, user, currentProj
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#1a1a1a' }}>Departments</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {DEPTS.map(dept => {
-              const t = shots.filter(sh => isDeptEnabled(sh, dept.id)).length
-              const d = shots.filter(sh => isDeptEnabled(sh, dept.id) && (sh[`status_${dept.id}`] === 'approved' || sh[`status_${dept.id}`] === 'review')).length
-              // #11: Tasks count only for THIS department
+              const onShots = SHOT_DEPT_IDS.includes(dept.id)
+              const onAssets = ASSET_DEPT_IDS.includes(dept.id)
+              const isDone = st => st === 'approved' || st === 'review'
+              const shotsT = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id)).length : 0
+              const shotsD = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id) && isDone(sh[`status_${dept.id}`])).length : 0
+              const assetsT = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id)).length : 0
+              const assetsD = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id) && isDone(a[`status_${dept.id}`])).length : 0
+              const t = shotsT + assetsT
+              const d = shotsD + assetsD
+              // Tasks count only for THIS department
               const deptTasks = tasks.filter(tk => tk.department === dept.id)
               const deptDone = deptTasks.filter(tk => tk.status === 'approved' || tk.status === 'review').length
+
+              const parts = []
+              if (onShots) parts.push(`${shotsD}/${shotsT} shots`)
+              if (onAssets) parts.push(`${assetsD}/${assetsT} assets`)
+              parts.push(`${deptDone}/${deptTasks.length} tasks`)
+
               return (
                 <div key={dept.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -90,7 +114,7 @@ export default function OverviewPage({ shots, tasks, profiles, user, currentProj
                       {dept.label}
                     </span>
                     <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>
-                      {d}/{t} shots · {deptDone}/{deptTasks.length} tasks
+                      {parts.join(' · ')}
                     </span>
                   </div>
                   <Bar value={t > 0 ? Math.round((d / t) * 100) : 0} h={5} />
