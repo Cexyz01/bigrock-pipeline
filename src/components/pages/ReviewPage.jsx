@@ -1,949 +1,612 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { DEPTS, isAudioUrl, isVideoUrl, ACCENT } from '../../lib/constants'
-import useIsMobile from '../../hooks/useIsMobile'
-import { getWipUpdates, updateSlideLayout, updateReviewMeta } from '../../lib/supabase'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, isAudioUrl, isVideoUrl, isDeptEnabled, ACCENT } from '../../lib/constants'
+import { getWipUpdates } from '../../lib/supabase'
 import Av from '../ui/Av'
 import EmptyState from '../ui/EmptyState'
-import { IconEye, IconX } from '../ui/Icons'
+import { IconEye } from '../ui/Icons'
 
-const CW = 960, CH = 540
+// ── date helpers (local-time, no UTC drift) ──
+const MS_DAY = 86400000
+const parseISO = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
+const daysBetween = (a, b) => Math.round((b.getTime() - a.getTime()) / MS_DAY)
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+const MONTHS_IT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
+const DAYS_IT = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
+const formatLongDate = (d) => `${DAYS_IT[d.getDay()]} ${d.getDate()} ${MONTHS_IT[d.getMonth()]} ${d.getFullYear()}`
 
-function defaultLayout(task, media) {
-  const els = []
-  if (task) {
-    const dept = DEPTS.find(d => d.id === task.department)
-    if (dept) els.push({ id: 'badge', type: 'badge', x: 30, y: 20, w: 120, h: 28 })
-    if ((task.assignees || []).length > 0) els.push({ id: 'student', type: 'student', x: CW - 250, y: 20, w: 220, h: 28 })
-    els.push({ id: 'title', type: 'title', x: 30, y: 70, w: CW - 60, h: 50, fontSize: 28 })
-    els.push({ id: 'desc', type: 'description', x: 30, y: 130, w: CW - 60, h: 60, fontSize: 14 })
-  }
-  const images = (media || []).filter(m => !isAudioUrl(m))
-  const audios = (media || []).filter(m => isAudioUrl(m))
-  if (images.length === 1) {
-    els.push({ id: 'img_0', type: 'image', src: images[0], x: 80, y: 200, w: 800, h: 310 })
-  } else if (images.length === 2) {
-    els.push({ id: 'img_0', type: 'image', src: images[0], x: 30, y: 200, w: 440, h: 310 })
-    els.push({ id: 'img_1', type: 'image', src: images[1], x: 490, y: 200, w: 440, h: 310 })
-  } else if (images.length >= 3) {
-    const cols = Math.min(images.length, 4)
-    const gw = (CW - 60 - (cols - 1) * 10) / cols
-    images.slice(0, 4).forEach((img, i) => {
-      els.push({ id: `img_${i}`, type: 'image', src: img, x: 30 + i * (gw + 10), y: 200, w: gw, h: 310 })
-    })
-  }
-  audios.forEach((a, i) => {
-    els.push({ id: `audio_${i}`, type: 'audio', src: a, x: 30, y: 200 + i * 50, w: 350, h: 40 })
-  })
-  return { elements: els, bg: '#FFFFFF' }
+// Lighten/darken a hex by percent
+function shade(hex, percent) {
+  if (!hex || !hex.startsWith('#')) return hex
+  let h = hex.slice(1); if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const n = parseInt(h, 16)
+  let r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff
+  const f = (c) => Math.max(0, Math.min(255, Math.round(c + (percent / 100) * 255)))
+  return '#' + [f(r), f(g), f(b)].map(x => x.toString(16).padStart(2, '0')).join('')
 }
 
-// Custom slides stored in localStorage
-function loadCustomSlides() {
-  try { return JSON.parse(localStorage.getItem('review_custom_slides') || '[]') } catch { return [] }
-}
-function saveCustomSlides(slides) { localStorage.setItem('review_custom_slides', JSON.stringify(slides)) }
+export default function ReviewPage({
+  shots = [], assets = [], tasks = [], profiles = [], user, currentProject,
+  ganttItems = [], ganttLanes = [],
+  onUpdateTask, onRejectTask, addToast, requestConfirm,
+}) {
+  const reviewTasks = useMemo(
+    () => tasks
+      .filter(t => t.status === 'review')
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
+    [tasks],
+  )
 
-export default function ReviewPage({ shots, tasks, profiles, user, onUpdateTask, onRejectTask, onUpdateReviewMeta, addToast, requestConfirm }) {
-  const reviewTasks = tasks.filter(t => t.status === 'review')
-  const [wipCache, setWipCache] = useState({})
-  const [selectedSlide, setSelectedSlide] = useState(0)
-  const [selectedEl, setSelectedEl] = useState(null)
-  const [activeTool, setActiveTool] = useState(null) // null = pointer, 'arrow' = draw arrow
-  const [presenting, setPresenting] = useState(false)
-  const [currentSlide, setCurrentSlide] = useState(0)
-  const [layouts, setLayouts] = useState({})
-  const [customSlides, setCustomSlides] = useState(loadCustomSlides)
-  const [dragSlideIdx, setDragSlideIdx] = useState(null)
-  const [dragOverSlideIdx, setDragOverSlideIdx] = useState(null)
-  const [skippedSlides, setSkippedSlides] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('review_skipped') || '[]')) } catch { return new Set() }
-  })
-  const canvasRef = useRef(null)
-  const saveTimer = useRef(null)
-
-  // Unified slide list: mix of task-slides and custom slides
-  const [order, setOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('review_order') || '[]') } catch { return [] }
-  })
-
-  // Build allSlides from order
-  const allSlides = (() => {
-    const taskMap = {}; reviewTasks.forEach(t => { taskMap[t.id] = { type: 'task', task: t, id: t.id } })
-    const customMap = {}; customSlides.forEach(c => { customMap[c.id] = { type: 'custom', id: c.id, title: c.title } })
-    const result = []
-    order.forEach(id => {
-      if (taskMap[id]) { result.push(taskMap[id]); delete taskMap[id] }
-      else if (customMap[id]) { result.push(customMap[id]); delete customMap[id] }
-    })
-    Object.values(taskMap).forEach(s => result.push(s))
-    Object.values(customMap).forEach(s => result.push(s))
-    return result
-  })()
-
+  // Load WIP updates per task
+  const [wipsByTask, setWipsByTask] = useState({})
   useEffect(() => {
-    localStorage.setItem('review_order', JSON.stringify(allSlides.map(s => s.id)))
-  }, [allSlides.length, order])
-
-  // Load WIP
-  useEffect(() => {
-    reviewTasks.forEach(t => {
-      if (!wipCache[t.id]) {
-        getWipUpdates(t.id).then(updates => {
-          const all = []; updates.forEach(u => { if (u.images?.length) all.push(...u.images) })
-          if (all.length > 0) setWipCache(prev => ({ ...prev, [t.id]: all }))
-        })
-      }
+    let cancelled = false
+    Promise.all(reviewTasks.map(async t => {
+      if (wipsByTask[t.id]) return null
+      const w = await getWipUpdates(t.id)
+      return [t.id, w]
+    })).then(results => {
+      if (cancelled) return
+      const additions = {}
+      for (const r of results) { if (r) additions[r[0]] = r[1] }
+      if (Object.keys(additions).length) setWipsByTask(prev => ({ ...prev, ...additions }))
     })
-  }, [reviewTasks.length])
+    return () => { cancelled = true }
+  }, [reviewTasks.map(t => t.id).join(',')])
 
-  // Init layouts
-  useEffect(() => {
-    // Task slides
-    reviewTasks.forEach(t => {
-      const media = wipCache[t.id] || []
-      const existing = layouts[t.id]
-      if (!existing) {
-        if (t.slide_layout?.elements) {
-          const dbHasMedia = t.slide_layout.elements.some(e => e.type === 'image' || e.type === 'audio')
-          if (!dbHasMedia && media.length > 0) {
-            setLayouts(prev => ({ ...prev, [t.id]: defaultLayout(t, media) }))
-          } else {
-            setLayouts(prev => ({ ...prev, [t.id]: t.slide_layout }))
-          }
-        } else {
-          setLayouts(prev => ({ ...prev, [t.id]: defaultLayout(t, media) }))
-        }
-      } else {
-        const hasMediaEls = existing.elements?.some(e => e.type === 'image' || e.type === 'audio')
-        if (!hasMediaEls && media.length > 0) {
-          setLayouts(prev => ({ ...prev, [t.id]: defaultLayout(t, media) }))
-        }
-      }
-    })
-    // Custom slides
-    customSlides.forEach(c => {
-      if (!layouts[c.id]) {
-        setLayouts(prev => ({ ...prev, [c.id]: c.layout || { elements: [{ id: 'title', type: 'custom_text', x: CW/2-200, y: CH/2-30, w: 400, h: 60, fontSize: 28, text: c.title || 'New Slide', color: '#1a1a1a' }], bg: '#FFFFFF' } }))
-      }
-    })
-  }, [reviewTasks.length, customSlides.length, Object.keys(wipCache).length])
-
-  const activeSlide = allSlides[selectedSlide] || null
-  const activeId = activeSlide?.id
-  const activeTask = activeSlide?.type === 'task' ? activeSlide.task : null
-  const activeLayout = activeId ? layouts[activeId] : null
-
-  // Save layout
-  const saveLayout = useCallback((slideId, layout) => {
-    setLayouts(prev => ({ ...prev, [slideId]: layout }))
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      // If task slide, save to DB
-      const isTask = reviewTasks.some(t => t.id === slideId)
-      if (isTask) updateSlideLayout(slideId, layout)
-      // If custom, save to localStorage
-      else {
-        setCustomSlides(prev => {
-          const updated = prev.map(c => c.id === slideId ? { ...c, layout } : c)
-          saveCustomSlides(updated)
-          return updated
-        })
-      }
-    }, 800)
-  }, [reviewTasks])
-
-  const resetLayout = useCallback((slideId) => {
-    const t = reviewTasks.find(tt => tt.id === slideId)
-    const media = wipCache[slideId] || []
-    saveLayout(slideId, defaultLayout(t || null, media))
-  }, [reviewTasks, wipCache, saveLayout])
-
-  // Update element
-  const updateElement = useCallback((elId, updates) => {
-    if (!activeId) return
-    const layout = layouts[activeId]
-    if (!layout) return
-    const newEls = layout.elements.map(e => {
-      if (e.id !== elId) return e
-      return { ...e, ...updates }
-    })
-    saveLayout(activeId, { ...layout, elements: newEls })
-  }, [activeId, layouts, saveLayout])
-
-  // Add element
-  const addElement = useCallback((type) => {
-    if (!activeId || !activeLayout) return
-    const id = `${type}_${Date.now()}`
-    let newEl
-    if (type === 'text') newEl = { id, type: 'custom_text', x: CW/2-100, y: CH/2-20, w: 200, h: 40, fontSize: 16, text: 'Text', color: '#1a1a1a' }
-    else if (type === 'shape') newEl = { id, type: 'shape', x: CW/2-75, y: CH/2-40, w: 150, h: 80, color: '#E2E8F0', borderColor: '#94A3B8' }
-    if (!newEl) return
-    saveLayout(activeId, { ...activeLayout, elements: [...activeLayout.elements, newEl] })
-    setSelectedEl(id)
-  }, [activeId, activeLayout, saveLayout])
-
-  // Delete element
-  const deleteSelectedElement = useCallback(() => {
-    if (!activeId || !activeLayout || !selectedEl) return
-    saveLayout(activeId, { ...activeLayout, elements: activeLayout.elements.filter(e => e.id !== selectedEl) })
-    setSelectedEl(null)
-  }, [activeId, activeLayout, selectedEl, saveLayout])
-
-  // Add blank slide
-  const addBlankSlide = () => {
-    const id = `custom_${Date.now()}`
-    const newSlide = { id, title: 'Blank Slide', layout: { elements: [{ id: 'title', type: 'custom_text', x: CW/2-200, y: CH/2-30, w: 400, h: 60, fontSize: 28, text: 'New Slide', color: '#1a1a1a' }], bg: '#FFFFFF' } }
-    const updated = [...customSlides, newSlide]
-    setCustomSlides(updated)
-    saveCustomSlides(updated)
-    setOrder(prev => [...prev, id])
-    setTimeout(() => setSelectedSlide(allSlides.length), 50)
-  }
-
-  // Delete custom slide
-  const deleteCustomSlide = (slideId) => {
-    const updated = customSlides.filter(c => c.id !== slideId)
-    setCustomSlides(updated)
-    saveCustomSlides(updated)
-    setOrder(prev => prev.filter(id => id !== slideId))
-    setLayouts(prev => { const n = { ...prev }; delete n[slideId]; return n })
-    setSelectedSlide(0)
-    setSelectedEl(null)
-  }
-
-  const toggleSkip = (slideId) => {
-    setSkippedSlides(prev => {
-      const next = new Set(prev)
-      if (next.has(slideId)) next.delete(slideId); else next.add(slideId)
-      localStorage.setItem('review_skipped', JSON.stringify([...next]))
-      return next
-    })
-  }
-
-  // Slide drag reorder
-  const handleSlideDragStart = (idx) => setDragSlideIdx(idx)
-  const handleSlideDragOver = (e, idx) => { e.preventDefault(); setDragOverSlideIdx(idx) }
-  const handleSlideDrop = (idx) => {
-    if (dragSlideIdx === null || dragSlideIdx === idx) return
-    const newOrder = allSlides.map(s => s.id)
-    const [moved] = newOrder.splice(dragSlideIdx, 1)
-    newOrder.splice(idx, 0, moved)
-    setOrder(newOrder)
-    setSelectedSlide(idx)
-    setDragSlideIdx(null); setDragOverSlideIdx(null)
-  }
-
-  // Presentation — only non-skipped slides
-  const presentSlides = allSlides.filter(s => !skippedSlides.has(s.id))
-  const [presCommentOpen, setPresCommentOpen] = useState(false)
-  const [presComment, setPresComment] = useState('')
-  const [presActionLoading, setPresActionLoading] = useState(null)
-  const presCommentRef = useRef(null)
-
-  const startPresentation = () => {
-    setCurrentSlide(0); setPresenting(true); setPresCommentOpen(false); setPresComment('')
-    document.documentElement.requestFullscreen?.().catch(() => {})
-  }
-  const exitPresentation = useCallback(() => {
-    setPresenting(false); setPresCommentOpen(false); setPresComment('')
-    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
-  }, [])
-  const nextSlide = useCallback(() => setCurrentSlide(s => Math.min(s + 1, presentSlides.length)), [presentSlides.length]) // +1 for end slide
-  const prevSlide = useCallback(() => setCurrentSlide(s => Math.max(s - 1, 0)), [])
-
-  const [presFeedback, setPresFeedback] = useState(null) // { text, color, icon }
-
-  const handlePresApprove = async (taskId) => {
-    setPresActionLoading('approve')
-    try {
-      await onUpdateTask(taskId, { status: 'approved' })
-    } catch (e) { console.error(e) }
-    setPresActionLoading(null)
-    setPresFeedback({ text: 'Task approvato!', color: '#22C55E', icon: '✓' })
-    setTimeout(() => setPresFeedback(null), 2500)
-  }
-  const handlePresReject = async (taskId) => {
-    const comment = presComment.trim()
-    setPresCommentOpen(false)
-    setPresComment('')
-    setPresActionLoading('reject')
-    try {
-      await onRejectTask(taskId, comment)
-    } catch (e) { console.error(e) }
-    setPresActionLoading(null)
-    setPresFeedback({ text: 'Modifiche richieste', color: '#F59E0B', icon: '↩' })
-    setTimeout(() => setPresFeedback(null), 2500)
-  }
-
-  useEffect(() => {
-    if (!presenting) return
-    const onKey = (e) => {
-      // Don't navigate when typing in comment box
-      if (presCommentOpen) {
-        if (e.key === 'Escape') { e.preventDefault(); setPresCommentOpen(false); setPresComment('') }
-        return
-      }
-      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextSlide() }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide() }
-      else if (e.key === 'Escape') { e.preventDefault(); exitPresentation() }
+  // ── Project progress (mirrors OverviewPage) ──
+  const progress = useMemo(() => {
+    const isDone = st => st === 'approved' || st === 'review'
+    let total = 0, done = 0
+    for (const sh of shots) for (const id of SHOT_DEPT_IDS) {
+      if (!isDeptEnabled(sh, id)) continue
+      total++; if (isDone(sh[`status_${id}`])) done++
     }
-    // Also exit presentation when browser exits fullscreen (user presses F11)
-    const onFullscreenChange = () => {
-      if (!document.fullscreenElement && presenting) exitPresentation()
+    for (const a of assets) for (const id of ASSET_DEPT_IDS) {
+      if (!isDeptEnabled(a, id)) continue
+      total++; if (isDone(a[`status_${id}`])) done++
     }
-    window.addEventListener('keydown', onKey)
-    document.addEventListener('fullscreenchange', onFullscreenChange)
-    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('fullscreenchange', onFullscreenChange) }
-  }, [presenting, presCommentOpen, nextSlide, prevSlide, exitPresentation])
-
-  // Add a fixed "Fine Review" end slide to presentation
-  const END_SLIDE = { id: '__end__', type: 'end' }
-  const presentSlidesWithEnd = [...presentSlides, END_SLIDE]
-
-  // Clamp currentSlide if slides shrink (task approved/rejected removes it)
-  useEffect(() => {
-    if (presenting && currentSlide >= presentSlidesWithEnd.length && presentSlidesWithEnd.length > 0) {
-      setCurrentSlide(presentSlidesWithEnd.length - 1)
-    }
-  }, [presenting, currentSlide, presentSlidesWithEnd.length])
-
-  // ═══════════════════════════════
-  // FULLSCREEN PRESENTATION
-  // ═══════════════════════════════
-  if (presenting && presentSlidesWithEnd.length > 0) {
-    const slide = presentSlidesWithEnd[currentSlide] || END_SLIDE
-    const layout = slide.type === 'end' ? null : layouts[slide.id]
-    const task = slide.type === 'task' ? slide.task : null
-    const scale = Math.min(window.innerWidth / CW, window.innerHeight / CH)
-
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: CW * scale, height: CH * scale, position: 'relative', background: slide.type === 'end' ? '#1a1a1a' : (layout?.bg || '#FFF'), overflow: 'hidden' }}>
-          {slide.type === 'end' ? (
-            /* End slide */
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
-              <div style={{ fontSize: 48 * scale, fontWeight: 800, color: '#fff', letterSpacing: 2 }}>Fine Review</div>
-              <div style={{ fontSize: 18 * scale, color: '#94A3B8', marginTop: 16 * scale }}>Premi ESC per uscire</div>
-            </div>
-          ) : (
-            <>
-              {/* Arrows */}
-              {layout?.elements?.filter(e => e.type === 'arrow').map(el => (
-                <svg key={el.id} style={{ position: 'absolute', inset: 0, width: CW * scale, height: CH * scale, pointerEvents: 'none' }}>
-                  <defs><marker id={`pah_${el.id}`} markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={el.color || '#1a1a1a'} /></marker></defs>
-                  <line x1={(el.x1||0)*scale} y1={(el.y1||0)*scale} x2={(el.x2||0)*scale} y2={(el.y2||0)*scale} stroke={el.color||'#1a1a1a'} strokeWidth={el.strokeWidth||3} markerEnd={`url(#pah_${el.id})`} />
-                </svg>
-              ))}
-              {/* Other elements */}
-              {layout?.elements?.filter(e => e.type !== 'arrow').map(el => (
-                <div key={el.id} style={{ position: 'absolute', left: el.x * scale, top: el.y * scale, width: el.w * scale, height: el.h * scale, zIndex: el.type === 'shape' ? 0 : 1 }}>
-                  <ElementRender el={el} task={task} profiles={profiles} scale={scale} />
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-        {/* Bottom navigation bar */}
-        <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 16, background: 'rgba(0,0,0,0.6)', borderRadius: 24, padding: '8px 20px' }}
-          onClick={e => e.stopPropagation()}>
-          <button onClick={prevSlide} style={presBtn}>←</button>
-          <span style={{ color: '#fff', fontSize: 13, minWidth: 60, textAlign: 'center' }}>{currentSlide + 1} / {presentSlidesWithEnd.length}</span>
-          <button onClick={nextSlide} style={presBtn}>→</button>
-          {/* Review action buttons — only for task slides */}
-          {task && task.status === 'review' && (
-            <>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.3)' }} />
-              <button
-                disabled={presActionLoading === 'approve'}
-                onClick={() => handlePresApprove(task.id)}
-                style={{ ...presBtn, background: '#22C55E', color: '#fff', borderRadius: 8, padding: '6px 16px', fontSize: 13, fontWeight: 600, opacity: presActionLoading === 'approve' ? 0.5 : 1 }}>
-                {presActionLoading === 'approve' ? '...' : '✓ Approva'}
-              </button>
-              <button
-                onClick={() => { setPresCommentOpen(true); setTimeout(() => presCommentRef.current?.focus(), 50) }}
-                style={{ ...presBtn, background: '#F59E0B', color: '#fff', borderRadius: 8, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>
-                Da modificare
-              </button>
-            </>
-          )}
-          {task && task.status === 'approved' && (
-            <>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.3)' }} />
-              <span style={{ color: '#22C55E', fontSize: 13, fontWeight: 600 }}>✓ Approvato</span>
-            </>
-          )}
-          <button onClick={exitPresentation} style={{ ...presBtn, color: '#EF4444' }}>✕</button>
-        </div>
-
-        {/* Feedback toast */}
-        {presFeedback && (
-          <>
-            <style>{`@keyframes presFeedbackIn { from { opacity:0; transform:translate(-50%,-50%) scale(0.7); } to { opacity:1; transform:translate(-50%,-50%) scale(1); } }`}</style>
-            <div style={{
-              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              zIndex: 10001, display: 'flex', alignItems: 'center', gap: 16,
-              background: presFeedback.color, color: '#fff', borderRadius: 20,
-              padding: '24px 48px', boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
-              animation: 'presFeedbackIn 0.3s ease',
-            }}>
-              <span style={{ fontSize: 40 }}>{presFeedback.icon}</span>
-              <span style={{ fontSize: 24, fontWeight: 700 }}>{presFeedback.text}</span>
-            </div>
-          </>
-        )}
-
-        {/* Comment overlay for "Da modificare" */}
-        {presCommentOpen && task && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onClick={() => { setPresCommentOpen(false); setPresComment('') }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', borderRadius: 16, padding: 28, width: 480, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-              <h3 style={{ margin: '0 0 6px', fontSize: 18, color: '#1a1a1a' }}>Modifiche richieste</h3>
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748B' }}>Inserisci un commento per lo studente su cosa modificare</p>
-              <textarea
-                ref={presCommentRef}
-                value={presComment}
-                onChange={e => setPresComment(e.target.value)}
-                placeholder="Commento..."
-                style={{ width: '100%', minHeight: 100, borderRadius: 10, border: '1px solid #CBD5E1', padding: 14, fontSize: 14, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
-              />
-              <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-                <button onClick={() => { setPresCommentOpen(false); setPresComment('') }}
-                  style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid #CBD5E1', background: '#fff', color: '#64748B', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                  Annulla
-                </button>
-                <button
-                  disabled={presActionLoading === 'reject'}
-                  onClick={() => handlePresReject(task.id)}
-                  style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: '#F59E0B', color: '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 700, opacity: presActionLoading === 'reject' ? 0.5 : 1 }}>
-                  {presActionLoading === 'reject' ? 'Invio...' : 'Invia'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ═══════════════════════════════
-  // EDITOR
-  // ═══════════════════════════════
-  if (allSlides.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', padding: 60 }}>
-        <EmptyState icon={<IconEye size={48} color="#94A3B8" />} title="No slides" sub="Tasks in review status will appear here as slides" />
-        <button onClick={addBlankSlide} style={{ ...tbBtn, marginTop: 20, padding: '10px 24px', fontSize: 14 }}>+ Add Blank Slide</button>
-      </div>
-    )
-  }
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    const statusCounts = SHOT_STATUSES.map(st => {
+      let c = 0
+      for (const sh of shots) for (const id of SHOT_DEPT_IDS) {
+        if (isDeptEnabled(sh, id) && sh[`status_${id}`] === st.id) c++
+      }
+      for (const a of assets) for (const id of ASSET_DEPT_IDS) {
+        if (isDeptEnabled(a, id) && a[`status_${id}`] === st.id) c++
+      }
+      return { ...st, count: c }
+    })
+    return { total, done, pct, statusCounts }
+  }, [shots, assets])
 
   return (
-    <div style={{ display: 'flex', height: '100vh', gap: 0, margin: '-36px -44px', background: '#E8ECF1' }}>
-      {/* LEFT: Slide panel */}
-      <div style={{ width: 280, flexShrink: 0, background: '#F8FAFC', borderRight: '1px solid #E2E8F0', overflowY: 'auto', padding: '12px 12px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, padding: '0 4px' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Slides</span>
-          <button onClick={startPresentation} style={{ background: ACCENT, color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}>▶ Present</button>
-        </div>
-        {allSlides.map((slide, idx) => {
-          const isActive = idx === selectedSlide
-          const isDragOver = dragOverSlideIdx === idx && dragSlideIdx !== idx
-          const task = slide.type === 'task' ? slide.task : null
-          const dept = task ? DEPTS.find(d => d.id === task.department) : null
-          const title = task ? (task.review_title || task.title) : (slide.title || 'Blank Slide')
-          const isSkipped = skippedSlides.has(slide.id)
-          return (
-            <div key={slide.id} draggable
-              onDragStart={() => handleSlideDragStart(idx)}
-              onDragOver={e => handleSlideDragOver(e, idx)}
-              onDragEnd={() => { setDragSlideIdx(null); setDragOverSlideIdx(null) }}
-              onDrop={() => handleSlideDrop(idx)}
-              onClick={() => { setSelectedSlide(idx); setSelectedEl(null) }}
-              style={{
-                display: 'flex', gap: 6, alignItems: 'center',
-                padding: 4, marginBottom: 4, borderRadius: 6, cursor: 'pointer',
-                border: isActive ? `2px solid ${ACCENT}` : isDragOver ? `2px solid #60A5FA` : '2px solid transparent',
-                background: isActive ? '#FFF' : 'transparent',
-              }}>
-              <input type="checkbox" checked={!isSkipped}
-                onChange={(e) => { e.stopPropagation(); toggleSkip(slide.id) }}
-                title={isSkipped ? 'Enable in presentation' : 'Skip in presentation'}
-                style={{ accentColor: ACCENT, width: 14, height: 14, flexShrink: 0, cursor: 'pointer' }} />
-              <div style={{ flex: 1, minWidth: 0, opacity: isSkipped ? 0.35 : 1 }}>
-                <div style={{ width: '100%', aspectRatio: '16/9', background: layouts[slide.id]?.bg || '#fff', borderRadius: 3, position: 'relative', overflow: 'hidden', border: '1px solid #1a1a1a' }}>
-                  <MiniPreview layout={layouts[slide.id]} task={task} dept={dept} profiles={profiles} />
-                </div>
-              </div>
-            </div>
-          )
-        })}
-        <button onClick={addBlankSlide} style={{ width: '100%', padding: '8px 0', border: '1px dashed #CBD5E1', borderRadius: 6, background: 'none', fontSize: 11, color: '#94A3B8', cursor: 'pointer', marginTop: 4 }}>+ Blank Slide</button>
-      </div>
+    <div style={{ background: '#F0F2F5' }}>
+      <Hero project={currentProject} progress={progress} reviewCount={reviewTasks.length} />
 
-      {/* CENTER: Canvas + toolbar */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 12, minWidth: 0, gap: 8 }}>
-        {/* Toolbar */}
-        {activeId && (
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
-            <button onClick={() => addElement('text')} style={tbBtn} title="Add text">T+</button>
-            <button onClick={() => setActiveTool(activeTool === 'arrow' ? null : 'arrow')}
-              style={{ ...tbBtn, background: activeTool === 'arrow' ? ACCENT : '#fff', color: activeTool === 'arrow' ? '#fff' : '#475569' }}
-              title="Draw arrow: click and drag on canvas">↗</button>
-            <button onClick={() => addElement('shape')} style={tbBtn} title="Rectangle (goes behind other elements)">□</button>
-            <div style={{ width: 1, height: 20, background: '#E2E8F0', margin: '0 2px' }} />
-            {selectedEl && activeLayout && (() => {
-              const el = activeLayout.elements.find(e => e.id === selectedEl)
-              return el && el.type !== 'arrow' ? <>
-                <button onClick={() => updateElement(selectedEl, { x: 0 })} style={tbBtn} title="Align left">⫷</button>
-                <button onClick={() => updateElement(selectedEl, { x: Math.round((CW - el.w) / 2) })} style={tbBtn} title="Align center">⫿</button>
-                <button onClick={() => updateElement(selectedEl, { x: CW - el.w })} style={tbBtn} title="Align right">⫸</button>
-                <button onClick={() => updateElement(selectedEl, { y: Math.round((CH - el.h) / 2) })} style={tbBtn} title="Center vertical">⫼</button>
-                <div style={{ width: 1, height: 20, background: '#E2E8F0', margin: '0 2px' }} />
-              </> : null
-            })()}
-            {selectedEl && <button onClick={deleteSelectedElement} style={{ ...tbBtn, color: '#EF4444', borderColor: '#FCA5A5' }}>🗑</button>}
-            {activeSlide?.type === 'custom' && (
-              <button onClick={() => deleteCustomSlide(activeId)} style={{ ...tbBtn, color: '#EF4444', borderColor: '#FCA5A5', marginLeft: 8 }}>Delete Slide</button>
-            )}
+      {/* Tasks */}
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px 40px' }}>
+        {reviewTasks.length === 0 ? (
+          <div style={{ background: '#fff', borderRadius: 24, padding: 60, border: '1px solid #E8ECF1' }}>
+            <EmptyState icon={<IconEye size={56} color="#94A3B8" />} title="Nessun task in review" sub="Quando uno staff invia un task per review apparirà qui." />
           </div>
-        )}
-        {/* Canvas area with extra overflow space */}
-        <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'visible' }}>
-          {activeId && activeLayout && (
-            <SlideCanvas
-              slideId={activeId}
-              task={activeTask}
-              layout={activeLayout}
-              profiles={profiles}
-              selectedEl={selectedEl}
-              onSelectEl={setSelectedEl}
-              onUpdateElement={updateElement}
-              onUpdateReviewMeta={onUpdateReviewMeta}
-              activeTool={activeTool}
-              onAddArrow={(arrow) => {
-                const newLayout = { ...activeLayout, elements: [...activeLayout.elements, arrow] }
-                saveLayout(activeId, newLayout)
-                setSelectedEl(arrow.id)
-                setActiveTool(null)
-              }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* RIGHT: Properties */}
-      <div style={{ width: 260, flexShrink: 0, background: '#F8FAFC', borderLeft: '1px solid #E2E8F0', overflowY: 'auto', padding: 14 }}>
-        {selectedEl && activeLayout ? (
-          <PropertiesPanel el={activeLayout.elements.find(e => e.id === selectedEl)} onUpdate={(u) => updateElement(selectedEl, u)} layout={activeLayout} onBgChange={(bg) => { if (activeId) saveLayout(activeId, { ...activeLayout, bg }) }} />
         ) : (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 10, textTransform: 'uppercase' }}>Slide</div>
-            {activeLayout && (
-              <>
-                <label style={propLabel}>Background</label>
-                <input type="color" value={activeLayout.bg || '#FFFFFF'} onChange={e => { if (activeId) saveLayout(activeId, { ...activeLayout, bg: e.target.value }) }}
-                  style={{ width: '100%', height: 28, border: '1px solid #E2E8F0', borderRadius: 6, cursor: 'pointer' }} />
-              </>
-            )}
-            <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 12 }}>Click element to edit</div>
-            {activeId && <button onClick={() => requestConfirm?.('Reset Slide? All element positions will be reset to default.', () => resetLayout(activeId))} style={{ marginTop: 12, width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid #FCA5A5', background: '#FEF2F2', fontSize: 10, fontWeight: 600, color: '#EF4444', cursor: 'pointer' }}>Reset Slide</button>}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ═══════════════════════════════
-// SLIDE CANVAS
-// ═══════════════════════════════
-function SlideCanvas({ slideId, task, layout, profiles, selectedEl, onSelectEl, onUpdateElement, onUpdateReviewMeta, activeTool, onAddArrow }) {
-  const containerRef = useRef(null)
-  const canvasBoxRef = useRef(null)
-  const [scale, setScale] = useState(1)
-  const [dragging, setDragging] = useState(null)
-  const [resizing, setResizing] = useState(null)
-  const [editingText, setEditingText] = useState(null)
-  const [drawingArrow, setDrawingArrow] = useState(null) // { x1, y1, x2, y2 }
-
-  useEffect(() => {
-    const el = containerRef.current; if (!el) return
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect()
-      setScale(Math.min((r.width - 40) / CW, (r.height - 20) / CH, 1.2))
-    })
-    ro.observe(el); return () => ro.disconnect()
-  }, [])
-
-  // Arrow drawing on canvas
-  const handleCanvasMouseDown = (e) => {
-    if (activeTool === 'arrow' && canvasBoxRef.current) {
-      e.preventDefault()
-      const rect = canvasBoxRef.current.getBoundingClientRect()
-      const x = (e.clientX - rect.left) / scale
-      const y = (e.clientY - rect.top) / scale
-      setDrawingArrow({ x1: Math.round(x), y1: Math.round(y), x2: Math.round(x), y2: Math.round(y) })
-      onSelectEl(null)
-      return
-    }
-    onSelectEl(null)
-  }
-
-  useEffect(() => {
-    if (!drawingArrow) return
-    const onMove = (e) => {
-      if (!canvasBoxRef.current) return
-      const rect = canvasBoxRef.current.getBoundingClientRect()
-      const x = (e.clientX - rect.left) / scale
-      const y = (e.clientY - rect.top) / scale
-      setDrawingArrow(prev => ({ ...prev, x2: Math.round(x), y2: Math.round(y) }))
-    }
-    const onUp = () => {
-      if (drawingArrow) {
-        const dx = drawingArrow.x2 - drawingArrow.x1, dy = drawingArrow.y2 - drawingArrow.y1
-        const len = Math.sqrt(dx * dx + dy * dy)
-        if (len > 10) {
-          onAddArrow({ id: `arrow_${Date.now()}`, type: 'arrow', x1: drawingArrow.x1, y1: drawingArrow.y1, x2: drawingArrow.x2, y2: drawingArrow.y2, color: '#1a1a1a', strokeWidth: 3 })
-        }
-      }
-      setDrawingArrow(null)
-    }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [drawingArrow, scale, onAddArrow])
-
-  const [snapLines, setSnapLines] = useState([]) // { axis: 'x'|'y', pos: number }
-  const SNAP_DIST = 6
-
-  // Compute snap targets from other elements + canvas edges/center
-  const getSnapTargets = (excludeId) => {
-    const targets = { x: [0, CW / 2, CW], y: [0, CH / 2, CH] }
-    ;(layout.elements || []).forEach(el => {
-      if (el.id === excludeId || el.type === 'arrow') return
-      targets.x.push(el.x, el.x + el.w / 2, el.x + el.w)
-      targets.y.push(el.y, el.y + el.h / 2, el.y + el.h)
-    })
-    return targets
-  }
-
-  const snapValue = (val, targets) => {
-    for (const t of targets) {
-      if (Math.abs(val - t) < SNAP_DIST) return { snapped: t, guide: t }
-    }
-    return { snapped: val, guide: null }
-  }
-
-  const snapElement = (el, newX, newY, targets) => {
-    const guides = []
-    // Snap left, center, right edges
-    const xEdges = [newX, newX + el.w / 2, newX + el.w]
-    const yEdges = [newY, newY + el.h / 2, newY + el.h]
-    let sx = newX, sy = newY
-    for (const xe of xEdges) {
-      const r = snapValue(xe, targets.x)
-      if (r.guide !== null) { sx = newX + (r.snapped - xe); guides.push({ axis: 'x', pos: r.guide }); break }
-    }
-    for (const ye of yEdges) {
-      const r = snapValue(ye, targets.y)
-      if (r.guide !== null) { sy = newY + (r.snapped - ye); guides.push({ axis: 'y', pos: r.guide }); break }
-    }
-    return { x: Math.round(sx), y: Math.round(sy), guides }
-  }
-
-  const handleMouseDown = (e, el) => {
-    if (activeTool === 'arrow') return
-    e.stopPropagation(); onSelectEl(el.id)
-    if (editingText === el.id) return
-    setDragging({ id: el.id, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y, el })
-  }
-
-  // corner: 'tl' | 'tr' | 'bl' | 'br'
-  const handleResizeStart = (e, el, corner) => {
-    e.stopPropagation(); e.preventDefault()
-    setResizing({ id: el.id, corner, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h })
-  }
-
-  useEffect(() => {
-    if (!dragging && !resizing) return
-    const onMove = (e) => {
-      if (dragging) {
-        const dx = (e.clientX - dragging.startX) / scale, dy = (e.clientY - dragging.startY) / scale
-        const targets = getSnapTargets(dragging.id)
-        const { x, y, guides } = snapElement(dragging.el, dragging.origX + dx, dragging.origY + dy, targets)
-        onUpdateElement(dragging.id, { x, y })
-        setSnapLines(guides)
-      }
-      if (resizing) {
-        const dx = (e.clientX - resizing.startX) / scale, dy = (e.clientY - resizing.startY) / scale
-        const c = resizing.corner
-        let { origX: ox, origY: oy, origW: ow, origH: oh } = resizing
-        let nx = ox, ny = oy, nw = ow, nh = oh
-        if (c === 'br') { nw = ow + dx; nh = oh + dy }
-        else if (c === 'bl') { nx = ox + dx; nw = ow - dx; nh = oh + dy }
-        else if (c === 'tr') { ny = oy + dy; nw = ow + dx; nh = oh - dy }
-        else if (c === 'tl') { nx = ox + dx; ny = oy + dy; nw = ow - dx; nh = oh - dy }
-        nw = Math.max(20, nw); nh = Math.max(20, nh)
-        onUpdateElement(resizing.id, { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) })
-      }
-    }
-    const onUp = () => { setDragging(null); setResizing(null); setSnapLines([]) }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [dragging, resizing, scale, onUpdateElement])
-
-  // Arrow drag: move whole arrow
-  const [arrowDrag, setArrowDrag] = useState(null)
-  const handleArrowDragStart = (e, el) => {
-    onSelectEl(el.id)
-    setArrowDrag({ id: el.id, startX: e.clientX, startY: e.clientY, origX1: el.x1, origY1: el.y1, origX2: el.x2, origY2: el.y2 })
-  }
-  // Arrow endpoint drag
-  const [endpointDrag, setEndpointDrag] = useState(null)
-  const handleArrowEndpointDrag = (e, el, which) => {
-    setEndpointDrag({ id: el.id, which, startX: e.clientX, startY: e.clientY, origX1: el.x1, origY1: el.y1, origX2: el.x2, origY2: el.y2 })
-  }
-
-  useEffect(() => {
-    if (!arrowDrag && !endpointDrag) return
-    const onMove = (e) => {
-      if (arrowDrag) {
-        const dx = (e.clientX - arrowDrag.startX) / scale, dy = (e.clientY - arrowDrag.startY) / scale
-        onUpdateElement(arrowDrag.id, { x1: Math.round(arrowDrag.origX1 + dx), y1: Math.round(arrowDrag.origY1 + dy), x2: Math.round(arrowDrag.origX2 + dx), y2: Math.round(arrowDrag.origY2 + dy) })
-      }
-      if (endpointDrag) {
-        const dx = (e.clientX - endpointDrag.startX) / scale, dy = (e.clientY - endpointDrag.startY) / scale
-        if (endpointDrag.which === 'start') onUpdateElement(endpointDrag.id, { x1: Math.round(endpointDrag.origX1 + dx), y1: Math.round(endpointDrag.origY1 + dy) })
-        else onUpdateElement(endpointDrag.id, { x2: Math.round(endpointDrag.origX2 + dx), y2: Math.round(endpointDrag.origY2 + dy) })
-      }
-    }
-    const onUp = () => { setArrowDrag(null); setEndpointDrag(null) }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [arrowDrag, endpointDrag, scale, onUpdateElement])
-
-  const handleDoubleClick = (el) => { if (el.type === 'title' || el.type === 'description' || el.type === 'custom_text') setEditingText(el.id) }
-  const handleTextBlur = (el, value) => {
-    setEditingText(null)
-    if (el.type === 'custom_text') { onUpdateElement(el.id, { text: value }); return }
-    if (!task) return
-    if (el.type === 'title') onUpdateReviewMeta(task.id, value, task.review_description || task.description || '')
-    else if (el.type === 'description') onUpdateReviewMeta(task.id, task.review_title || task.title, value)
-  }
-
-  // Sort: shapes first (behind), then rest
-  const sortedEls = [...(layout.elements || [])].sort((a, b) => {
-    if (a.type === 'shape' && b.type !== 'shape') return -1
-    if (b.type === 'shape' && a.type !== 'shape') return 1
-    return 0
-  })
-
-  return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
-      onClick={() => { if (activeTool !== 'arrow') onSelectEl(null) }}>
-      {/* Canvas with visible overflow */}
-      <div ref={canvasBoxRef} onMouseDown={handleCanvasMouseDown}
-        style={{ width: CW * scale, height: CH * scale, position: 'relative', background: layout.bg || '#FFF', borderRadius: 6, boxShadow: '0 4px 24px rgba(0,0,0,0.12)', overflow: 'visible', flexShrink: 0, cursor: activeTool === 'arrow' ? 'crosshair' : 'default' }}>
-        {/* Canvas border indicator */}
-        <div style={{ position: 'absolute', inset: 0, border: '1px solid #D1D5DB', borderRadius: 6, pointerEvents: 'none', zIndex: 100 }} />
-        {/* Drawing arrow preview */}
-        {drawingArrow && (
-          <svg style={{ position: 'absolute', inset: 0, width: CW * scale, height: CH * scale, pointerEvents: 'none', zIndex: 200 }}>
-            <defs><marker id="draw_ah" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#1a1a1a" /></marker></defs>
-            <line x1={drawingArrow.x1 * scale} y1={drawingArrow.y1 * scale} x2={drawingArrow.x2 * scale} y2={drawingArrow.y2 * scale} stroke="#1a1a1a" strokeWidth={3} markerEnd="url(#draw_ah)" />
-          </svg>
-        )}
-        {/* Arrow elements rendered as SVG overlay */}
-        {sortedEls.filter(el => el.type === 'arrow').map(el => {
-          const isSelected = selectedEl === el.id
-          const c = el.color || '#1a1a1a'
-          const sw = el.strokeWidth || 3
-          // Arrow uses x1,y1,x2,y2 — render as full-canvas SVG
-          return (
-            <svg key={el.id} style={{ position: 'absolute', inset: 0, width: CW * scale, height: CH * scale, pointerEvents: 'none', zIndex: isSelected ? 50 : 5 }}>
-              <defs><marker id={`ah_${el.id}`} markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={c} /></marker></defs>
-              {/* Invisible fat line for easy clicking */}
-              <line x1={(el.x1||0)*scale} y1={(el.y1||0)*scale} x2={(el.x2||0)*scale} y2={(el.y2||0)*scale}
-                stroke="transparent" strokeWidth={20} style={{ pointerEvents: 'stroke', cursor: 'grab' }}
-                onMouseDown={e => { e.stopPropagation(); handleArrowDragStart(e, el) }}
-                onClick={e => { e.stopPropagation(); onSelectEl(el.id) }} />
-              {/* Visible arrow */}
-              <line x1={(el.x1||0)*scale} y1={(el.y1||0)*scale} x2={(el.x2||0)*scale} y2={(el.y2||0)*scale}
-                stroke={c} strokeWidth={sw} markerEnd={`url(#ah_${el.id})`} style={{ pointerEvents: 'none' }} />
-              {/* Selection dots at endpoints */}
-              {isSelected && <>
-                <circle cx={(el.x1||0)*scale} cy={(el.y1||0)*scale} r={5} fill={ACCENT} style={{ pointerEvents: 'all', cursor: 'move' }}
-                  onMouseDown={e => { e.stopPropagation(); handleArrowEndpointDrag(e, el, 'start') }} />
-                <circle cx={(el.x2||0)*scale} cy={(el.y2||0)*scale} r={5} fill={ACCENT} style={{ pointerEvents: 'all', cursor: 'move' }}
-                  onMouseDown={e => { e.stopPropagation(); handleArrowEndpointDrag(e, el, 'end') }} />
-              </>}
-            </svg>
-          )
-        })}
-        {/* Non-arrow elements */}
-        {sortedEls.filter(el => el.type !== 'arrow').map((el, zIdx) => {
-          const isSelected = selectedEl === el.id
-          const isEditingThis = editingText === el.id
-          const isOutside = (el.x + el.w < 0 || el.x > CW || el.y + el.h < 0 || el.y > CH)
-          return (
-            <div key={el.id} style={{
-              position: 'absolute', left: el.x * scale, top: el.y * scale, width: el.w * scale, height: el.h * scale,
-              cursor: activeTool ? 'crosshair' : dragging ? 'grabbing' : 'grab',
-              outline: isSelected ? `2px solid ${ACCENT}` : isOutside ? '2px dashed #94A3B8' : 'none',
-              borderRadius: 4, zIndex: el.type === 'shape' ? 0 : (isSelected ? 50 : zIdx + 10),
-            }}
-              onMouseDown={e => handleMouseDown(e, el)}
-              onDoubleClick={() => handleDoubleClick(el)}
-              onClick={e => e.stopPropagation()}>
-              <ElementRender el={el} task={task} profiles={profiles} scale={scale} isEditing={isEditingThis} onTextBlur={(val) => handleTextBlur(el, val)} />
-              {isSelected && !isEditingThis && <>
-                <div onMouseDown={e => handleResizeStart(e, el, 'tl')} style={{ ...resizeHandle, top: -5, left: -5, cursor: 'nwse-resize' }} />
-                <div onMouseDown={e => handleResizeStart(e, el, 'tr')} style={{ ...resizeHandle, top: -5, right: -5, cursor: 'nesw-resize' }} />
-                <div onMouseDown={e => handleResizeStart(e, el, 'bl')} style={{ ...resizeHandle, bottom: -5, left: -5, cursor: 'nesw-resize' }} />
-                <div onMouseDown={e => handleResizeStart(e, el, 'br')} style={{ ...resizeHandle, bottom: -5, right: -5, cursor: 'nwse-resize' }} />
-              </>}
-            </div>
-          )
-        })}
-        {/* Snap guide lines */}
-        {snapLines.map((g, i) => (
-          g.axis === 'x'
-            ? <div key={`sg${i}`} style={{ position: 'absolute', left: g.pos * scale, top: 0, width: 1, height: CH * scale, background: '#F28C28', opacity: 0.6, pointerEvents: 'none', zIndex: 999 }} />
-            : <div key={`sg${i}`} style={{ position: 'absolute', top: g.pos * scale, left: 0, height: 1, width: CW * scale, background: '#F28C28', opacity: 0.6, pointerEvents: 'none', zIndex: 999 }} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ═══════════════════════════════
-// ELEMENT RENDER
-// ═══════════════════════════════
-function ElementRender({ el, task, profiles, scale, isEditing, onTextBlur }) {
-  const fs = (el.fontSize || 14) * scale
-  const dept = task ? DEPTS.find(d => d.id === task.department) : null
-  const firstAssigneeId = task?.assignees?.[0]?.user?.id || null
-  const student = firstAssigneeId ? profiles.find(p => p.id === firstAssigneeId) : null
-
-  if (el.type === 'title' && task) {
-    const text = task.review_title || task.title
-    const ta = el.textAlign || 'left'
-    if (isEditing) return <input defaultValue={text} autoFocus onBlur={e => onTextBlur(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }} style={{ width: '100%', height: '100%', fontSize: fs, fontWeight: 700, color: '#1a1a1a', border: 'none', outline: 'none', background: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: 4, textAlign: ta }} />
-    return <div style={{ fontSize: fs, fontWeight: 700, color: '#1a1a1a', overflow: 'hidden', padding: '4px 8px', lineHeight: 1.3, textAlign: ta }}>{text}</div>
-  }
-  if (el.type === 'description' && task) {
-    const text = task.review_description || task.description || ''
-    const ta = el.textAlign || 'left'
-    if (isEditing) return <textarea defaultValue={text} autoFocus onBlur={e => onTextBlur(e.target.value)} style={{ width: '100%', height: '100%', fontSize: fs, color: '#475569', border: 'none', outline: 'none', background: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: 4, resize: 'none', fontFamily: 'inherit', lineHeight: 1.5, textAlign: ta }} />
-    return <div style={{ fontSize: fs, color: '#475569', overflow: 'hidden', padding: '4px 8px', lineHeight: 1.5, textAlign: ta }}>{text || 'Double-click to edit'}</div>
-  }
-  if (el.type === 'badge' && dept) {
-    return <div style={{ display: 'flex', alignItems: 'center', height: '100%', padding: '0 8px' }}><span style={{ fontSize: Math.max(10, 11 * scale), fontWeight: 700, color: '#fff', background: dept.color, padding: '3px 12px', borderRadius: 6 }}>{dept.label.toUpperCase()}</span></div>
-  }
-  if (el.type === 'student' && student) {
-    return <div style={{ display: 'flex', alignItems: 'center', gap: 6 * scale, height: '100%', justifyContent: 'flex-end', padding: '0 8px' }}><Av name={student.full_name} size={Math.max(16, 22 * scale)} url={student.avatar_url} /><span style={{ fontSize: Math.max(10, 12 * scale), color: '#64748B', fontWeight: 500 }}>{student.full_name}</span></div>
-  }
-  if (el.type === 'image') {
-    if (isVideoUrl(el.src)) return <video src={el.src} controls style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 6, background: '#F1F5F9' }} onClick={e => e.stopPropagation()} />
-    return <img src={el.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 6, background: '#F1F5F9' }} draggable={false} />
-  }
-  if (el.type === 'audio') {
-    return <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', background: '#F1F5F9', borderRadius: 8, padding: '0 12px' }} onClick={e => e.stopPropagation()}><span style={{ fontSize: 16 }}>♫</span><audio controls src={el.src} style={{ flex: 1, height: 28 }} preload="metadata" /></div>
-  }
-  if (el.type === 'custom_text') {
-    const ta = el.textAlign || 'left'
-    if (isEditing) return <input defaultValue={el.text || 'Text'} autoFocus onBlur={e => onTextBlur(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }} style={{ width: '100%', height: '100%', fontSize: fs, fontWeight: 600, color: el.color || '#1a1a1a', border: 'none', outline: 'none', background: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: 4, textAlign: ta }} />
-    return <div style={{ fontSize: fs, fontWeight: 600, color: el.color || '#1a1a1a', overflow: 'hidden', padding: '4px 8px', lineHeight: 1.4, textAlign: ta }}>{el.text || 'Text'}</div>
-  }
-  // Arrow type is not rendered here — it's rendered as SVG overlay in SlideCanvas/Presentation
-  if (el.type === 'arrow') return null
-  if (el.type === 'shape') {
-    return <div style={{ width: '100%', height: '100%', borderRadius: 6, background: el.color || '#E2E8F0', border: `2px solid ${el.borderColor || '#94A3B8'}` }} />
-  }
-  return null
-}
-
-// ═══════════════════════════════
-// MINI PREVIEW
-// ═══════════════════════════════
-function MiniPreview({ layout, task, dept, profiles }) {
-  const ref = useRef(null)
-  const [s, setS] = useState(0.15)
-  useEffect(() => {
-    if (!ref.current) return
-    const parent = ref.current.parentElement
-    if (parent) setS(parent.clientWidth / CW)
-  }, [layout])
-  if (!layout?.elements) return null
-  return (
-    <div ref={ref} style={{ width: CW, height: CH, transform: `scale(${s})`, transformOrigin: '0 0', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}>
-      {/* Shapes first (z-index 0) */}
-      {layout.elements.filter(e => e.type === 'shape').map(el => (
-        <div key={el.id} style={{ position: 'absolute', left: el.x, top: el.y, width: el.w, height: el.h }}>
-          <ElementRender el={el} task={task} profiles={profiles} scale={1} />
-        </div>
-      ))}
-      {/* Arrows */}
-      {layout.elements.filter(e => e.type === 'arrow').map(el => (
-        <svg key={el.id} style={{ position: 'absolute', inset: 0, width: CW, height: CH, pointerEvents: 'none' }}>
-          <defs><marker id={`mini_${el.id}`} markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={el.color || '#1a1a1a'} /></marker></defs>
-          <line x1={el.x1||0} y1={el.y1||0} x2={el.x2||0} y2={el.y2||0} stroke={el.color||'#1a1a1a'} strokeWidth={el.strokeWidth||3} markerEnd={`url(#mini_${el.id})`} />
-        </svg>
-      ))}
-      {/* Other elements */}
-      {layout.elements.filter(e => e.type !== 'shape' && e.type !== 'arrow').map(el => (
-        <div key={el.id} style={{ position: 'absolute', left: el.x, top: el.y, width: el.w, height: el.h, overflow: 'hidden' }}>
-          <ElementRender el={el} task={task} profiles={profiles} scale={1} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ═══════════════════════════════
-// PROPERTIES PANEL
-// ═══════════════════════════════
-function PropertiesPanel({ el, onUpdate, layout, onBgChange }) {
-  if (!el) return null
-  const names = { title: 'Title', description: 'Description', badge: 'Dept', student: 'Student', image: 'Image', audio: 'Audio', custom_text: 'Text', arrow: 'Arrow', shape: 'Shape' }
-  return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 10, textTransform: 'uppercase' }}>{names[el.type] || el.type}</div>
-      <label style={propLabel}>X</label><input type="number" value={el.x} onChange={e => onUpdate({ x: +e.target.value })} style={propInput} />
-      <label style={propLabel}>Y</label><input type="number" value={el.y} onChange={e => onUpdate({ y: +e.target.value })} style={propInput} />
-      <label style={propLabel}>W</label><input type="number" value={el.w} onChange={e => onUpdate({ w: Math.max(20, +e.target.value) })} style={propInput} />
-      <label style={propLabel}>H</label><input type="number" value={el.h} onChange={e => onUpdate({ h: Math.max(20, +e.target.value) })} style={propInput} />
-      {(el.type === 'title' || el.type === 'description' || el.type === 'custom_text') && (
-        <>
-          <label style={propLabel}>Font</label>
-          <input type="range" min={8} max={48} value={el.fontSize || 14} onChange={e => onUpdate({ fontSize: +e.target.value })} style={{ width: '100%', accentColor: ACCENT }} />
-          <div style={{ fontSize: 10, color: '#94A3B8', textAlign: 'right' }}>{el.fontSize || 14}px</div>
-          <label style={propLabel}>Align</label>
-          <div style={{ display: 'flex', gap: 2 }}>
-            {['left', 'center', 'right'].map(a => (
-              <button key={a} onClick={() => onUpdate({ textAlign: a })} style={{
-                flex: 1, padding: '4px 0', borderRadius: 4, fontSize: 11, cursor: 'pointer',
-                border: (el.textAlign || 'left') === a ? `2px solid ${ACCENT}` : '1px solid #E2E8F0',
-                background: (el.textAlign || 'left') === a ? ACCENT + '15' : '#fff',
-                color: (el.textAlign || 'left') === a ? ACCENT : '#64748B', fontWeight: 600,
-              }}>{a === 'left' ? '⫷' : a === 'center' ? '⫿' : '⫸'}</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+            {reviewTasks.map((task, idx) => (
+              <TaskReviewCard
+                key={task.id}
+                index={idx + 1}
+                total={reviewTasks.length}
+                task={task}
+                wips={wipsByTask[task.id] || []}
+                onUpdateTask={onUpdateTask}
+                onRejectTask={onRejectTask}
+                addToast={addToast}
+                requestConfirm={requestConfirm}
+              />
             ))}
           </div>
-        </>
+        )}
+      </div>
+
+      {/* Mini Gantt section */}
+      {(ganttItems.length > 0 || (currentProject?.start_date && currentProject?.end_date)) && (
+        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 32px 60px' }}>
+          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Andamento Progetto</h2>
+            <span style={{ fontSize: 13, color: '#64748B' }}>Linea arancione = oggi</span>
+          </div>
+          <MiniGantt items={ganttItems} lanes={ganttLanes} project={currentProject} />
+        </div>
       )}
-      {(el.type === 'custom_text' || el.type === 'arrow' || el.type === 'shape') && (
-        <><label style={propLabel}>Color</label><input type="color" value={el.color || '#1a1a1a'} onChange={e => onUpdate({ color: e.target.value })} style={colorInput} /></>
-      )}
-      {el.type === 'shape' && <><label style={propLabel}>Border</label><input type="color" value={el.borderColor || '#94A3B8'} onChange={e => onUpdate({ borderColor: e.target.value })} style={colorInput} /></>}
-      {el.type === 'arrow' && <><label style={propLabel}>Thickness</label><input type="range" min={1} max={8} value={el.strokeWidth || 3} onChange={e => onUpdate({ strokeWidth: +e.target.value })} style={{ width: '100%', accentColor: ACCENT }} /></>}
-      <div style={{ marginTop: 12 }}><label style={propLabel}>Background</label><input type="color" value={layout.bg || '#FFF'} onChange={e => onBgChange(e.target.value)} style={colorInput} /></div>
     </div>
   )
 }
 
-const propLabel = { fontSize: 9, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', display: 'block', marginTop: 8, marginBottom: 2 }
-const propInput = { width: '100%', padding: '4px 6px', borderRadius: 5, border: '1px solid #E2E8F0', fontSize: 11, outline: 'none' }
-const colorInput = { width: '100%', height: 26, border: '1px solid #E2E8F0', borderRadius: 5, cursor: 'pointer' }
-const presBtn = { background: 'none', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', padding: '4px 8px' }
-const tbBtn = { background: '#fff', border: '1px solid #E2E8F0', borderRadius: 6, padding: '5px 10px', fontSize: 12, cursor: 'pointer', color: '#475569', fontWeight: 600 }
-const resizeHandle = { position: 'absolute', width: 10, height: 10, background: ACCENT, borderRadius: 2, zIndex: 200 }
+// ────────────────────────────────────────────────────────────
+// HERO
+// ────────────────────────────────────────────────────────────
+function Hero({ project, progress, reviewCount }) {
+  const today = new Date()
+  return (
+    <div style={{
+      position: 'relative',
+      background: `linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)`,
+      color: '#fff', padding: '60px 32px 80px',
+      marginBottom: 40,
+      overflow: 'hidden',
+    }}>
+      {/* Decorative orange glow */}
+      <div style={{
+        position: 'absolute', top: -200, right: -200, width: 500, height: 500,
+        background: `radial-gradient(circle, ${ACCENT}40 0%, transparent 70%)`,
+        pointerEvents: 'none',
+      }} />
+      <div style={{ maxWidth: 1200, margin: '0 auto', position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
+          <span style={{
+            display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+            background: '#22C55E', boxShadow: '0 0 0 0 #22C55E80',
+            animation: 'pulse 2s ease-in-out infinite',
+          }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+            Live · {formatLongDate(today)}
+          </span>
+        </div>
+        <h1 style={{
+          fontSize: 'clamp(56px, 9vw, 96px)', fontWeight: 900, margin: '0 0 16px',
+          lineHeight: 0.95, letterSpacing: '-0.02em',
+          background: `linear-gradient(135deg, #fff 0%, ${ACCENT} 100%)`,
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+        }}>REVIEW</h1>
+
+        {project && (
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{project.name}</div>
+            {project.description && (
+              <div style={{ fontSize: 14, color: '#94A3B8', maxWidth: 720, lineHeight: 1.5 }}>{project.description}</div>
+            )}
+          </div>
+        )}
+
+        {/* Stats grid */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16,
+          marginTop: 24,
+        }}>
+          <Stat label="Task in Review" value={reviewCount} accent={ACCENT} />
+          <Stat label="Progresso" value={`${progress.pct}%`} accent="#22C55E" />
+          <Stat label="Completati" value={`${progress.done} / ${progress.total}`} accent="#3B82F6" />
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ marginTop: 32 }}>
+          <div style={{ height: 8, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', width: `${progress.pct}%`,
+              background: `linear-gradient(90deg, ${ACCENT} 0%, #22C55E 100%)`,
+              transition: 'width 0.6s ease',
+            }} />
+          </div>
+          <div style={{ display: 'flex', gap: 18, marginTop: 14, flexWrap: 'wrap' }}>
+            {progress.statusCounts.map(st => (
+              <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: st.color, opacity: 0.9 }} />
+                <span style={{ fontSize: 12, color: '#94A3B8' }}>{st.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{st.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <style>{`@keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(34,197,94,0); }
+        100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+      }`}</style>
+    </div>
+  )
+}
+
+function Stat({ label, value, accent }) {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 16, padding: '18px 22px',
+      borderLeft: `3px solid ${accent}`,
+    }}>
+      <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 32, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{value}</div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// TASK REVIEW CARD
+// ────────────────────────────────────────────────────────────
+function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, addToast, requestConfirm }) {
+  const dept = DEPTS.find(d => d.id === task.department)
+  const assignees = task.assignees || []
+  const [actionLoading, setActionLoading] = useState(null)
+  const [showRejectBox, setShowRejectBox] = useState(false)
+  const [rejectComment, setRejectComment] = useState('')
+
+  // Group WIPs by user_id, take latest with content per user
+  const wipsByUser = useMemo(() => {
+    const map = new Map()
+    for (const w of wips) {
+      const hasContent = (w.images && w.images.length > 0) || w.note
+      if (!hasContent) continue
+      if (!map.has(w.user_id)) map.set(w.user_id, w)
+    }
+    return Array.from(map.values())
+  }, [wips])
+
+  const handleApprove = async () => {
+    setActionLoading('approve')
+    try { await onUpdateTask(task.id, { status: 'approved' }) } catch (e) { console.error(e) }
+    setActionLoading(null)
+    addToast?.('Task approvato', 'success')
+  }
+
+  const handleRejectClick = () => {
+    if (!showRejectBox) { setShowRejectBox(true); return }
+    const comment = rejectComment.trim()
+    setActionLoading('reject')
+    setShowRejectBox(false)
+    onRejectTask(task.id, comment)
+      .catch(e => console.error(e))
+      .finally(() => {
+        setActionLoading(null)
+        setRejectComment('')
+        addToast?.('Modifiche richieste', 'success')
+      })
+  }
+
+  return (
+    <div style={{
+      background: '#fff', borderRadius: 24, overflow: 'hidden',
+      border: '1px solid #E8ECF1', boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
+    }}>
+      {/* Top stripe */}
+      <div style={{ height: 6, background: dept?.color || '#94A3B8' }} />
+
+      <div style={{ padding: '28px 32px' }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.06em' }}>
+                {String(index).padStart(2, '0')} / {String(total).padStart(2, '0')}
+              </span>
+              {dept && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999,
+                  background: `${dept.color}18`, color: dept.color, border: `1px solid ${dept.color}40`,
+                  textTransform: 'uppercase', letterSpacing: '0.04em',
+                }}>{dept.label}</span>
+              )}
+              {task.shot && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F1F5F9', color: '#64748B', border: '1px solid #E2E8F0' }}>{task.shot.code}</span>
+              )}
+              {task.asset && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'rgba(167,139,250,0.12)', color: '#7C3AED', border: '1px solid rgba(167,139,250,0.4)' }}>{task.asset.name}</span>
+              )}
+            </div>
+            <h2 style={{ fontSize: 28, fontWeight: 800, color: '#1a1a1a', margin: '0 0 8px', lineHeight: 1.15 }}>
+              {task.review_title || task.title}
+            </h2>
+            {(task.review_description || task.description) && (
+              <p style={{ fontSize: 15, color: '#64748B', lineHeight: 1.55, margin: 0, maxWidth: 820 }}>
+                {task.review_description || task.description}
+              </p>
+            )}
+          </div>
+          {assignees.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <div style={{ display: 'flex' }}>
+                {assignees.slice(0, 5).map((a, i) => (
+                  <div key={a.user.id} style={{
+                    marginLeft: i === 0 ? 0 : -10, border: '2px solid #fff', borderRadius: '50%',
+                    display: 'flex', boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                  }}>
+                    <Av name={a.user.full_name} size={32} url={a.user.avatar_url} />
+                  </div>
+                ))}
+              </div>
+              {assignees.length > 5 && (
+                <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>+{assignees.length - 5}</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* WIPs by student */}
+        {wipsByUser.length === 0 ? (
+          <div style={{
+            padding: 28, borderRadius: 16, background: '#F8FAFC', border: '1px dashed #CBD5E1',
+            textAlign: 'center', fontSize: 13, color: '#94A3B8',
+          }}>
+            Nessun WIP disponibile
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {wipsByUser.map(w => <WipBlock key={w.id} wip={w} />)}
+          </div>
+        )}
+
+        {/* Action bar */}
+        <div style={{
+          marginTop: 26, paddingTop: 22, borderTop: '1px solid #F1F5F9',
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        }}>
+          <button
+            onClick={handleApprove}
+            disabled={actionLoading !== null}
+            style={{
+              padding: '12px 28px', fontSize: 14, fontWeight: 700, borderRadius: 12,
+              background: '#22C55E', color: '#fff', border: 'none',
+              cursor: actionLoading ? 'not-allowed' : 'pointer',
+              opacity: actionLoading === 'approve' ? 0.5 : 1,
+              boxShadow: '0 4px 12px rgba(34,197,94,0.3)',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={e => { if (!actionLoading) e.currentTarget.style.transform = 'translateY(-1px)' }}
+            onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+          >{actionLoading === 'approve' ? '...' : '✓ Approva'}</button>
+
+          <button
+            onClick={handleRejectClick}
+            disabled={actionLoading !== null}
+            style={{
+              padding: '12px 24px', fontSize: 14, fontWeight: 700, borderRadius: 12,
+              background: showRejectBox ? '#F59E0B' : '#fff',
+              color: showRejectBox ? '#fff' : '#F59E0B',
+              border: `1.5px solid ${showRejectBox ? '#F59E0B' : '#FCD34D'}`,
+              cursor: actionLoading ? 'not-allowed' : 'pointer',
+              opacity: actionLoading === 'reject' ? 0.5 : 1,
+              transition: 'all 0.15s ease',
+            }}
+          >{actionLoading === 'reject' ? '...' : (showRejectBox ? 'Invia richiesta modifiche' : '↩ Richiedi modifiche')}</button>
+
+          {showRejectBox && (
+            <button
+              onClick={() => { setShowRejectBox(false); setRejectComment('') }}
+              style={{
+                padding: '12px 18px', fontSize: 13, fontWeight: 600, borderRadius: 12,
+                background: 'transparent', color: '#94A3B8', border: 'none', cursor: 'pointer',
+              }}
+            >Annulla</button>
+          )}
+        </div>
+
+        {showRejectBox && (
+          <textarea
+            autoFocus
+            value={rejectComment}
+            onChange={e => setRejectComment(e.target.value)}
+            placeholder="Commento per gli studenti (opzionale)..."
+            rows={3}
+            style={{
+              width: '100%', marginTop: 14, padding: '12px 14px', fontSize: 14,
+              border: '1.5px solid #FCD34D', borderRadius: 12, outline: 'none',
+              background: '#FFFBEB', color: '#1a1a1a', resize: 'vertical',
+              fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box',
+            }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WipBlock({ wip }) {
+  const author = wip.author || {}
+  const images = (wip.images || []).filter(u => !isAudioUrl(u) && !isVideoUrl(u))
+  const audios = (wip.images || []).filter(isAudioUrl)
+  const videos = (wip.images || []).filter(isVideoUrl)
+  const date = wip.created_at ? new Date(wip.created_at) : null
+
+  return (
+    <div style={{
+      background: '#FAFBFD', borderRadius: 16, border: '1px solid #E8ECF1',
+      overflow: 'hidden',
+    }}>
+      {/* Author bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
+        borderBottom: '1px solid #E8ECF1', background: '#fff',
+      }}>
+        <Av name={author.full_name || '?'} size={28} url={author.avatar_url} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a' }}>{author.full_name || 'Sconosciuto'}</div>
+          {date && (
+            <div style={{ fontSize: 11, color: '#94A3B8' }}>
+              {date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
+              {date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: 16 }}>
+        {wip.note && (
+          <div style={{
+            fontSize: 14, color: '#1a1a1a', lineHeight: 1.55, marginBottom: images.length || audios.length || videos.length ? 14 : 0,
+            padding: '10px 14px', background: '#fff', borderRadius: 10, border: '1px solid #E8ECF1',
+          }}>{wip.note}</div>
+        )}
+
+        {images.length > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: images.length === 1 ? '1fr' : `repeat(${Math.min(images.length, 3)}, 1fr)`,
+            gap: 10,
+          }}>
+            {images.map((src, i) => (
+              <a key={i} href={src} target="_blank" rel="noopener noreferrer" style={{ display: 'block', borderRadius: 12, overflow: 'hidden', background: '#000', border: '1px solid #E8ECF1' }}>
+                <img src={src} alt="" style={{
+                  width: '100%', maxHeight: images.length === 1 ? 480 : 320, objectFit: 'contain',
+                  display: 'block', background: '#000',
+                }} />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {videos.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: images.length ? 10 : 0 }}>
+            {videos.map((src, i) => (
+              <video key={i} src={src} controls style={{ width: '100%', maxHeight: 480, borderRadius: 12, background: '#000' }} />
+            ))}
+          </div>
+        )}
+
+        {audios.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: (images.length || videos.length) ? 10 : 0 }}>
+            {audios.map((src, i) => (
+              <audio key={i} src={src} controls style={{ width: '100%' }} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// MINI GANTT
+// ────────────────────────────────────────────────────────────
+function MiniGantt({ items, lanes: laneRecords, project }) {
+  const containerRef = useRef(null)
+  const [containerW, setContainerW] = useState(1000)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const el = containerRef.current
+    const update = () => setContainerW(el.clientWidth)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
+
+  const { rangeStart, rangeDays } = useMemo(() => {
+    if (project?.start_date && project?.end_date) {
+      const s = parseISO(project.start_date), e = parseISO(project.end_date)
+      return { rangeStart: s, rangeDays: Math.max(1, daysBetween(s, e) + 1) }
+    }
+    let min = addDays(today, -14), max = addDays(today, 56)
+    for (const it of items) {
+      const s = parseISO(it.start_date), e = parseISO(it.end_date)
+      if (s < min) min = s; if (e > max) max = e
+    }
+    const dow = (min.getDay() + 6) % 7
+    return { rangeStart: addDays(min, -dow - 7), rangeDays: daysBetween(addDays(min, -dow - 7), addDays(max, 14)) + 1 }
+  }, [project?.start_date, project?.end_date, items, today])
+
+  const dayW = Math.max(2, (containerW - 200) / rangeDays)
+  const todayX = daysBetween(rangeStart, today) * dayW
+
+  // Group by lane (declared first, then orphans)
+  const lanes = useMemo(() => {
+    const map = new Map()
+    for (const l of laneRecords) map.set(l.name, [])
+    for (const it of items) {
+      const key = it.lane || 'Senza lane'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(it)
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.start_date.localeCompare(b.start_date))
+    return Array.from(map.entries()).filter(([, arr]) => arr.length > 0)
+  }, [laneRecords, items])
+
+  // Months strip
+  const months = useMemo(() => {
+    const arr = []
+    let cur = null
+    for (let i = 0; i < rangeDays; i++) {
+      const d = addDays(rangeStart, i)
+      const key = `${d.getFullYear()}-${d.getMonth()}`
+      if (!cur || cur.key !== key) {
+        cur = { key, label: d.toLocaleDateString('it-IT', { month: 'short', year: 'numeric' }), x: i * dayW, w: dayW }
+        arr.push(cur)
+      } else cur.w += dayW
+    }
+    return arr
+  }, [rangeStart, rangeDays, dayW])
+
+  const ROW_H = 36, LANE_W = 200, HEAD = 32
+
+  return (
+    <div ref={containerRef} style={{
+      background: '#fff', borderRadius: 20, overflow: 'hidden',
+      border: '1px solid #E8ECF1', boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
+    }}>
+      <div style={{ position: 'relative', height: HEAD + Math.max(lanes.length, 1) * ROW_H }}>
+        {/* Months row */}
+        <div style={{ position: 'absolute', top: 0, left: LANE_W, right: 0, height: HEAD, borderBottom: '1px solid #E8ECF1', background: '#FAFBFD' }}>
+          {months.map(m => (
+            <div key={m.key} style={{
+              position: 'absolute', left: m.x, width: m.w, top: 0, bottom: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 8,
+              fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em',
+              borderRight: '1px solid #F1F5F9',
+            }}>{m.label}</div>
+          ))}
+        </div>
+
+        {/* Lane rows */}
+        {lanes.map(([name, arr], li) => (
+          <div key={name} style={{
+            position: 'absolute', top: HEAD + li * ROW_H, left: 0, right: 0, height: ROW_H,
+            background: li % 2 === 0 ? '#FAFBFD' : '#fff',
+            borderBottom: '1px solid #F1F5F9',
+          }}>
+            <div style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0, width: LANE_W,
+              display: 'flex', alignItems: 'center', padding: '0 16px',
+              fontSize: 12, fontWeight: 600, color: '#1a1a1a',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              borderRight: '1px solid #E2E8F0', background: li % 2 === 0 ? '#FAFBFD' : '#fff',
+            }}>{name}</div>
+            {arr.map(it => {
+              const s = parseISO(it.start_date), e = parseISO(it.end_date)
+              const x = LANE_W + daysBetween(rangeStart, s) * dayW + 2
+              const w = Math.max(dayW * 0.6, (daysBetween(s, e) + 1) * dayW - 4)
+              return (
+                <div key={it.id} title={`${it.title}  ·  ${it.start_date} → ${it.end_date}`}
+                  style={{
+                    position: 'absolute', left: x, top: 6, height: ROW_H - 12, width: w,
+                    background: `linear-gradient(135deg, ${it.color} 0%, ${shade(it.color, -10)} 100%)`,
+                    borderRadius: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                    color: '#fff', fontSize: 11, fontWeight: 600,
+                    display: 'flex', alignItems: 'center', padding: '0 8px',
+                    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                  }}>{it.title}</div>
+              )
+            })}
+          </div>
+        ))}
+
+        {/* Today line */}
+        {todayX >= 0 && todayX <= rangeDays * dayW && (
+          <>
+            <div style={{
+              position: 'absolute', top: 0, left: LANE_W + todayX, width: 2,
+              height: HEAD + lanes.length * ROW_H,
+              background: ACCENT, opacity: 0.85, zIndex: 2, pointerEvents: 'none',
+            }} />
+            <div style={{
+              position: 'absolute', top: 4, left: LANE_W + todayX - 24, width: 48,
+              padding: '2px 0', borderRadius: 4, background: ACCENT, color: '#fff',
+              fontSize: 10, fontWeight: 700, textAlign: 'center', zIndex: 3, pointerEvents: 'none',
+            }}>OGGI</div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
