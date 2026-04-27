@@ -468,8 +468,10 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
             {lanes.map(([laneName, laneItems], li) => laneItems.map(item => {
               const s = parseDate(item.start_date)
               const e = parseDate(item.end_date)
-              const x = LANE_W + daysBetween(rangeStart, s) * dayW
-              const w = Math.max(dayW * 0.6, (daysBetween(s, e) + 1) * dayW - 4)
+              // Inset bars by 4px so the very first day doesn't sit flush against the lane column
+              // and adjacent bars get visual breathing room.
+              const x = LANE_W + daysBetween(rangeStart, s) * dayW + 4
+              const w = Math.max(dayW * 0.6, (daysBetween(s, e) + 1) * dayW - 8)
               const top = HEADER_H + li * ROW_H + 6
               const isDragging = drag?.id === item.id
               return (
