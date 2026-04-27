@@ -111,9 +111,8 @@ export default function ReviewPage({
       {/* Mini Gantt section */}
       {(ganttItems.length > 0 || (currentProject?.start_date && currentProject?.end_date)) && (
         <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 32px 60px' }}>
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'baseline', gap: 12 }}>
+          <div style={{ marginBottom: 16 }}>
             <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Andamento Progetto</h2>
-            <span style={{ fontSize: 13, color: '#64748B' }}>Linea arancione = oggi</span>
           </div>
           <MiniGantt items={ganttItems} lanes={ganttLanes} project={currentProject} />
         </div>
