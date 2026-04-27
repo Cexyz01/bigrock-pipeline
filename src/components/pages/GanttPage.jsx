@@ -623,6 +623,7 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
           open={!!editing}
           item={editing === 'new' ? null : editing}
           existingLanes={existingLanes}
+          defaultStartDate={currentProject?.start_date || null}
           onClose={() => setEditing(null)}
           onSave={handleSave}
           onDelete={editing !== 'new' ? handleRemove : null}

@@ -26,10 +26,11 @@ const addDaysISO = (iso, n) => {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
 
-export default function GanttItemModal({ open, item, existingLanes = [], onClose, onSave, onDelete, canEdit }) {
+export default function GanttItemModal({ open, item, existingLanes = [], defaultStartDate = null, onClose, onSave, onDelete, canEdit }) {
+  const initialStart = defaultStartDate || today()
   const [form, setForm] = useState(() => ({
     title: '', description: '', lane: existingLanes[0] || '',
-    start_date: today(), end_date: addDaysISO(today(), 6), color: PALETTE[0],
+    start_date: initialStart, end_date: addDaysISO(initialStart, 6), color: PALETTE[0],
   }))
   const [saving, setSaving] = useState(false)
 
@@ -44,10 +45,11 @@ export default function GanttItemModal({ open, item, existingLanes = [], onClose
         color: item.color || PALETTE[0],
       })
     } else {
+      const start = defaultStartDate || today()
       setForm({
         title: '', description: '',
         lane: existingLanes[0] || '',
-        start_date: today(), end_date: addDaysISO(today(), 6), color: PALETTE[0],
+        start_date: start, end_date: addDaysISO(start, 6), color: PALETTE[0],
       })
     }
   }, [item, open])
