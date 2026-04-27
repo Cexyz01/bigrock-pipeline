@@ -10,7 +10,7 @@ export const DEPTS = [
   { id: 'animation',     label: 'Animation',       color: '#F87171' },
   { id: 'compositing',   label: 'Comp',            color: '#60A5FA' },
   { id: 'lighting',      label: 'Light & Render',  color: '#FBBF24' },
-  { id: 'test_ai',       label: 'Test AI',         color: '#8B5CF6' },
+  { id: 'test_ai',       label: 'AI',              color: '#8B5CF6' },
   { id: 'sound',         label: 'Sound',           color: '#14B8A6' },
 ]
 
