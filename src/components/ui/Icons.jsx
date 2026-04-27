@@ -12,6 +12,7 @@ export const IconTimeline = (p) => <I {...p} d={<><polygon points="5 3 19 12 5 2
 export const IconClipboard = (p) => <I {...p} d={<><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></>} />
 export const IconLayout = (p) => <I {...p} d={<><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></>} />
 export const IconBarChart = (p) => <I {...p} d={<><path d="M12 20V10M18 20V4M6 20v-4"/></>} />
+export const IconGantt = (p) => <I {...p} d={<><rect x="3" y="5" width="10" height="3" rx="1"/><rect x="7" y="11" width="12" height="3" rx="1"/><rect x="5" y="17" width="8" height="3" rx="1"/></>} />
 export const IconUsers = (p) => <I {...p} d={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>} />
 export const IconBell = (p) => <I {...p} d={<><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></>} />
 export const IconCalendar = (p) => <I {...p} d={<><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></>} />

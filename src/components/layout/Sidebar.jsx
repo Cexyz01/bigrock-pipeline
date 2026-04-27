@@ -3,7 +3,7 @@ import { isStaff, isAdmin, hasPermission, displayRole } from '../../lib/constant
 import useIsMobile from '../../hooks/useIsMobile'
 
 // ── Notification category colors ──
-import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX, IconFolder, IconSettings, IconTimeline } from '../ui/Icons'
+import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconGantt, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX, IconFolder, IconSettings, IconTimeline } from '../ui/Icons'
 const NOTIF_CAT = {
   wip_update:    { label: 'WIP',       color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={15} /> },
   task_assigned: { label: 'Assigned',  color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={15} /> },
@@ -53,7 +53,7 @@ export default function Sidebar({
     { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard' },
   ]
   if (hasPermission(user, 'access_timeline')) mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
-  mainNav.push({ id: 'gantt', icon: <IconBarChart size={20} />, label: 'Planning' })
+  mainNav.push({ id: 'gantt', icon: <IconGantt size={20} />, label: 'Planning' })
   if (hasPermission(user, 'access_activity')) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
   if (myPerms?.can_review) mainNav.push({ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount || 0 })
 
