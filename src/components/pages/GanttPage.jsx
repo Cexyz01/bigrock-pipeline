@@ -464,18 +464,23 @@ export default function GanttPage({
                       }
                       return overlays
                     })()}
-                    {canEdit && w >= 28 && (
-                      <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-start')}
-                        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' }} />
-                    )}
+                    {/* Resize handles — always rendered when editable, even on 1-day bars.
+                        Handle width shrinks on narrow bars so a sliver of "move" area remains in the middle. */}
+                    {canEdit && (() => {
+                      const handleW = w >= 28 ? 8 : Math.max(4, Math.floor((w - 6) / 2))
+                      return (
+                        <>
+                          <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-start')}
+                            style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: handleW, cursor: 'ew-resize', zIndex: 2 }} />
+                          <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-end')}
+                            style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: handleW, cursor: 'ew-resize', zIndex: 2 }} />
+                        </>
+                      )
+                    })()}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{fullLabel}</span>
                     <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0, position: 'relative' }}>
                       {workingDays(s, e)}g
                     </span>
-                    {canEdit && w >= 28 && (
-                      <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-end')}
-                        style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 1 }} />
-                    )}
                   </div>
                 </div>
               )
