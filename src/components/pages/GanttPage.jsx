@@ -363,8 +363,9 @@ export default function GanttPage({
                     {agg && (
                       <div title={`Span totale ${row.dept.label}: ${agg.days}g lavorativi`} style={{
                         position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
-                        background: `repeating-linear-gradient(135deg, ${row.dept.color}99 0 8px, ${row.dept.color}66 8px 16px)`,
-                        borderRadius: 6, border: `1.5px solid ${row.dept.color}`,
+                        background: `repeating-linear-gradient(135deg, ${row.dept.color} 0 8px, ${shade(row.dept.color, -18)} 8px 16px)`,
+                        borderRadius: 6, border: `1.5px solid ${shade(row.dept.color, -25)}`,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
                         pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                         padding: '0 10px', color: '#fff', fontSize: 10, fontWeight: 700,
