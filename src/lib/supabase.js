@@ -301,6 +301,33 @@ export async function deleteTask(id) {
   return supabase.from('tasks').delete().eq('id', id)
 }
 
+// ── Gantt items ──
+
+export async function getGanttItems(projectId) {
+  if (!projectId) return []
+  const { data } = await supabase.from('gantt_items')
+    .select('*, creator:profiles!gantt_items_created_by_fkey(id, full_name)')
+    .eq('project_id', projectId)
+    .order('lane').order('sort_order').order('start_date')
+  return data || []
+}
+
+export async function createGanttItem(item) {
+  const { data, error } = await supabase.from('gantt_items').insert(item).select().single()
+  return { data, error }
+}
+
+export async function updateGanttItem(id, updates) {
+  const { data, error } = await supabase.from('gantt_items')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  return { data, error }
+}
+
+export async function deleteGanttItem(id) {
+  return supabase.from('gantt_items').delete().eq('id', id)
+}
+
 // ── WIP Images ──
 
 export async function getStoryboardImages(projectId) {

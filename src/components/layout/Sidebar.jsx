@@ -53,6 +53,7 @@ export default function Sidebar({
     { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard' },
   ]
   if (hasPermission(user, 'access_timeline')) mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
+  mainNav.push({ id: 'gantt', icon: <IconBarChart size={20} />, label: 'Planning' })
   if (hasPermission(user, 'access_activity')) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
   if (myPerms?.can_review) mainNav.push({ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount || 0 })
 

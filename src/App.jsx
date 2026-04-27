@@ -10,6 +10,7 @@ import {
   getShots, createShot, updateShot, deleteShot,
   getAssets, createAsset, updateAsset, deleteAsset,
   getTasks, createTask, updateTask, deleteTask, setTaskAssignees,
+  getGanttItems, createGanttItem, updateGanttItem, deleteGanttItem,
   addComment,
   getCalendarEvents, createCalendarEvent, deleteCalendarEvent,
   getNotifications, markNotificationRead, markAllNotificationsRead, sendNotification,
@@ -47,6 +48,7 @@ import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
 import PackPage from './components/pages/PackPage'
 import ReviewPage from './components/pages/ReviewPage'
+import GanttPage from './components/pages/GanttPage'
 import GameInviteOverlay from './components/games/GameInviteOverlay'
 import GameSession from './components/games/GameSession'
 import TradeInviteOverlay from './components/pack/TradeInviteOverlay'
@@ -70,6 +72,7 @@ export default function App() {
   const [shots, setShots] = useState([])
   const [assets, setAssets] = useState([])
   const [tasks, setTasks] = useState([])
+  const [ganttItems, setGanttItems] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
   const [view, setViewRaw] = useState('overview')
@@ -190,7 +193,7 @@ export default function App() {
   }
 
   const loadData = async (userId, projectId) => {
-    const [p, sh, as, t, ev, n, dmUn, gameActive, wv] = await Promise.all([
+    const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi] = await Promise.all([
       getAllProfiles(),
       getShots(projectId),
       getAssets(projectId),
@@ -200,8 +203,9 @@ export default function App() {
       getDMUnreadCount(userId),
       getTcgGameActive(),
       getWipViews(userId),
+      getGanttItems(projectId),
     ])
-    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv)
+    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi)
     // Derive permissions from global role only
     const myProfile = p.find(pr => pr.id === userId)
     setMyPerms({
@@ -881,6 +885,24 @@ export default function App() {
     return result
   }
 
+  // ── Gantt handlers ──
+  const handleCreateGanttItem = async (payload) => {
+    const { error } = await createGanttItem(payload)
+    if (error) { addToast('Errore creazione: ' + error.message, 'danger'); return }
+    setGanttItems(await getGanttItems(currentProject?.id))
+  }
+  const handleUpdateGanttItem = async (id, updates) => {
+    // Optimistic update
+    setGanttItems(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g))
+    const { error } = await updateGanttItem(id, updates)
+    if (error) { addToast('Errore salvataggio: ' + error.message, 'danger'); setGanttItems(await getGanttItems(currentProject?.id)) }
+  }
+  const handleDeleteGanttItem = async (id) => {
+    const { error } = await deleteGanttItem(id)
+    if (error) { addToast('Errore eliminazione', 'danger'); return }
+    setGanttItems(await getGanttItems(currentProject?.id))
+  }
+
   const handleCreateEvent = async (ev) => { await createCalendarEvent({ ...ev, project_id: currentProject.id }); setEvents(await getCalendarEvents(currentProject?.id)) }
   const handleDeleteEvent = async (id) => { await deleteCalendarEvent(id); setEvents(await getCalendarEvents(currentProject?.id)) }
   const handleMarkRead = async (id) => { await markNotificationRead(id); setNotifications(await getNotifications(user.id)) }
@@ -1010,12 +1032,17 @@ export default function App() {
       {/* Main content */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Full-bleed views: storyboard, timeline, pack — no padding, no maxWidth */}
-        {(view === 'storyboard' || view === 'timeline' || view === 'pack') ? (
+        {(view === 'storyboard' || view === 'timeline' || view === 'pack' || view === 'gantt') ? (
           <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 49 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
             {view === 'timeline' && hasPermission(user, 'access_timeline') && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
             {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
+            )}
+            {view === 'gantt' && (
+              <GanttPage items={ganttItems} currentProject={currentProject} user={user}
+                onCreate={handleCreateGanttItem} onUpdate={handleUpdateGanttItem} onDelete={handleDeleteGanttItem}
+                addToast={addToast} />
             )}
           </div>
         ) : (
