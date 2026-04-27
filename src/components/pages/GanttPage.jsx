@@ -10,6 +10,17 @@ const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return ne
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const daysBetween = (a, b) => Math.round((b.getTime() - a.getTime()) / MS_DAY)
+// Inclusive working-day count (Mon-Fri only) between two dates.
+const workingDays = (a, b) => {
+  let n = 0
+  const cur = new Date(a)
+  while (cur <= b) {
+    const dow = cur.getDay()
+    if (dow !== 0 && dow !== 6) n++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return n
+}
 
 const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'G', 'V', 'S']
@@ -449,14 +460,33 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
                     <div onPointerDown={(ev) => handlePointerDown(ev, item, 'resize-start')}
                       style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', background: 'rgba(255,255,255,0.0)' }} />
                   )}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4 }}>{item.title}</span>
-                  <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0 }}>
-                    {daysBetween(s, e) + 1}g
+                  {/* Weekend dim overlays — visually subtract Sat/Sun from the bar */}
+                  {(() => {
+                    const overlays = []
+                    const total = daysBetween(s, e) + 1
+                    for (let i = 0; i < total; i++) {
+                      const d = addDays(s, i)
+                      const dow = d.getDay()
+                      if (dow === 0 || dow === 6) {
+                        overlays.push(
+                          <div key={i} style={{
+                            position: 'absolute', left: i * dayW, top: 0, bottom: 0, width: dayW,
+                            background: 'rgba(0,0,0,0.22)',
+                            pointerEvents: 'none',
+                          }} />
+                        )
+                      }
+                    }
+                    return overlays
+                  })()}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{item.title}</span>
+                  <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0, position: 'relative' }}>
+                    {workingDays(s, e)}g
                   </span>
                   {/* Resize-right handle */}
                   {canEdit && w >= 28 && (
                     <div onPointerDown={(ev) => handlePointerDown(ev, item, 'resize-end')}
-                      style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', background: 'rgba(255,255,255,0.0)' }} />
+                      style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', background: 'rgba(255,255,255,0.0)', zIndex: 1 }} />
                   )}
                 </div>
               )
