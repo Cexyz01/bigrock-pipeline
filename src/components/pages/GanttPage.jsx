@@ -1,8 +1,8 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { ACCENT, hasPermission } from '../../lib/constants'
+import { ACCENT, DEPTS, hasPermission } from '../../lib/constants'
 import Btn from '../ui/Btn'
 import Fade from '../ui/Fade'
-import GanttItemModal from '../gantt/GanttItemModal'
+import { IconChevronDown } from '../ui/Icons'
 
 // ── Date helpers (work with YYYY-MM-DD strings, no timezone surprises) ──
 const MS_DAY = 86400000
@@ -10,96 +10,102 @@ const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return ne
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const daysBetween = (a, b) => Math.round((b.getTime() - a.getTime()) / MS_DAY)
-// Inclusive working-day count (Mon-Fri only) between two dates.
 const workingDays = (a, b) => {
-  let n = 0
-  const cur = new Date(a)
-  while (cur <= b) {
-    const dow = cur.getDay()
-    if (dow !== 0 && dow !== 6) n++
-    cur.setDate(cur.getDate() + 1)
-  }
+  let n = 0; const cur = new Date(a)
+  while (cur <= b) { const dow = cur.getDay(); if (dow !== 0 && dow !== 6) n++; cur.setDate(cur.getDate() + 1) }
   return n
 }
 
 const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'G', 'V', 'S']
 
-// Both zoom modes auto-size so the same N weeks fit horizontally; only the header style differs
-// (Week 1/2/3 chunks vs per-day labels).
 const ZOOMS = {
   week: { label: 'Settimana' },
   day:  { label: 'Giorno' },
 }
 const WEEKS_VISIBLE_TARGET = 5
 
-const LANE_W = 200
-const ROW_H = 48
+const LANE_W = 220
+const ROW_H = 40
 const HEADER_H = 64
 
-export default function GanttPage({ items, lanes: laneRecords = [], currentProject, user, onCreate, onUpdate, onDelete, onCreateLane, onUpdateLane, onDeleteLane, onUpdateProjectDates, addToast, requestConfirm }) {
+export default function GanttPage({
+  tasks = [], shots = [], assets = [], currentProject, user,
+  onUpdateTask, onUpdateProjectDates, onGoToTask, addToast,
+}) {
   const canEdit = hasPermission(user, 'create_edit_tasks') || hasPermission(user, 'manage_project_settings')
+
   const [zoom, setZoom] = useState('day')
   const [containerW, setContainerW] = useState(1200)
-  const [editing, setEditing] = useState(null) // null | 'new' | itemObject
-  const [drag, setDrag] = useState(null) // { id, mode, startX, origStart, origEnd }
-  const [localItems, setLocalItems] = useState(items)
+  const [drag, setDrag] = useState(null)
+  const [localTasks, setLocalTasks] = useState(tasks)
+  const [collapsed, setCollapsed] = useState(new Set()) // dept ids that are collapsed
+  useEffect(() => { setLocalTasks(tasks) }, [tasks])
 
-  useEffect(() => { setLocalItems(items) }, [items])
-
-  // Both zooms fit ~5 weeks horizontally. Only the header presentation differs.
+  // Both zoom modes auto-fit ~5 weeks horizontally; only the header presentation differs.
   const dayW = Math.max(10, Math.floor((containerW - LANE_W) / (WEEKS_VISIBLE_TARGET * 7)))
 
-  // Compute visible range. If the project has explicit start_date/end_date, use them as the
-  // hard window — nothing outside that range is shown. Otherwise auto-fit around items + today.
+  // Visible date range: project window if set, otherwise auto-fit around scheduled tasks
   const { rangeStart, rangeDays } = useMemo(() => {
     if (currentProject?.start_date && currentProject?.end_date) {
-      const start = parseDate(currentProject.start_date)
-      const end = parseDate(currentProject.end_date)
-      return { rangeStart: start, rangeDays: Math.max(1, daysBetween(start, end) + 1) }
+      const s = parseDate(currentProject.start_date), e = parseDate(currentProject.end_date)
+      return { rangeStart: s, rangeDays: Math.max(1, daysBetween(s, e) + 1) }
     }
     const today = new Date(); today.setHours(0, 0, 0, 0)
-    let min = addDays(today, -14)
-    let max = addDays(today, 56)
-    for (const it of localItems) {
-      const s = parseDate(it.start_date)
-      const e = parseDate(it.end_date)
-      if (s < min) min = s
-      if (e > max) max = e
+    let min = addDays(today, -14), max = addDays(today, 56)
+    for (const t of localTasks) {
+      if (!t.start_date) continue
+      const s = parseDate(t.start_date)
+      const e = addDays(s, (t.duration_days || 1) - 1)
+      if (s < min) min = s; if (e > max) max = e
     }
     const dow = (min.getDay() + 6) % 7
     const start = addDays(min, -dow - 7)
-    const end = addDays(max, 14)
-    return { rangeStart: start, rangeDays: daysBetween(start, end) + 1 }
-  }, [localItems, currentProject?.start_date, currentProject?.end_date])
-
-  // Lane order: declared lanes first (sorted by sort_order), then any orphan lane names referenced by items.
-  const lanes = useMemo(() => {
-    const map = new Map()
-    for (const l of laneRecords) {
-      map.set(l.name, [])
-    }
-    for (const it of localItems) {
-      const key = it.lane || 'Senza lane'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key).push(it)
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => (a.sort_order - b.sort_order) || a.start_date.localeCompare(b.start_date))
-    }
-    return Array.from(map.entries())
-  }, [localItems, laneRecords])
-
-  const totalW = rangeDays * dayW
-  const totalH = lanes.length * ROW_H
+    return { rangeStart: start, rangeDays: daysBetween(start, addDays(max, 14)) + 1 }
+  }, [localTasks, currentProject?.start_date, currentProject?.end_date])
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
   const todayX = daysBetween(rangeStart, today) * dayW
+  const totalW = rangeDays * dayW
 
-  // ── Drag/resize handling ──
+  // Group scheduled tasks by department; lanes are fixed = DEPTS in canonical order.
+  const taskLookup = useMemo(() => {
+    const m = {}; for (const t of localTasks) m[t.id] = t; return m
+  }, [localTasks])
+  const tasksByDept = useMemo(() => {
+    const m = {}
+    for (const d of DEPTS) m[d.id] = []
+    for (const t of localTasks) {
+      if (!t.department || !t.start_date || !t.duration_days) continue
+      if (!m[t.department]) m[t.department] = []
+      m[t.department].push(t)
+    }
+    for (const arr of Object.values(m)) {
+      arr.sort((a, b) => a.start_date.localeCompare(b.start_date) || (a.title || '').localeCompare(b.title || ''))
+    }
+    return m
+  }, [localTasks])
+
+  // Flatten visible rows: each dept lane is 1 header row, plus N task rows when expanded.
+  const rows = useMemo(() => {
+    const out = []
+    for (const d of DEPTS) {
+      const arr = tasksByDept[d.id] || []
+      out.push({ kind: 'lane', dept: d, count: arr.length })
+      if (!collapsed.has(d.id)) {
+        for (const t of arr) out.push({ kind: 'task', dept: d, task: t })
+      }
+    }
+    return out
+  }, [tasksByDept, collapsed])
+
+  const totalH = rows.length * ROW_H
+
+  // ── Drag/resize ──
   const scrollRef = useRef(null)
+  const dragMovedRef = useRef(false)
+  const lastDeltaRef = useRef(0)
 
-  // Measure scroll container width so the Week zoom can fit 6 weeks horizontally.
   useEffect(() => {
     if (!scrollRef.current) return
     const el = scrollRef.current
@@ -109,88 +115,68 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  // Suppress the click that fires after a real drag (pointerup → click).
-  const dragMovedRef = useRef(false)
-  // Track the last applied delta so we skip redundant updates without missing the 0-crossing.
-  const lastDeltaRef = useRef(0)
-  const lastLaneIdxRef = useRef(0)
-  // Keep a ref of the current ordered lane names so the move handler isn't stale.
-  const laneNamesRef = useRef([])
-  laneNamesRef.current = lanes.map(([n]) => n)
 
-  const handlePointerDown = useCallback((e, item, mode) => {
+  // Auto-scroll to today on project change
+  useEffect(() => {
+    if (scrollRef.current) {
+      const target = Math.max(0, todayX - 200)
+      scrollRef.current.scrollLeft = target
+    }
+  }, [currentProject?.id])
+
+  const handlePointerDown = useCallback((e, task, mode) => {
     if (!canEdit) return
-    e.preventDefault()
-    e.stopPropagation()
+    e.preventDefault(); e.stopPropagation()
     e.target.setPointerCapture?.(e.pointerId)
     dragMovedRef.current = false
     lastDeltaRef.current = 0
-    lastLaneIdxRef.current = 0
-    const origLane = item.lane || 'Senza lane'
     setDrag({
-      id: item.id, mode,
-      startX: e.clientX, startY: e.clientY,
-      origStart: item.start_date,
-      origEnd: item.end_date,
-      origLane,
-      origLaneIndex: laneNamesRef.current.indexOf(origLane),
+      id: task.id, mode,
+      startX: e.clientX,
+      origStart: task.start_date,
+      origDuration: task.duration_days,
     })
   }, [canEdit])
 
   const handlePointerMove = useCallback((e) => {
     if (!drag) return
     const deltaDays = Math.round((e.clientX - drag.startX) / dayW)
-    const laneDelta = Math.round((e.clientY - drag.startY) / ROW_H)
-    if (Math.abs(e.clientX - drag.startX) > 3 || Math.abs(e.clientY - drag.startY) > 3) dragMovedRef.current = true
-    // Skip only if neither delta changed — including the 0-crossing case for both axes.
-    if (deltaDays === lastDeltaRef.current && laneDelta === lastLaneIdxRef.current) return
+    if (Math.abs(e.clientX - drag.startX) > 3) dragMovedRef.current = true
+    if (deltaDays === lastDeltaRef.current) return
     lastDeltaRef.current = deltaDays
-    lastLaneIdxRef.current = laneDelta
-    setLocalItems(prev => prev.map(it => {
-      if (it.id !== drag.id) return it
+    setLocalTasks(prev => prev.map(t => {
+      if (t.id !== drag.id) return t
       const origS = parseDate(drag.origStart)
-      const origE = parseDate(drag.origEnd)
-      let newS = origS, newE = origE
-      let newLane = it.lane
+      let newStart = drag.origStart
+      let newDuration = drag.origDuration
       if (drag.mode === 'move') {
-        newS = addDays(origS, deltaDays); newE = addDays(origE, deltaDays)
-        // Vertical drag: snap to lane row (only for 'move', resizes stay in their lane)
-        if (drag.origLaneIndex >= 0 && laneNamesRef.current.length > 0) {
-          const targetIdx = Math.max(0, Math.min(laneNamesRef.current.length - 1, drag.origLaneIndex + laneDelta))
-          const targetLane = laneNamesRef.current[targetIdx]
-          // Don't snap into the synthetic "Senza lane" bucket unless that's where we started.
-          if (targetLane !== 'Senza lane' || drag.origLane === 'Senza lane') {
-            newLane = targetLane
-          }
-        }
+        newStart = toISO(addDays(origS, deltaDays))
+      } else if (drag.mode === 'resize-start') {
+        const shifted = addDays(origS, deltaDays)
+        // start can't pass the original end
+        const end = addDays(origS, drag.origDuration - 1)
+        if (shifted > end) newStart = toISO(end)
+        else newStart = toISO(shifted)
+        newDuration = Math.max(1, drag.origDuration - deltaDays)
+      } else if (drag.mode === 'resize-end') {
+        newDuration = Math.max(1, drag.origDuration + deltaDays)
       }
-      if (drag.mode === 'resize-start') {
-        newS = addDays(origS, deltaDays)
-        if (newS > origE) newS = origE
-      }
-      if (drag.mode === 'resize-end') {
-        newE = addDays(origE, deltaDays)
-        if (newE < origS) newE = origS
-      }
-      return { ...it, start_date: toISO(newS), end_date: toISO(newE), lane: newLane }
+      return { ...t, start_date: newStart, duration_days: newDuration }
     }))
   }, [drag, dayW])
 
   const handlePointerUp = useCallback(async () => {
     if (!drag) return
-    const moved = localItems.find(it => it.id === drag.id)
+    const moved = localTasks.find(t => t.id === drag.id)
     setDrag(null)
     if (!moved) return
     const updates = {}
     if (moved.start_date !== drag.origStart) updates.start_date = moved.start_date
-    if (moved.end_date !== drag.origEnd) updates.end_date = moved.end_date
-    if ((moved.lane || '') !== (drag.origLane === 'Senza lane' ? '' : drag.origLane)) {
-      updates.lane = moved.lane === 'Senza lane' ? '' : moved.lane
-    }
+    if (moved.duration_days !== drag.origDuration) updates.duration_days = moved.duration_days
     if (Object.keys(updates).length > 0) {
-      await onUpdate(drag.id, updates)
+      await onUpdateTask(drag.id, updates)
     }
-  }, [drag, localItems, onUpdate])
+  }, [drag, localTasks, onUpdateTask])
 
   useEffect(() => {
     if (!drag) return
@@ -201,111 +187,43 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
   }, [drag, handlePointerMove, handlePointerUp])
 
-  // Auto-scroll to today on mount / project change
-  useEffect(() => {
-    if (scrollRef.current) {
-      const target = Math.max(0, todayX - 200)
-      scrollRef.current.scrollLeft = target
-    }
-  }, [currentProject?.id])
-
-  // ── Header: months + day numbers + week chunks ──
+  // ── Header months/days/weeks ──
   const headerCells = useMemo(() => {
     const days = []
     for (let i = 0; i < rangeDays; i++) {
       const d = addDays(rangeStart, i)
       days.push({ date: d, dow: d.getDay(), x: i * dayW })
     }
-    // group by month
     const months = []
-    let currentMonth = null
+    let curM = null
     for (const d of days) {
       const key = `${d.date.getFullYear()}-${d.date.getMonth()}`
-      if (!currentMonth || currentMonth.key !== key) {
-        currentMonth = { key, label: `${MONTH_LABELS[d.date.getMonth()]} ${d.date.getFullYear()}`, x: d.x, w: dayW }
-        months.push(currentMonth)
-      } else {
-        currentMonth.w += dayW
-      }
+      if (!curM || curM.key !== key) {
+        curM = { key, label: `${MONTH_LABELS[d.date.getMonth()]} ${d.date.getFullYear()}`, x: d.x, w: dayW }
+        months.push(curM)
+      } else curM.w += dayW
     }
-    // group into weeks (Mon → Sun). Number sequentially from the first week visible.
     const weeks = []
-    let currentWeek = null
-    let weekNum = 0
+    let curW = null, weekNum = 0
     for (const d of days) {
-      // A new week starts on Monday OR on the very first day (which may not be Monday).
       const isMonday = d.dow === 1
-      if (!currentWeek || isMonday) {
-        weekNum++
-        currentWeek = { num: weekNum, x: d.x, w: dayW, startDate: d.date }
-        weeks.push(currentWeek)
-      } else {
-        currentWeek.w += dayW
-      }
+      if (!curW || isMonday) { weekNum++; curW = { num: weekNum, x: d.x, w: dayW }; weeks.push(curW) }
+      else curW.w += dayW
     }
     return { days, months, weeks }
   }, [rangeStart, rangeDays, dayW])
 
-  const existingLanes = laneRecords.map(l => l.name)
-  // Inline editing state for lane names. `editingLaneId` is the lane.id being renamed,
-  // or the literal string 'new' for the bottom "+ Add" placeholder slot.
-  const [editingLaneId, setEditingLaneId] = useState(null)
-  const [laneDraft, setLaneDraft] = useState('')
+  const toggleLane = (deptId) => setCollapsed(prev => {
+    const next = new Set(prev)
+    if (next.has(deptId)) next.delete(deptId); else next.add(deptId)
+    return next
+  })
 
-  const startEditLane = (record) => {
-    setEditingLaneId(record.id)
-    setLaneDraft(record.name)
-  }
+  const expandAll = () => setCollapsed(new Set())
+  const collapseAll = () => setCollapsed(new Set(DEPTS.map(d => d.id)))
 
-  const startNewLane = () => {
-    setEditingLaneId('new')
-    setLaneDraft('')
-  }
-
-  const commitLaneEdit = async () => {
-    const name = laneDraft.trim()
-    if (editingLaneId === 'new') {
-      if (name) await onCreateLane(name)
-    } else if (editingLaneId) {
-      const record = laneRecords.find(l => l.id === editingLaneId)
-      if (record && name && name !== record.name) {
-        await onUpdateLane(record.id, { name })
-      }
-    }
-    setEditingLaneId(null)
-    setLaneDraft('')
-  }
-
-  const cancelLaneEdit = () => {
-    setEditingLaneId(null)
-    setLaneDraft('')
-  }
-
-  const handleDeleteLane = (laneName) => {
-    const record = laneRecords.find(l => l.name === laneName)
-    if (!record) return
-    const usedBy = localItems.filter(it => it.lane === laneName).length
-    const msg = usedBy > 0
-      ? `Eliminare la lane "${laneName}"? I ${usedBy} elementi verranno spostati in "Senza lane".`
-      : `Eliminare la lane "${laneName}"?`
-    requestConfirm(msg, () => onDeleteLane(record.id))
-  }
-
-  const handleSave = async (payload) => {
-    if (editing === 'new') {
-      await onCreate({ ...payload, project_id: currentProject.id, created_by: user.id, sort_order: localItems.length })
-    } else if (editing && editing.id) {
-      await onUpdate(editing.id, payload)
-    }
-    setEditing(null)
-  }
-
-  const handleRemove = async () => {
-    if (editing && editing.id) {
-      await onDelete(editing.id)
-      setEditing(null)
-    }
-  }
+  // Count of unscheduled tasks (have a department but no start_date / duration)
+  const unscheduledCount = localTasks.filter(t => t.department && (!t.start_date || !t.duration_days)).length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F0F2F5' }}>
@@ -314,10 +232,12 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
         <div style={{ padding: '20px 28px 12px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Planning</h1>
-            <p style={{ fontSize: 13, color: '#64748B', margin: 0 }}>Diagramma di Gantt — pianificazione settimanale</p>
+            <p style={{ fontSize: 13, color: '#64748B', margin: 0 }}>
+              Diagramma di Gantt dei task per dipartimento
+              {unscheduledCount > 0 && <span style={{ marginLeft: 10, color: '#F59E0B', fontWeight: 600 }}>· {unscheduledCount} task senza pianificazione</span>}
+            </p>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            {/* Project date window */}
             {canEdit && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 999 }}>
                 <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Progetto:</span>
@@ -337,12 +257,13 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
                   padding: '5px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
                   fontSize: 12, fontWeight: 600,
                   background: zoom === k ? ACCENT : 'transparent',
-                  color: zoom === k ? '#fff' : '#64748B',
-                  transition: 'all 0.15s',
+                  color: zoom === k ? '#fff' : '#64748B', transition: 'all 0.15s',
                 }}>{v.label}</button>
               ))}
             </div>
-            {canEdit && <Btn variant="primary" onClick={() => setEditing('new')}>+ Nuovo elemento</Btn>}
+            <Btn variant="info" onClick={collapsed.size === DEPTS.length ? expandAll : collapseAll}>
+              {collapsed.size === DEPTS.length ? 'Espandi tutto' : 'Comprimi tutto'}
+            </Btn>
           </div>
         </div>
       </Fade>
@@ -353,21 +274,19 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
         background: '#fff', border: '1px solid #E8ECF1', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         position: 'relative',
       }}>
-        <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH + (canEdit ? ROW_H : 0), 240) }}>
-          {/* Lane column corner — empty, no borders so the corner blends into the card */}
+        <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
+          {/* Lane column corner */}
           <div style={{
             position: 'sticky', top: 0, left: 0, zIndex: 4,
-            width: LANE_W, height: HEADER_H,
-            background: '#fff',
+            width: LANE_W, height: HEADER_H, background: '#fff',
           }} />
 
-          {/* Timeline header (sticky top) */}
+          {/* Timeline header */}
           <div style={{
             position: 'sticky', top: 0, zIndex: 3,
             marginLeft: LANE_W, height: HEADER_H, width: totalW,
             background: '#fff', borderBottom: '1px solid #E2E8F0',
           }}>
-            {/* Months row */}
             <div style={{ position: 'relative', height: HEADER_H / 2, borderBottom: '1px solid #F1F5F9' }}>
               {headerCells.months.map(m => (
                 <div key={m.key} style={{
@@ -378,7 +297,6 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
                 }}>{m.label}</div>
               ))}
             </div>
-            {/* Days row OR Weeks row depending on zoom */}
             <div style={{ position: 'relative', height: HEADER_H / 2 }}>
               {zoom === 'week' ? (
                 headerCells.weeks.map(w => (
@@ -413,113 +331,123 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
             </div>
           </div>
 
-          {/* Lane rows */}
+          {/* Body rows */}
           <div style={{ position: 'relative' }}>
-            {lanes.map(([laneName, laneItems], li) => {
-              const record = laneRecords.find(l => l.name === laneName)
-              const isEditing = editingLaneId && record && editingLaneId === record.id
-              const isRecord = !!record
-              const rowBg = li % 2 === 0 ? '#FAFBFD' : '#fff'
+            {rows.map((row, ri) => {
+              const top = HEADER_H + ri * ROW_H
+              if (row.kind === 'lane') {
+                const isCollapsed = collapsed.has(row.dept.id)
+                return (
+                  <div key={`lane-${row.dept.id}`} style={{
+                    position: 'absolute', top, left: 0, width: LANE_W + totalW, height: ROW_H,
+                    borderBottom: '1px solid #E8ECF1',
+                    background: `${row.dept.color}10`,
+                  }}>
+                    {/* Sticky lane header */}
+                    <div style={{
+                      position: 'sticky', left: 0, zIndex: 2,
+                      display: 'inline-flex', width: LANE_W, height: '100%',
+                      alignItems: 'center', padding: '0 12px', gap: 10,
+                      background: `${row.dept.color}10`,
+                      borderRight: `2px solid ${row.dept.color}`,
+                      cursor: 'pointer', boxSizing: 'border-box',
+                    }}
+                      onClick={() => toggleLane(row.dept.id)}
+                    >
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 22, height: 22, borderRadius: 6, background: 'rgba(255,255,255,0.6)',
+                        transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease',
+                        color: row.dept.color,
+                      }}><IconChevronDown size={14} /></span>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: row.dept.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.dept.label}</span>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, color: row.dept.color,
+                        padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.7)',
+                      }}>{row.count}</span>
+                    </div>
+                  </div>
+                )
+              }
+              // Task row
+              const t = row.task
+              const s = parseDate(t.start_date)
+              const e = addDays(s, (t.duration_days || 1) - 1)
+              const x = LANE_W + daysBetween(rangeStart, s) * dayW + 4
+              const w = Math.max(dayW * 0.6, (t.duration_days || 1) * dayW - 8)
+              const isDragging = drag?.id === t.id
+              const rowBg = ri % 2 === 0 ? '#FAFBFD' : '#fff'
               return (
-                <div key={laneName} style={{
-                  position: 'absolute', top: HEADER_H + li * ROW_H, left: 0,
-                  width: LANE_W + totalW, height: ROW_H,
-                  borderBottom: '1px solid #F1F5F9',
-                  background: rowBg,
+                <div key={`task-${t.id}`} style={{
+                  position: 'absolute', top, left: 0, width: LANE_W + totalW, height: ROW_H,
+                  borderBottom: '1px solid #F1F5F9', background: rowBg,
                 }}>
-                  <div className="gantt-lane-label" style={{
+                  {/* Sticky task name */}
+                  <div style={{
                     position: 'sticky', left: 0, zIndex: 2,
                     display: 'inline-flex', width: LANE_W, height: '100%',
-                    alignItems: 'center', padding: '0 12px 0 16px',
-                    background: rowBg,
-                    borderRight: '1px solid #E2E8F0',
-                    fontSize: 13, fontWeight: 600, color: '#1a1a1a',
-                    boxSizing: 'border-box', justifyContent: 'space-between', gap: 6,
+                    alignItems: 'center', padding: '0 12px 0 36px', gap: 8,
+                    background: rowBg, borderRight: `2px solid ${row.dept.color}`,
+                    boxSizing: 'border-box',
                   }}>
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        value={laneDraft}
-                        onChange={e => setLaneDraft(e.target.value)}
-                        onBlur={commitLaneEdit}
-                        onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = ''; cancelLaneEdit() } }}
-                        style={{
-                          flex: 1, minWidth: 0, padding: '6px 8px', fontSize: 13, fontWeight: 600,
-                          border: '1.5px solid ' + ACCENT, borderRadius: 6, outline: 'none',
-                          background: '#fff', color: '#1a1a1a', fontFamily: 'inherit',
-                        }}
-                      />
-                    ) : (
-                      <span
-                        onClick={canEdit && isRecord ? () => startEditLane(record) : undefined}
-                        title={canEdit && isRecord ? 'Click per rinominare' : undefined}
-                        style={{
-                          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          cursor: canEdit && isRecord ? 'text' : 'default',
-                          padding: '6px 0',
-                        }}
-                      >{laneName}</span>
+                    <span style={{
+                      fontSize: 12, color: '#1a1a1a', flex: 1,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{t.title}</span>
+                  </div>
+                  {/* Bar */}
+                  <div
+                    onPointerDown={canEdit ? (ev) => handlePointerDown(ev, t, 'move') : undefined}
+                    onClick={(ev) => {
+                      if (dragMovedRef.current) { ev.stopPropagation(); dragMovedRef.current = false; return }
+                    }}
+                    onDoubleClick={(ev) => { ev.stopPropagation(); onGoToTask?.(t.id) }}
+                    style={{
+                      position: 'absolute', left: x, top: 6, width: w, height: ROW_H - 12,
+                      background: `linear-gradient(135deg, ${row.dept.color} 0%, ${shade(row.dept.color, -10)} 100%)`,
+                      borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
+                      boxShadow: isDragging ? `0 8px 24px ${row.dept.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
+                      transition: isDragging ? 'none' : 'box-shadow 0.15s ease, transform 0.15s ease',
+                      transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
+                      userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                    }}
+                    title={`${t.title}\n${t.start_date} · ${t.duration_days} giorni`}
+                  >
+                    {/* Weekend dim overlays */}
+                    {(() => {
+                      const overlays = []
+                      const total = (t.duration_days || 1)
+                      for (let i = 0; i < total; i++) {
+                        const d = addDays(s, i)
+                        const dow = d.getDay()
+                        if (dow === 0 || dow === 6) {
+                          overlays.push(<div key={i} style={{
+                            position: 'absolute', left: i * dayW, top: 0, bottom: 0, width: dayW,
+                            background: 'rgba(0,0,0,0.22)', pointerEvents: 'none',
+                          }} />)
+                        }
+                      }
+                      return overlays
+                    })()}
+                    {canEdit && w >= 28 && (
+                      <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-start')}
+                        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' }} />
                     )}
-                    {canEdit && isRecord && !isEditing && (
-                      <button onClick={() => handleDeleteLane(laneName)} title="Elimina lane" style={{
-                        background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer',
-                        padding: 4, borderRadius: 6, fontSize: 14, lineHeight: 1, opacity: 0.6, flexShrink: 0,
-                      }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = '#EF4444' }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.color = '#94A3B8' }}
-                      >×</button>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{t.title}</span>
+                    <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0, position: 'relative' }}>
+                      {workingDays(s, e)}g
+                    </span>
+                    {canEdit && w >= 28 && (
+                      <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-end')}
+                        style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 1 }} />
                     )}
                   </div>
                 </div>
               )
             })}
-
-            {/* "+ Lane" pseudo-row at the bottom — Excel-style inline create */}
-            {canEdit && (
-              <div style={{
-                position: 'absolute', top: HEADER_H + lanes.length * ROW_H, left: 0,
-                width: LANE_W, height: ROW_H,
-                borderBottom: '1px solid #F1F5F9',
-                background: '#fff',
-              }}>
-                <div className="gantt-lane-label" style={{
-                  position: 'sticky', left: 0, zIndex: 2,
-                  display: 'inline-flex', width: LANE_W, height: '100%',
-                  alignItems: 'center', padding: '0 12px 0 16px',
-                  background: '#fff', borderRight: '1px solid #E2E8F0',
-                  boxSizing: 'border-box', gap: 6,
-                }}>
-                  {editingLaneId === 'new' ? (
-                    <input
-                      autoFocus
-                      value={laneDraft}
-                      onChange={e => setLaneDraft(e.target.value)}
-                      onBlur={commitLaneEdit}
-                      onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = ''; cancelLaneEdit() } }}
-                      placeholder="Nome lane…"
-                      style={{
-                        flex: 1, minWidth: 0, padding: '6px 8px', fontSize: 13, fontWeight: 600,
-                        border: '1.5px solid ' + ACCENT, borderRadius: 6, outline: 'none',
-                        background: '#fff', color: '#1a1a1a', fontFamily: 'inherit',
-                      }}
-                    />
-                  ) : (
-                    <button onClick={startNewLane} style={{
-                      flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-                      background: 'transparent', border: 'none', cursor: 'pointer',
-                      padding: '6px 0', fontSize: 13, fontWeight: 600, color: '#94A3B8',
-                      textAlign: 'left', fontFamily: 'inherit',
-                    }}
-                      onMouseEnter={e => { e.currentTarget.style.color = ACCENT }}
-                      onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
-                    >
-                      <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
-                      <span>Aggiungi lane</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Day grid lines + weekend shading (in timeline area) */}
             <div style={{ position: 'absolute', top: HEADER_H, left: LANE_W, width: totalW, height: totalH, pointerEvents: 'none' }}>
@@ -545,103 +473,18 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
                 pointerEvents: 'none', zIndex: 1,
               }} />
             )}
-
-            {/* Bars */}
-            {lanes.map(([laneName, laneItems], li) => laneItems.map(item => {
-              const s = parseDate(item.start_date)
-              const e = parseDate(item.end_date)
-              // Inset bars by 4px so the very first day doesn't sit flush against the lane column
-              // and adjacent bars get visual breathing room.
-              const x = LANE_W + daysBetween(rangeStart, s) * dayW + 4
-              const w = Math.max(dayW * 0.6, (daysBetween(s, e) + 1) * dayW - 8)
-              const top = HEADER_H + li * ROW_H + 6
-              const isDragging = drag?.id === item.id
-              return (
-                <div key={item.id}
-                  onPointerDown={canEdit ? (ev) => handlePointerDown(ev, item, 'move') : undefined}
-                  onClick={(ev) => {
-                    // Swallow the click that follows a real drag — pointerup fires before click,
-                    // but the user shouldn't see the modal pop open as a side effect of moving the bar.
-                    if (dragMovedRef.current) { ev.stopPropagation(); dragMovedRef.current = false; return }
-                  }}
-                  onDoubleClick={(ev) => { ev.stopPropagation(); setEditing(item) }}
-                  style={{
-                    position: 'absolute', left: x, top, width: w, height: ROW_H - 12,
-                    background: `linear-gradient(135deg, ${item.color} 0%, ${shade(item.color, -10)} 100%)`,
-                    borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
-                    boxShadow: isDragging ? `0 8px 24px ${item.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
-                    transition: isDragging ? 'none' : 'box-shadow 0.15s ease, transform 0.15s ease',
-                    transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
-                    userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                  }}
-                >
-                  {/* Resize-left handle */}
-                  {canEdit && w >= 28 && (
-                    <div onPointerDown={(ev) => handlePointerDown(ev, item, 'resize-start')}
-                      style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', background: 'rgba(255,255,255,0.0)' }} />
-                  )}
-                  {/* Weekend dim overlays — visually subtract Sat/Sun from the bar */}
-                  {(() => {
-                    const overlays = []
-                    const total = daysBetween(s, e) + 1
-                    for (let i = 0; i < total; i++) {
-                      const d = addDays(s, i)
-                      const dow = d.getDay()
-                      if (dow === 0 || dow === 6) {
-                        overlays.push(
-                          <div key={i} style={{
-                            position: 'absolute', left: i * dayW, top: 0, bottom: 0, width: dayW,
-                            background: 'rgba(0,0,0,0.22)',
-                            pointerEvents: 'none',
-                          }} />
-                        )
-                      }
-                    }
-                    return overlays
-                  })()}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{item.title}</span>
-                  <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0, position: 'relative' }}>
-                    {workingDays(s, e)}g
-                  </span>
-                  {/* Resize-right handle */}
-                  {canEdit && w >= 28 && (
-                    <div onPointerDown={(ev) => handlePointerDown(ev, item, 'resize-end')}
-                      style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', background: 'rgba(255,255,255,0.0)', zIndex: 1 }} />
-                  )}
-                </div>
-              )
-            }))}
           </div>
         </div>
       </div>
-
-      {/* Modal */}
-      {editing && (
-        <GanttItemModal
-          open={!!editing}
-          item={editing === 'new' ? null : editing}
-          existingLanes={existingLanes}
-          defaultStartDate={currentProject?.start_date || null}
-          onClose={() => setEditing(null)}
-          onSave={handleSave}
-          onDelete={editing !== 'new' ? handleRemove : null}
-          canEdit={canEdit}
-        />
-      )}
     </div>
   )
 }
 
-// Lighten/darken a hex color by percent (-100..100)
 function shade(hex, percent) {
   if (!hex || !hex.startsWith('#')) return hex
-  let h = hex.slice(1)
-  if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  let h = hex.slice(1); if (h.length === 3) h = h.split('').map(c => c + c).join('')
   const n = parseInt(h, 16)
   let r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff
   const f = (c) => Math.max(0, Math.min(255, Math.round(c + (percent / 100) * 255)))
-  r = f(r); g = f(g); b = f(b)
-  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')
+  return '#' + [f(r), f(g), f(b)].map(x => x.toString(16).padStart(2, '0')).join('')
 }

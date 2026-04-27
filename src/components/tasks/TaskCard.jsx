@@ -22,6 +22,12 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
   const assignees = task.assignees || []
   const isOwner = assignees.some(a => a.user.id === user.id)
   const canStart = task.status === 'todo' && (isOwner || staff) && onStart
+  // Late-start indicator: TO DO task whose planned start_date is today or earlier.
+  const overdueStart = task.status === 'todo' && task.start_date && (() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const [y, m, d] = task.start_date.split('-').map(Number)
+    return new Date(y, m - 1, d) <= today
+  })()
 
   const handleStartClick = useCallback((e) => {
     e.stopPropagation()
@@ -89,6 +95,17 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
         }} />
       )}
 
+      {/* Late-start indicator — orange pulsing dot when planned start date has arrived but task is still TO DO */}
+      {overdueStart && (
+        <span title="Doveva iniziare oggi o prima" style={{
+          position: 'absolute', top: 12, right: showWipBadge ? 30 : 12,
+          width: 12, height: 12, borderRadius: '50%',
+          background: '#F59E0B',
+          boxShadow: '0 0 0 0 rgba(245, 158, 11, 0.6)',
+          animation: 'lateStartPulse 1.5s ease-in-out infinite',
+        }} />
+      )}
+
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: dept?.color, flexShrink: 0 }} />
@@ -145,6 +162,11 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
           0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6); }
           70% { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0); }
           100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+        }
+        @keyframes lateStartPulse {
+          0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6); }
+          70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
       `}</style>
     </div>

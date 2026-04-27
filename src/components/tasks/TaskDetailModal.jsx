@@ -28,12 +28,16 @@ export default function TaskDetailModal({
   const [editTitle, setEditTitle] = useState(task.title || '')
   const [editDesc, setEditDesc] = useState(task.description || '')
   const [editDept, setEditDept] = useState(task.department || '')
+  const [editStartDate, setEditStartDate] = useState(task.start_date || '')
+  const [editDuration, setEditDuration] = useState(task.duration_days || 1)
   const [savingEdit, setSavingEdit] = useState(false)
   // Reset edit fields if task identity changes
   useEffect(() => {
     setEditTitle(task.title || '')
     setEditDesc(task.description || '')
     setEditDept(task.department || '')
+    setEditStartDate(task.start_date || '')
+    setEditDuration(task.duration_days || 1)
     setEditing(false)
   }, [task.id])
   const [wipUpdates, setWipUpdates] = useState([])
@@ -86,11 +90,14 @@ export default function TaskDetailModal({
       addToast?.('Il titolo non può essere vuoto', 'danger')
       return
     }
+    const duration = Math.max(1, parseInt(editDuration, 10) || 1)
     setSavingEdit(true)
     await onUpdate(task.id, {
       title: editTitle.trim(),
       description: editDesc.trim() || null,
       department: editDept || null,
+      start_date: editStartDate || null,
+      duration_days: duration,
     })
     addToast?.('Modifiche salvate', 'success')
     setSavingEdit(false)
@@ -101,6 +108,8 @@ export default function TaskDetailModal({
     setEditTitle(task.title || '')
     setEditDesc(task.description || '')
     setEditDept(task.department || '')
+    setEditStartDate(task.start_date || '')
+    setEditDuration(task.duration_days || 1)
     setEditing(false)
   }
 
@@ -278,6 +287,20 @@ export default function TaskDetailModal({
             <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
             <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" rows={4}
               style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Inizio</span>
+              <input type="date" value={editStartDate}
+                onChange={e => setEditStartDate(e.target.value)}
+                style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Durata (giorni)</span>
+              <input type="number" min={1} value={editDuration}
+                onChange={e => setEditDuration(e.target.value)}
+                style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+            </div>
           </div>
         </>
       ) : task.description && (

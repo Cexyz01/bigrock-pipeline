@@ -1079,11 +1079,11 @@ export default function App() {
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
             )}
             {view === 'gantt' && (
-              <GanttPage items={ganttItems} lanes={ganttLanes} currentProject={currentProject} user={user}
-                onCreate={handleCreateGanttItem} onUpdate={handleUpdateGanttItem} onDelete={handleDeleteGanttItem}
-                onCreateLane={handleCreateGanttLane} onUpdateLane={handleUpdateGanttLane} onDeleteLane={handleDeleteGanttLane}
+              <GanttPage tasks={tasks} shots={shots} assets={assets} currentProject={currentProject} user={user}
+                onUpdateTask={handleUpdateTask}
                 onUpdateProjectDates={handleUpdateProjectDates}
-                addToast={addToast} requestConfirm={requestConfirm} />
+                onGoToTask={(taskId) => { setDeepLink({ type: 'tasks', id: taskId }); setView('tasks') }}
+                addToast={addToast} />
             )}
             {view === 'review' && myPerms.can_review && (
               <ReviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user}
@@ -1097,7 +1097,7 @@ export default function App() {
           <div style={{ padding: contentPadding, ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             {view === 'overview' && <OverviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} currentProject={currentProject} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} />}

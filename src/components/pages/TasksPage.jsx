@@ -24,7 +24,7 @@ const statusRowHoverBg = {
 }
 
 export default function TasksPage({
-  tasks, shots, assets = [], profiles, user,
+  tasks, shots, assets = [], profiles, user, currentProject,
   onCreateTask, onUpdateTask, onReorderTasks, onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
   onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
   wipViews,
@@ -292,7 +292,8 @@ export default function TasksPage({
 
       {/* Create Task Modal */}
       <CreateTaskModal open={showCreate} onClose={() => { setShowCreate(false); setCreatePrefill(null) }}
-        shots={shots} assets={assets} students={students} user={user} onCreate={onCreateTask} prefill={createPrefill} />
+        shots={shots} assets={assets} students={students} user={user} onCreate={onCreateTask} prefill={createPrefill}
+        projectStartDate={currentProject?.start_date || null} />
 
       {/* Task Detail Modal */}
       {selectedTask && (

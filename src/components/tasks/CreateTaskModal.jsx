@@ -6,14 +6,15 @@ import Select from '../ui/Select'
 import Btn from '../ui/Btn'
 import AssigneePicker from './AssigneePicker'
 
-export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill }) {
+export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill, projectStartDate }) {
   // target: 'shot' or 'asset'
   const [target, setTarget] = useState('shot')
-  const [form, setForm] = useState({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false })
+  const [form, setForm] = useState({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false, start_date: '', duration_days: 5 })
 
-  // Apply prefill (asset_id / shot_id) when modal opens
+  // Apply prefill (asset_id / shot_id) when modal opens; seed start date from project.
   useEffect(() => {
     if (!open) return
+    setForm(f => ({ ...f, start_date: f.start_date || projectStartDate || '' }))
     if (prefill?.asset_id) {
       setTarget('asset')
       setForm(f => ({ ...f, asset_id: prefill.asset_id, shot_id: '' }))
@@ -21,7 +22,7 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
       setTarget('shot')
       setForm(f => ({ ...f, shot_id: prefill.shot_id, asset_id: '' }))
     }
-  }, [open, prefill?.asset_id, prefill?.shot_id])
+  }, [open, prefill?.asset_id, prefill?.shot_id, projectStartDate])
 
   const depts = target === 'asset' ? ASSET_DEPTS : SHOT_DEPTS
 
@@ -39,6 +40,7 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
 
   const handleCreate = async () => {
     if (!form.title || !form.department) return
+    const duration = Math.max(1, parseInt(form.duration_days, 10) || 1)
     await onCreate({
       title: form.title,
       description: form.description,
@@ -48,8 +50,10 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
       asset_id: target === 'asset' ? (form.asset_id || null) : null,
       created_by: user.id,
       status: form.startNow ? 'wip' : 'todo',
+      start_date: form.start_date || null,
+      duration_days: duration,
     })
-    setForm({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false })
+    setForm({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false, start_date: projectStartDate || '', duration_days: 5 })
     setTarget('shot')
     onClose()
   }
@@ -105,6 +109,22 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
             style={{ fontSize: 12 }}
             options={sortedAssets.map(a => ({ value: a.id, label: a.name }))} placeholder="Link to asset (optional)" />
         )}
+
+        {/* Schedule */}
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Inizio (opzionale)</div>
+            <input type="date" value={form.start_date}
+              onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+              style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Durata (giorni)</div>
+            <input type="number" min={1} value={form.duration_days}
+              onChange={e => setForm(f => ({ ...f, duration_days: e.target.value }))}
+              style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+          </div>
+        </div>
 
         {/* Start immediately checkbox */}
         <label
