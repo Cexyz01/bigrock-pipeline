@@ -28,11 +28,10 @@ const addDaysISO = (iso, n) => {
 
 export default function GanttItemModal({ open, item, existingLanes = [], onClose, onSave, onDelete, canEdit }) {
   const [form, setForm] = useState(() => ({
-    title: '', description: '', lane: existingLanes[0] || 'General',
+    title: '', description: '', lane: existingLanes[0] || '',
     start_date: today(), end_date: addDaysISO(today(), 6), color: PALETTE[0],
   }))
   const [saving, setSaving] = useState(false)
-  const [showLaneInput, setShowLaneInput] = useState(false)
 
   useEffect(() => {
     if (item) {
@@ -47,15 +46,15 @@ export default function GanttItemModal({ open, item, existingLanes = [], onClose
     } else {
       setForm({
         title: '', description: '',
-        lane: existingLanes[0] || 'General',
+        lane: existingLanes[0] || '',
         start_date: today(), end_date: addDaysISO(today(), 6), color: PALETTE[0],
       })
     }
-    setShowLaneInput(false)
   }, [item, open])
 
   const handleSubmit = async () => {
     if (!form.title.trim()) return
+    if (!form.lane) return
     if (form.end_date < form.start_date) {
       alert('La data fine deve essere dopo la data inizio')
       return
@@ -64,7 +63,7 @@ export default function GanttItemModal({ open, item, existingLanes = [], onClose
     await onSave({
       title: form.title.trim(),
       description: form.description.trim() || null,
-      lane: form.lane.trim() || 'General',
+      lane: form.lane,
       start_date: form.start_date,
       end_date: form.end_date,
       color: form.color,
@@ -87,15 +86,12 @@ export default function GanttItemModal({ open, item, existingLanes = [], onClose
           placeholder="Descrizione (opzionale)" rows={3}
           style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }} />
 
-        {/* Lane selector */}
+        {/* Lane selector — lanes are managed from the Planning toolbar */}
         <div>
           <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Lane (categoria)</div>
-          {showLaneInput ? (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input value={form.lane} onChange={e => setForm(f => ({ ...f, lane: e.target.value }))}
-                placeholder="Nome nuova lane" autoFocus
-                style={inputStyle} />
-              <Btn variant="info" onClick={() => setShowLaneInput(false)}>OK</Btn>
+          {existingLanes.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic', padding: '8px 12px', background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 8 }}>
+              Nessuna lane esistente. Crea prima una lane dal pulsante <strong>+ Lane</strong> nella toolbar.
             </div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -107,10 +103,6 @@ export default function GanttItemModal({ open, item, existingLanes = [], onClose
                   color: form.lane === l ? ACCENT : '#64748B', transition: 'all 0.15s ease',
                 }}>{l}</button>
               ))}
-              <button type="button" onClick={() => setShowLaneInput(true)} style={{
-                padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: '1.5px dashed #CBD5E1', background: '#fff', color: '#94A3B8',
-              }}>+ Nuova lane</button>
             </div>
           )}
         </div>
@@ -150,7 +142,7 @@ export default function GanttItemModal({ open, item, existingLanes = [], onClose
           {onDelete && canEdit && (
             <Btn variant="danger" onClick={onDelete} style={{ flexShrink: 0 }}>Elimina</Btn>
           )}
-          <Btn variant="primary" onClick={handleSubmit} loading={saving} disabled={!form.title.trim() || !canEdit}
+          <Btn variant="primary" onClick={handleSubmit} loading={saving} disabled={!form.title.trim() || !form.lane || !canEdit}
             style={{ flex: 1, justifyContent: 'center' }}>
             {item ? 'Salva' : 'Crea'}
           </Btn>

@@ -328,6 +328,29 @@ export async function deleteGanttItem(id) {
   return supabase.from('gantt_items').delete().eq('id', id)
 }
 
+export async function getGanttLanes(projectId) {
+  if (!projectId) return []
+  const { data } = await supabase.from('gantt_lanes')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('sort_order').order('created_at')
+  return data || []
+}
+
+export async function createGanttLane(lane) {
+  const { data, error } = await supabase.from('gantt_lanes').insert(lane).select().single()
+  return { data, error }
+}
+
+export async function updateGanttLane(id, updates) {
+  const { data, error } = await supabase.from('gantt_lanes').update(updates).eq('id', id).select().single()
+  return { data, error }
+}
+
+export async function deleteGanttLane(id) {
+  return supabase.from('gantt_lanes').delete().eq('id', id)
+}
+
 // ── WIP Images ──
 
 export async function getStoryboardImages(projectId) {

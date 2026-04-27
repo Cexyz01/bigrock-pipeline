@@ -24,7 +24,7 @@ const LANE_W = 200
 const ROW_H = 48
 const HEADER_H = 64
 
-export default function GanttPage({ items, currentProject, user, onCreate, onUpdate, onDelete, addToast }) {
+export default function GanttPage({ items, lanes: laneRecords = [], currentProject, user, onCreate, onUpdate, onDelete, onCreateLane, onUpdateLane, onDeleteLane, onUpdateProjectDates, addToast, requestConfirm }) {
   const canEdit = hasPermission(user, 'create_edit_tasks') || hasPermission(user, 'manage_project_settings')
   const [zoom, setZoom] = useState('day')
   const [editing, setEditing] = useState(null) // null | 'new' | itemObject
@@ -35,8 +35,14 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
 
   const dayW = ZOOMS[zoom].dayW
 
-  // Compute visible range: earliest start - 14 days .. latest end + 28 days, anchored on today
+  // Compute visible range. If the project has explicit start_date/end_date, use them as the
+  // hard window — nothing outside that range is shown. Otherwise auto-fit around items + today.
   const { rangeStart, rangeDays } = useMemo(() => {
+    if (currentProject?.start_date && currentProject?.end_date) {
+      const start = parseDate(currentProject.start_date)
+      const end = parseDate(currentProject.end_date)
+      return { rangeStart: start, rangeDays: Math.max(1, daysBetween(start, end) + 1) }
+    }
     const today = new Date(); today.setHours(0, 0, 0, 0)
     let min = addDays(today, -14)
     let max = addDays(today, 56)
@@ -46,27 +52,28 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
       if (s < min) min = s
       if (e > max) max = e
     }
-    // Snap min to a Monday
-    const dow = (min.getDay() + 6) % 7  // 0 = Mon, 6 = Sun
+    const dow = (min.getDay() + 6) % 7
     const start = addDays(min, -dow - 7)
     const end = addDays(max, 14)
     return { rangeStart: start, rangeDays: daysBetween(start, end) + 1 }
-  }, [localItems])
+  }, [localItems, currentProject?.start_date, currentProject?.end_date])
 
-  // Group items into lanes; preserve insertion order, sort within by sort_order/start
+  // Lane order: declared lanes first (sorted by sort_order), then any orphan lane names referenced by items.
   const lanes = useMemo(() => {
     const map = new Map()
+    for (const l of laneRecords) {
+      map.set(l.name, [])
+    }
     for (const it of localItems) {
-      const key = it.lane || 'General'
+      const key = it.lane || 'Senza lane'
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(it)
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => (a.sort_order - b.sort_order) || a.start_date.localeCompare(b.start_date))
     }
-    if (map.size === 0) map.set('General', [])
     return Array.from(map.entries())
-  }, [localItems])
+  }, [localItems, laneRecords])
 
   const totalW = rangeDays * dayW
   const totalH = lanes.length * ROW_H
@@ -78,6 +85,8 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
   const scrollRef = useRef(null)
   // Suppress the click that fires after a real drag (pointerup → click).
   const dragMovedRef = useRef(false)
+  // Track the last applied delta so we skip redundant updates without missing the 0-crossing.
+  const lastDeltaRef = useRef(0)
 
   const handlePointerDown = useCallback((e, item, mode) => {
     if (!canEdit) return
@@ -85,6 +94,7 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
     e.stopPropagation()
     e.target.setPointerCapture?.(e.pointerId)
     dragMovedRef.current = false
+    lastDeltaRef.current = 0
     setDrag({
       id: item.id, mode,
       startX: e.clientX,
@@ -96,9 +106,11 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
   const handlePointerMove = useCallback((e) => {
     if (!drag) return
     const deltaDays = Math.round((e.clientX - drag.startX) / dayW)
-    // Track ANY pointer movement past a small threshold so we can suppress the trailing click.
     if (Math.abs(e.clientX - drag.startX) > 3) dragMovedRef.current = true
-    if (deltaDays === 0) return
+    // Skip only if the delta hasn't changed since the last applied state — including the 0-crossing,
+    // otherwise reversing direction visually skips a cell.
+    if (deltaDays === lastDeltaRef.current) return
+    lastDeltaRef.current = deltaDays
     setLocalItems(prev => prev.map(it => {
       if (it.id !== drag.id) return it
       const origS = parseDate(drag.origStart)
@@ -165,7 +177,27 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
     return { days, months }
   }, [rangeStart, rangeDays, dayW])
 
-  const existingLanes = Array.from(new Set(localItems.map(it => it.lane || 'General')))
+  const existingLanes = laneRecords.map(l => l.name)
+  const [showNewLane, setShowNewLane] = useState(false)
+  const [newLaneName, setNewLaneName] = useState('')
+
+  const submitNewLane = async () => {
+    const name = newLaneName.trim()
+    if (!name) { setShowNewLane(false); return }
+    await onCreateLane(name)
+    setNewLaneName('')
+    setShowNewLane(false)
+  }
+
+  const handleDeleteLane = (laneName) => {
+    const record = laneRecords.find(l => l.name === laneName)
+    if (!record) return
+    const usedBy = localItems.filter(it => it.lane === laneName).length
+    const msg = usedBy > 0
+      ? `Eliminare la lane "${laneName}"? I ${usedBy} elementi verranno spostati in "Senza lane".`
+      : `Eliminare la lane "${laneName}"?`
+    requestConfirm(msg, () => onDeleteLane(record.id))
+  }
 
   const handleSave = async (payload) => {
     if (editing === 'new') {
@@ -192,7 +224,21 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
             <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Planning</h1>
             <p style={{ fontSize: 13, color: '#64748B', margin: 0 }}>Diagramma di Gantt — pianificazione settimanale</p>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {/* Project date window */}
+            {canEdit && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 999 }}>
+                <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Progetto:</span>
+                <input type="date" value={currentProject?.start_date || ''}
+                  onChange={e => onUpdateProjectDates(e.target.value, currentProject?.end_date || '')}
+                  style={{ fontSize: 12, border: 'none', background: 'transparent', outline: 'none', color: '#1a1a1a', fontFamily: 'inherit' }} />
+                <span style={{ fontSize: 11, color: '#94A3B8' }}>→</span>
+                <input type="date" value={currentProject?.end_date || ''}
+                  min={currentProject?.start_date || undefined}
+                  onChange={e => onUpdateProjectDates(currentProject?.start_date || '', e.target.value)}
+                  style={{ fontSize: 12, border: 'none', background: 'transparent', outline: 'none', color: '#1a1a1a', fontFamily: 'inherit' }} />
+              </div>
+            )}
             <div style={{ display: 'inline-flex', background: '#fff', borderRadius: 999, padding: 3, gap: 2, border: '1px solid #E2E8F0' }}>
               {Object.entries(ZOOMS).map(([k, v]) => (
                 <button key={k} onClick={() => setZoom(k)} style={{
@@ -204,6 +250,19 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
                 }}>{v.label}</button>
               ))}
             </div>
+            {canEdit && (
+              showNewLane ? (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={newLaneName} onChange={e => setNewLaneName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') submitNewLane(); if (e.key === 'Escape') { setShowNewLane(false); setNewLaneName('') } }}
+                    placeholder="Nome lane" autoFocus
+                    style={{ padding: '8px 12px', fontSize: 13, border: '1px solid #E2E8F0', borderRadius: 10, outline: 'none', background: '#fff' }} />
+                  <Btn variant="primary" onClick={submitNewLane}>OK</Btn>
+                </div>
+              ) : (
+                <Btn variant="info" onClick={() => setShowNewLane(true)}>+ Lane</Btn>
+              )
+            )}
             {canEdit && <Btn variant="primary" onClick={() => setEditing('new')}>+ Nuovo elemento</Btn>}
           </div>
         </div>
@@ -216,14 +275,12 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
         position: 'relative',
       }}>
         <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
-          {/* Lane column header (sticky top-left) */}
+          {/* Lane column corner — kept empty so the header band lines up but no redundant "LANE" label */}
           <div style={{
             position: 'sticky', top: 0, left: 0, zIndex: 4,
             width: LANE_W, height: HEADER_H,
             background: '#fff', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0',
-            display: 'flex', alignItems: 'center', padding: '0 16px',
-            fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em',
-          }}>Lane</div>
+          }} />
 
           {/* Timeline header (sticky top) */}
           <div style={{
@@ -281,7 +338,7 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
                 background: li % 2 === 0 ? '#FAFBFD' : '#fff',
               }}>
                 {/* Lane label (sticky-ish via box) */}
-                <div style={{
+                <div className="gantt-lane-label" style={{
                   position: 'sticky', left: 0, zIndex: 2,
                   display: 'inline-flex', width: LANE_W, height: '100%',
                   alignItems: 'center', padding: '0 16px',
@@ -289,8 +346,19 @@ export default function GanttPage({ items, currentProject, user, onCreate, onUpd
                   borderRight: '1px solid #E2E8F0',
                   fontSize: 13, fontWeight: 600, color: '#1a1a1a',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  boxSizing: 'border-box',
-                }}>{laneName}</div>
+                  boxSizing: 'border-box', justifyContent: 'space-between', gap: 6,
+                }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{laneName}</span>
+                  {canEdit && laneRecords.some(l => l.name === laneName) && (
+                    <button onClick={() => handleDeleteLane(laneName)} title="Elimina lane" style={{
+                      background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer',
+                      padding: 4, borderRadius: 6, fontSize: 14, lineHeight: 1, opacity: 0.6,
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = '#EF4444' }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.color = '#94A3B8' }}
+                    >×</button>
+                  )}
+                </div>
               </div>
             ))}
 

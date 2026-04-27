@@ -11,6 +11,8 @@ import {
   getAssets, createAsset, updateAsset, deleteAsset,
   getTasks, createTask, updateTask, deleteTask, setTaskAssignees,
   getGanttItems, createGanttItem, updateGanttItem, deleteGanttItem,
+  getGanttLanes, createGanttLane, updateGanttLane, deleteGanttLane,
+  updateProject,
   addComment,
   getCalendarEvents, createCalendarEvent, deleteCalendarEvent,
   getNotifications, markNotificationRead, markAllNotificationsRead, sendNotification,
@@ -73,6 +75,7 @@ export default function App() {
   const [assets, setAssets] = useState([])
   const [tasks, setTasks] = useState([])
   const [ganttItems, setGanttItems] = useState([])
+  const [ganttLanes, setGanttLanes] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
   const [view, setViewRaw] = useState('overview')
@@ -193,7 +196,7 @@ export default function App() {
   }
 
   const loadData = async (userId, projectId) => {
-    const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi] = await Promise.all([
+    const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl] = await Promise.all([
       getAllProfiles(),
       getShots(projectId),
       getAssets(projectId),
@@ -204,8 +207,9 @@ export default function App() {
       getTcgGameActive(),
       getWipViews(userId),
       getGanttItems(projectId),
+      getGanttLanes(projectId),
     ])
-    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi)
+    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi); setGanttLanes(gl)
     // Derive permissions from global role only
     const myProfile = p.find(pr => pr.id === userId)
     setMyPerms({
@@ -903,6 +907,41 @@ export default function App() {
     setGanttItems(await getGanttItems(currentProject?.id))
   }
 
+  const handleUpdateProjectDates = async (start, end) => {
+    if (!currentProject) return
+    const { data, error } = await updateProject(currentProject.id, { start_date: start || null, end_date: end || null })
+    if (error) { addToast('Errore: ' + error.message, 'danger'); return }
+    setCurrentProject(prev => ({ ...prev, start_date: data?.start_date ?? start, end_date: data?.end_date ?? end }))
+    setProjects(prev => prev.map(p => p.id === currentProject.id ? { ...p, start_date: data?.start_date ?? start, end_date: data?.end_date ?? end } : p))
+  }
+
+  const handleCreateGanttLane = async (name) => {
+    const trimmed = (name || '').trim()
+    if (!trimmed) return
+    const { error } = await createGanttLane({ project_id: currentProject.id, name: trimmed, sort_order: ganttLanes.length })
+    if (error) { addToast(error.code === '23505' ? 'Lane già esistente' : 'Errore: ' + error.message, 'danger'); return }
+    setGanttLanes(await getGanttLanes(currentProject?.id))
+  }
+  const handleUpdateGanttLane = async (id, updates) => {
+    const { error } = await updateGanttLane(id, updates)
+    if (error) { addToast('Errore: ' + error.message, 'danger'); return }
+    setGanttLanes(await getGanttLanes(currentProject?.id))
+  }
+  const handleDeleteGanttLane = async (id) => {
+    const lane = ganttLanes.find(l => l.id === id)
+    const { error } = await deleteGanttLane(id)
+    if (error) { addToast('Errore eliminazione', 'danger'); return }
+    // Items keep the lane string but the row will disappear if empty;
+    // if the lane still has items, surface them under "Senza lane".
+    if (lane) {
+      setGanttItems(prev => prev.map(it => it.lane === lane.name ? { ...it, lane: '' } : it))
+      // Persist null on those items so the next reload is consistent.
+      const orphans = ganttItems.filter(it => it.lane === lane.name)
+      await Promise.all(orphans.map(it => updateGanttItem(it.id, { lane: '' })))
+    }
+    setGanttLanes(await getGanttLanes(currentProject?.id))
+  }
+
   const handleCreateEvent = async (ev) => { await createCalendarEvent({ ...ev, project_id: currentProject.id }); setEvents(await getCalendarEvents(currentProject?.id)) }
   const handleDeleteEvent = async (id) => { await deleteCalendarEvent(id); setEvents(await getCalendarEvents(currentProject?.id)) }
   const handleMarkRead = async (id) => { await markNotificationRead(id); setNotifications(await getNotifications(user.id)) }
@@ -1040,9 +1079,11 @@ export default function App() {
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
             )}
             {view === 'gantt' && (
-              <GanttPage items={ganttItems} currentProject={currentProject} user={user}
+              <GanttPage items={ganttItems} lanes={ganttLanes} currentProject={currentProject} user={user}
                 onCreate={handleCreateGanttItem} onUpdate={handleUpdateGanttItem} onDelete={handleDeleteGanttItem}
-                addToast={addToast} />
+                onCreateLane={handleCreateGanttLane} onUpdateLane={handleUpdateGanttLane} onDeleteLane={handleDeleteGanttLane}
+                onUpdateProjectDates={handleUpdateProjectDates}
+                addToast={addToast} requestConfirm={requestConfirm} />
             )}
           </div>
         ) : (
