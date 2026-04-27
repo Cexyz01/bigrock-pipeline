@@ -16,7 +16,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 
 export default function TaskDetailModal({
-  task, user, staff, profiles, onClose, onUpdate, onDelete, onReject, onAddWipComment,
+  task, user, staff, profiles, onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
   onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
   addToast, requestConfirm,
 }) {
@@ -51,7 +51,8 @@ export default function TaskDetailModal({
 
   const fileInputRef = useRef(null)
   const dept = DEPTS.find(d => d.id === task.department)
-  const isOwner = task.assigned_to === user.id
+  const assignees = task.assignees || []
+  const isOwner = assignees.some(a => a.user.id === user.id)
 
   // Load WIP updates + per-WIP comments
   useEffect(() => {
@@ -128,8 +129,12 @@ export default function TaskDetailModal({
     requestConfirm(`Delete task "${task.title}"?`, () => { onDelete(task.id); onClose() })
   }
 
-  const handleAssign = async (userId) => {
-    await onUpdate(task.id, { assigned_to: userId || null })
+  const toggleAssignee = async (userId) => {
+    const currentIds = assignees.map(a => a.user.id)
+    const next = currentIds.includes(userId)
+      ? currentIds.filter(x => x !== userId)
+      : [...currentIds, userId]
+    await onSetAssignees?.(task.id, next)
     if (addToast) addToast('Assignment updated', 'success')
   }
 
@@ -232,19 +237,39 @@ export default function TaskDetailModal({
           <span style={{ fontSize: 12, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 6, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Assigned</span>
-        {task.assigned_user ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Av name={task.assigned_user.full_name} size={22} url={task.assigned_user.avatar_url} />
-            <span style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 500 }}>{task.assigned_user.full_name}</span>
-          </div>
-        ) : (
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginTop: 4 }}>Assigned</span>
+        {assignees.length === 0 ? (
           <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {assignees.map(a => (
+              <div key={a.user.id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F1F5F9', padding: '3px 10px 3px 3px', borderRadius: 999, border: '1px solid #E2E8F0' }}>
+                <Av name={a.user.full_name} size={20} url={a.user.avatar_url} />
+                <span style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 500 }}>{a.user.full_name}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
       {staff && (
-        <Select value={task.assigned_to || ''} onChange={handleAssign} options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assign to student..." style={{ fontSize: 12 }} />
+        <div>
+          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginBottom: 6 }}>Manage assignees (click to toggle)</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {students.map(s => {
+              const active = assignees.some(a => a.user.id === s.id)
+              return (
+                <button key={s.id} type="button" onClick={() => toggleAssignee(s.id)} style={{
+                  padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  border: `1.5px solid ${active ? '#F28C28' : '#E2E8F0'}`,
+                  background: active ? '#F28C2818' : '#fff',
+                  color: active ? '#F28C28' : '#64748B',
+                  transition: 'all 0.15s ease',
+                }}>{active ? '✓ ' : ''}{s.full_name}</button>
+              )
+            })}
+          </div>
+        </div>
       )}
       {staff && editing ? (
         <>

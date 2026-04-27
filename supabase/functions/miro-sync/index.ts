@@ -800,18 +800,18 @@ async function handleUploadWipImage(supabase: any, params: any) {
   const ci = deptCol(department)
   if (ci < 0) return err(`Invalid department: ${department}`)
 
-  // ── DEDUP: Remove existing miro_wip_images for this task ──
-  if (task_id) {
+  // ── DEDUP: Remove existing miro_wip_images for this (task, uploader) ──
+  if (task_id && uploaded_by) {
     const { data: existing } = await supabase
       .from("miro_wip_images").select("id, miro_item_id")
-      .eq("task_id", task_id)
+      .eq("task_id", task_id).eq("uploaded_by", uploaded_by)
     if (existing?.length) {
-      console.log(`[upload_wip_image] Dedup: removing ${existing.length} old images for task ${task_id}`)
+      console.log(`[upload_wip_image] Dedup: removing ${existing.length} old images for task ${task_id} / user ${uploaded_by}`)
       const toDelete = existing.filter((i: any) => i.miro_item_id && i.miro_item_id !== "pending")
       if (toDelete.length) {
         await parallelLimit(toDelete.map((i: any) => () => miroDelete(i.miro_item_id)), 5)
       }
-      await supabase.from("miro_wip_images").delete().eq("task_id", task_id)
+      await supabase.from("miro_wip_images").delete().eq("task_id", task_id).eq("uploaded_by", uploaded_by)
     }
   }
 
@@ -851,21 +851,18 @@ async function handleUploadWipImages(supabase: any, params: any) {
   const ci = deptCol(department)
   if (ci < 0) return err(`Invalid department: ${department}`)
 
-  // ── DEDUP: Remove existing miro_wip_images for this task ──
-  // Prevents duplicates when "Invia per Review" is called multiple times
-  if (task_id) {
-    const { data: existing } = await supabase
-      .from("miro_wip_images").select("id, miro_item_id")
-      .eq("task_id", task_id)
+  // ── DEDUP: Remove existing miro_wip_images for this (task, uploader) ──
+  // Multi-assignee tasks: each student's WIPs live independently — only wipe THIS student's.
+  if (task_id && uploaded_by) {
+    let q = supabase.from("miro_wip_images").select("id, miro_item_id").eq("task_id", task_id).eq("uploaded_by", uploaded_by)
+    const { data: existing } = await q
     if (existing?.length) {
-      console.log(`[upload_wip_images] Dedup: removing ${existing.length} old images for task ${task_id}`)
-      // Delete their Miro items first
+      console.log(`[upload_wip_images] Dedup: removing ${existing.length} old images for task ${task_id} / user ${uploaded_by}`)
       const toDelete = existing.filter((i: any) => i.miro_item_id && i.miro_item_id !== "pending")
       if (toDelete.length) {
         await parallelLimit(toDelete.map((i: any) => () => miroDelete(i.miro_item_id)), 5)
       }
-      // Delete DB rows
-      await supabase.from("miro_wip_images").delete().eq("task_id", task_id)
+      await supabase.from("miro_wip_images").delete().eq("task_id", task_id).eq("uploaded_by", uploaded_by)
     }
   }
 

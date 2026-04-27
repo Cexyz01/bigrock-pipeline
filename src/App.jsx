@@ -9,7 +9,7 @@ import {
   getProfile, getAllProfiles,
   getShots, createShot, updateShot, deleteShot,
   getAssets, createAsset, updateAsset, deleteAsset,
-  getTasks, createTask, updateTask, deleteTask,
+  getTasks, createTask, updateTask, deleteTask, setTaskAssignees,
   addComment,
   getCalendarEvents, createCalendarEvent, deleteCalendarEvent,
   getNotifications, markNotificationRead, markAllNotificationsRead, sendNotification,
@@ -594,9 +594,27 @@ export default function App() {
   }
 
   const handleCreateTask = async (task) => {
+    const assigneeIds = task.assignee_ids || []
     const { data } = await createTask({ ...task, project_id: currentProject.id })
-    if (data && task.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_assigned', 'New task assigned', task.title, 'task', data.id)
+    if (data && assigneeIds.length) {
+      for (const uid of assigneeIds) {
+        await sendNotification(uid, 'task_assigned', 'New task assigned', task.title, 'task', data.id)
+      }
+    }
+    setTasks(await getTasks({ project_id: currentProject?.id }))
+  }
+
+  const handleSetTaskAssignees = async (taskId, userIds) => {
+    const before = tasks.find(t => t.id === taskId)
+    const beforeIds = new Set((before?.assignees || []).map(a => a.user.id))
+    const afterIds = new Set(userIds)
+    const newlyAdded = [...afterIds].filter(id => !beforeIds.has(id))
+    await setTaskAssignees(taskId, userIds)
+    // Notify newly-added assignees
+    if (before) {
+      for (const uid of newlyAdded) {
+        await sendNotification(uid, 'task_assigned', 'New task assigned', before.title, 'task', taskId)
+      }
     }
     setTasks(await getTasks({ project_id: currentProject?.id }))
   }
@@ -621,8 +639,10 @@ export default function App() {
     }
     await updateTask(id, updates)
     const task = tasks.find(t => t.id === id)
-    if (updates.status === 'approved' && task?.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_approved', 'Task approved!', task.title, 'task', id)
+    if (updates.status === 'approved' && task) {
+      for (const a of (task.assignees || [])) {
+        await sendNotification(a.user.id, 'task_approved', 'Task approved!', task.title, 'task', id)
+      }
     }
     // Reject notification is handled by handleRejectTask
     setTasks(await getTasks({ project_id: currentProject?.id }))
@@ -646,10 +666,12 @@ export default function App() {
         }
       } catch (err) { console.warn('Failed to add revision comment:', err) }
     }
-    // 4. Notify student
-    if (task?.assigned_to) {
+    // 4. Notify all assignees
+    if (task) {
       const msg = comment ? `Changes requested: ${comment}` : 'Changes requested'
-      await sendNotification(task.assigned_to, 'task_revision', msg, task.title, 'task', id)
+      for (const a of (task.assignees || [])) {
+        await sendNotification(a.user.id, 'task_revision', msg, task.title, 'task', id)
+      }
     }
     setTasks(await getTasks({ project_id: currentProject?.id }))
     addToast('Changes requested', 'success')
@@ -716,24 +738,35 @@ export default function App() {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
 
-    // 1. Get latest WIP update with images
+    // 1. Get all WIP updates and reduce to latest-with-files PER assignee.
+    //    Multi-assignee tasks: each student's latest WIP gets pushed to storyboard.
     const updates = await getWipUpdates(taskId)
-    const latestWithImages = updates.find(u => u.images && u.images.length > 0)
+    const latestPerUser = new Map()
+    for (const u of updates) {
+      if (!u.images || u.images.length === 0) continue
+      if (!latestPerUser.has(u.user_id)) latestPerUser.set(u.user_id, u)
+    }
 
     // 2. Change status to review FIRST — placeCellImages filters by status review/approved
     await updateTask(taskId, { status: 'review' })
 
-    // 3. Upload files to storyboard — images go to Miro (shots) or direct insert (assets), audio always direct
-    if (latestWithImages && (task.shot_id || task.asset_id)) {
-      const imageUrls = latestWithImages.images.filter(url => !isAudioUrl(url))
-      const audioUrls = latestWithImages.images.filter(url => isAudioUrl(url))
+    // 3. Upload each user's latest WIP to storyboard.
+    //    Each user's row set is replaced independently — other students' rows untouched.
+    if (latestPerUser.size > 0 && (task.shot_id || task.asset_id)) {
       const isAssetTask = !task.shot_id && task.asset_id
 
-      // Shot tasks: upload images to Miro (which also inserts into miro_wip_images)
-      if (imageUrls.length > 0 && !isAssetTask) {
-        try {
-          const base64Array = await Promise.all(
-            imageUrls.map(async (url) => {
+      for (const [uploaderId, wip] of latestPerUser) {
+        // Per-user dedup for asset tasks (edge fn handles dedup for shot tasks)
+        if (isAssetTask) {
+          try { await supabase.from('miro_wip_images').delete().eq('task_id', taskId).eq('uploaded_by', uploaderId) } catch (err) { console.warn('Per-user clean failed:', err) }
+        }
+        const imageUrls = wip.images.filter(url => !isAudioUrl(url))
+        const audioUrls = wip.images.filter(url => isAudioUrl(url))
+
+        // Shot tasks: send to Miro edge function (also writes miro_wip_images rows)
+        if (imageUrls.length > 0 && !isAssetTask) {
+          try {
+            const base64Array = await Promise.all(imageUrls.map(async (url) => {
               const res = await fetch(url)
               const blob = await res.blob()
               return new Promise((resolve, reject) => {
@@ -742,69 +775,68 @@ export default function App() {
                 reader.onerror = reject
                 reader.readAsDataURL(blob)
               })
-            })
-          )
-          await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, user.id, currentProject?.miro_board_id)
-        } catch (err) {
-          console.warn('Storyboard upload failed:', err)
-        }
-      }
-
-      // Asset tasks: skip Miro and insert image rows directly
-      if (imageUrls.length > 0 && isAssetTask) {
-        try {
-          const existingImages = await supabase.from('miro_wip_images')
-            .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
-          let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
-          for (const imgUrl of imageUrls) {
-            await supabase.from('miro_wip_images').insert({
-              shot_id: null,
-              asset_id: task.asset_id,
-              task_id: taskId,
-              department: task.department,
-              miro_item_id: 'asset',
-              uploaded_by: user.id,
-              image_url: imgUrl,
-              image_order: nextOrder++,
-              img_width: 0,
-              img_height: 0,
-            })
+            }))
+            await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, uploaderId, currentProject?.miro_board_id)
+          } catch (err) {
+            console.warn('Storyboard upload failed for user', uploaderId, err)
           }
-        } catch (err) {
-          console.warn('Asset image insert to storyboard failed:', err)
         }
-      }
 
-      // Insert audio files directly into miro_wip_images (works for both)
-      if (audioUrls.length > 0) {
-        try {
-          const existingImages = await supabase.from('miro_wip_images')
-            .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
-          let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
-
-          for (const audioUrl of audioUrls) {
-            await supabase.from('miro_wip_images').insert({
-              shot_id: task.shot_id || null,
-              asset_id: task.asset_id || null,
-              task_id: taskId,
-              department: task.department,
-              miro_item_id: 'audio',
-              uploaded_by: user.id,
-              image_url: audioUrl,
-              image_order: nextOrder++,
-              img_width: 0,
-              img_height: 0,
-            })
+        // Asset tasks: insert directly into miro_wip_images
+        if (imageUrls.length > 0 && isAssetTask) {
+          try {
+            const existingImages = await supabase.from('miro_wip_images')
+              .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
+            let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
+            for (const imgUrl of imageUrls) {
+              await supabase.from('miro_wip_images').insert({
+                shot_id: null,
+                asset_id: task.asset_id,
+                task_id: taskId,
+                department: task.department,
+                miro_item_id: 'asset',
+                uploaded_by: uploaderId,
+                image_url: imgUrl,
+                image_order: nextOrder++,
+                img_width: 0,
+                img_height: 0,
+              })
+            }
+          } catch (err) {
+            console.warn('Asset image insert to storyboard failed for user', uploaderId, err)
           }
-        } catch (err) {
-          console.warn('Audio insert to storyboard failed:', err)
+        }
+
+        // Audio rows (both shot/asset)
+        if (audioUrls.length > 0) {
+          try {
+            const existingImages = await supabase.from('miro_wip_images')
+              .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
+            let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
+            for (const audioUrl of audioUrls) {
+              await supabase.from('miro_wip_images').insert({
+                shot_id: task.shot_id || null,
+                asset_id: task.asset_id || null,
+                task_id: taskId,
+                department: task.department,
+                miro_item_id: 'audio',
+                uploaded_by: uploaderId,
+                image_url: audioUrl,
+                image_order: nextOrder++,
+                img_width: 0,
+                img_height: 0,
+              })
+            }
+          } catch (err) {
+            console.warn('Audio insert to storyboard failed for user', uploaderId, err)
+          }
         }
       }
     }
 
-    // 4. Notify assigned student
-    if (task.assigned_to) {
-      await sendNotification(task.assigned_to, 'task_review', 'Task submitted for review', task.title, 'task', taskId)
+    // 4. Notify all assignees
+    for (const a of (task.assignees || [])) {
+      await sendNotification(a.user.id, 'task_review', 'Task submitted for review', task.title, 'task', taskId)
     }
 
     setTasks(await getTasks({ project_id: currentProject?.id }))
@@ -820,8 +852,10 @@ export default function App() {
     const result = await addComment(taskId, authorId, body)
     const task = tasks.find(t => t.id === taskId)
     if (task) {
-      if (authorId !== task.assigned_to && task.assigned_to) {
-        await sendNotification(task.assigned_to, 'comment', 'New comment on your task', body.slice(0, 80), 'task', taskId)
+      for (const a of (task.assignees || [])) {
+        if (a.user.id !== authorId) {
+          await sendNotification(a.user.id, 'comment', 'New comment on your task', body.slice(0, 80), 'task', taskId)
+        }
       }
       if (!isStaff(user)) {
         const staffMembers = profiles.filter(p => isStaff(p))
@@ -835,10 +869,14 @@ export default function App() {
 
   const handleAddWipComment = async (wipUpdateId, taskId, authorId, body) => {
     const result = await addWipComment(wipUpdateId, authorId, body)
-    // Notify the student who owns the task
+    // Notify all assignees (except the author of the comment)
     const task = tasks.find(t => t.id === taskId)
-    if (task?.assigned_to && task.assigned_to !== authorId) {
-      await sendNotification(task.assigned_to, 'comment', 'New feedback on your WIP', body.slice(0, 80), 'task', taskId)
+    if (task) {
+      for (const a of (task.assignees || [])) {
+        if (a.user.id !== authorId) {
+          await sendNotification(a.user.id, 'comment', 'New feedback on your WIP', body.slice(0, 80), 'task', taskId)
+        }
+      }
     }
     return result
   }
@@ -985,7 +1023,7 @@ export default function App() {
           <div style={{ padding: contentPadding, ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             {view === 'overview' && <OverviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'review' && myPerms.can_review && <ReviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask} onUpdateReviewMeta={handleUpdateReviewMeta} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}

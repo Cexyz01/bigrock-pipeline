@@ -19,7 +19,7 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
   const wip  = countCells(shots, SHOT_DEPT_IDS, st => st === 'in_progress')
             + countCells(assets, ASSET_DEPT_IDS, st => st === 'in_progress')
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  const myTasks = tasks.filter(t => t.assigned_to === user.id)
+  const myTasks = tasks.filter(t => (t.assignees || []).some(a => a.user.id === user.id))
   const reviewTasks = tasks.filter(t => t.status === 'review')
 
   // Dept color map for stat cards

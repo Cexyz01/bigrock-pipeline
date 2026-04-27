@@ -98,15 +98,18 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
     return map
   }, [allWips])
 
-  // Index approved tasks by student+date (using updated_at as the approval date)
+  // Index approved tasks by student+date (using updated_at as the approval date).
+  // Multi-assignee: each assignee gets credit for the approved task.
   const approvedByStudentDate = useMemo(() => {
     const map = {}
     for (const t of tasks) {
-      if (t.status !== 'approved' || !t.assigned_to || !t.updated_at) continue
+      if (t.status !== 'approved' || !t.updated_at) continue
       const dateStr = t.updated_at.split('T')[0]
-      const key = `${t.assigned_to}_${dateStr}`
-      if (!map[key]) map[key] = []
-      map[key].push(t)
+      for (const a of (t.assignees || [])) {
+        const key = `${a.user.id}_${dateStr}`
+        if (!map[key]) map[key] = []
+        map[key].push(t)
+      }
     }
     return map
   }, [tasks])
@@ -122,7 +125,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
   }
 
   const studentHasAnyTasks = (studentId) =>
-    tasks.some(t => t.assigned_to === studentId)
+    tasks.some(t => (t.assignees || []).some(a => a.user.id === studentId))
 
   const cellColors = {
     green: { bg: '#A7F3D0', border: '#05966950', text: '#059669' },

@@ -256,14 +256,13 @@ export async function deleteAsset(id) {
 export async function getTasks(filters = {}) {
   let query = supabase.from('tasks').select(`
     *,
-    assigned_user:profiles!tasks_assigned_to_fkey(id, full_name, email, department, mood_emoji, avatar_url),
+    assignees:task_assignees(user:profiles(id, full_name, email, department, mood_emoji, avatar_url)),
     creator:profiles!tasks_created_by_fkey(id, full_name),
     shot:shots(id, code, sequence),
     asset:assets(id, name)
   `).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
 
   if (filters.project_id) query = query.eq('project_id', filters.project_id)
-  if (filters.assigned_to) query = query.eq('assigned_to', filters.assigned_to)
   if (filters.department) query = query.eq('department', filters.department)
   if (filters.status) query = query.eq('status', filters.status)
   if (filters.shot_id) query = query.eq('shot_id', filters.shot_id)
@@ -274,8 +273,23 @@ export async function getTasks(filters = {}) {
 }
 
 export async function createTask(task) {
-  const { data, error } = await supabase.from('tasks').insert(task).select().single()
+  const { assignee_ids, ...payload } = task
+  const { data, error } = await supabase.from('tasks').insert(payload).select().single()
+  if (!error && data && assignee_ids?.length) {
+    await supabase.from('task_assignees').insert(
+      assignee_ids.map(uid => ({ task_id: data.id, user_id: uid }))
+    )
+  }
   return { data, error }
+}
+
+export async function setTaskAssignees(taskId, userIds) {
+  await supabase.from('task_assignees').delete().eq('task_id', taskId)
+  if (userIds?.length) {
+    const rows = userIds.map(uid => ({ task_id: taskId, user_id: uid }))
+    return supabase.from('task_assignees').insert(rows)
+  }
+  return { data: [], error: null }
 }
 
 export async function updateTask(id, updates) {
@@ -1124,7 +1138,7 @@ export async function resetAllTradeTokens() {
 
 export async function getAllWipUpdates() {
   const { data } = await supabase.from('task_wip_updates')
-    .select('*, author:profiles(id, full_name, avatar_url, role), task:tasks(id, title, status, department, assigned_to)')
+    .select('*, author:profiles(id, full_name, avatar_url, role), task:tasks(id, title, status, department)')
     .order('created_at', { ascending: false })
   return data || []
 }

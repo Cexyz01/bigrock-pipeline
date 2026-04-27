@@ -25,7 +25,7 @@ const statusRowHoverBg = {
 
 export default function TasksPage({
   tasks, shots, assets = [], profiles, user,
-  onCreateTask, onUpdateTask, onReorderTasks, onDeleteTask, onRejectTask, onAddWipComment,
+  onCreateTask, onUpdateTask, onReorderTasks, onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
   onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
   wipViews,
   addToast, requestConfirm, deepLink, clearDeepLink,
@@ -64,11 +64,12 @@ export default function TasksPage({
   }, [tasks])
 
   const filteredTasks = tasks.filter(t => {
-    if (viewMode === 'mine' && !staff && t.assigned_to !== user.id) return false
+    const assigneeIds = (t.assignees || []).map(a => a.user.id)
+    if (viewMode === 'mine' && !staff && !assigneeIds.includes(user.id)) return false
     if (viewMode === 'mine' && staff && t.created_by !== user.id) return false
     if (filter.dept && t.department !== filter.dept) return false
     if (filter.status && t.status !== filter.status) return false
-    if (filter.user && t.assigned_to !== filter.user) return false
+    if (filter.user && !assigneeIds.includes(filter.user)) return false
     if (filter.shot && t.shot_id !== filter.shot) return false
     if (filter.asset && t.asset_id !== filter.asset) return false
     return true
@@ -298,7 +299,7 @@ export default function TasksPage({
         <TaskDetailModal
           task={selectedTask} user={user} staff={staff} profiles={profiles}
           onClose={() => setSelectedTask(null)}
-          onUpdate={onUpdateTask} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}
+          onUpdate={onUpdateTask} onSetAssignees={onSetAssignees} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}
           onCreateWipUpdate={onCreateWipUpdate}
           onCommitForReview={onCommitForReview}
           onMarkWipViewed={onMarkWipViewed}

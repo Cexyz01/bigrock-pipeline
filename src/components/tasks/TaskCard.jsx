@@ -19,7 +19,8 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
   const [h, setH] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const dept = DEPTS.find(d => d.id === task.department)
-  const isOwner = task.assigned_to === user.id
+  const assignees = task.assignees || []
+  const isOwner = assignees.some(a => a.user.id === user.id)
   const canStart = task.status === 'todo' && (isOwner || staff) && onStart
 
   const handleStartClick = useCallback((e) => {
@@ -102,13 +103,24 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          {task.assigned_user ? (
+          {assignees.length === 0 ? (
+            <span style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
+          ) : assignees.length === 1 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Av name={task.assigned_user.full_name} size={24} url={task.assigned_user.avatar_url} mood={task.assigned_user.mood_emoji} />
-              <span style={{ fontSize: 11, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.assigned_user.full_name}</span>
+              <Av name={assignees[0].user.full_name} size={24} url={assignees[0].user.avatar_url} mood={assignees[0].user.mood_emoji} />
+              <span style={{ fontSize: 11, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{assignees[0].user.full_name}</span>
             </div>
           ) : (
-            <span style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex' }}>
+                {assignees.slice(0, 4).map((a, i) => (
+                  <div key={a.user.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid #fff', borderRadius: '50%', display: 'flex' }}>
+                    <Av name={a.user.full_name} size={24} url={a.user.avatar_url} mood={a.user.mood_emoji} />
+                  </div>
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: '#64748B' }}>{assignees.length}</span>
+            </div>
           )}
           {task.shot && <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 10, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>}
         </div>

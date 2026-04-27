@@ -8,7 +8,7 @@ import Btn from '../ui/Btn'
 export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill }) {
   // target: 'shot' or 'asset'
   const [target, setTarget] = useState('shot')
-  const [form, setForm] = useState({ title: '', description: '', department: '', assigned_to: '', shot_id: '', asset_id: '', startNow: false })
+  const [form, setForm] = useState({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false })
 
   // Apply prefill (asset_id / shot_id) when modal opens
   useEffect(() => {
@@ -42,21 +42,26 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
       title: form.title,
       description: form.description,
       department: form.department,
-      assigned_to: form.assigned_to || null,
+      assignee_ids: form.assignee_ids || [],
       shot_id: target === 'shot' ? (form.shot_id || null) : null,
       asset_id: target === 'asset' ? (form.asset_id || null) : null,
       created_by: user.id,
       status: form.startNow ? 'wip' : 'todo',
     })
-    setForm({ title: '', description: '', department: '', assigned_to: '', shot_id: '', asset_id: '', startNow: false })
+    setForm({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false })
     setTarget('shot')
     onClose()
   }
 
+  const toggleAssignee = (uid) => setForm(f => {
+    const has = f.assignee_ids.includes(uid)
+    return { ...f, assignee_ids: has ? f.assignee_ids.filter(x => x !== uid) : [...f.assignee_ids, uid] }
+  })
+
   const handleSetTarget = (next) => {
     setTarget(next)
     // Reset department when switching, since available depts differ
-    setForm(f => ({ ...f, department: '', shot_id: '', asset_id: '' }))
+    setForm(f => ({ ...f, department: '', shot_id: '', asset_id: '', assignee_ids: [] }))
   }
 
   const tabBtnStyle = (active) => ({
@@ -82,8 +87,24 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
         <Input value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Description (optional)" multiline />
         <Select value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))}
           options={depts.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" />
-        <Select value={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
-          options={students.map(s => ({ value: s.id, label: s.full_name }))} placeholder="Assign to student (optional)" />
+        <div>
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Assign to students (optional, multi)</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 140, overflowY: 'auto', padding: 4 }}>
+            {students.map(s => {
+              const active = form.assignee_ids.includes(s.id)
+              return (
+                <button key={s.id} type="button" onClick={() => toggleAssignee(s.id)} style={{
+                  padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: `1.5px solid ${active ? ACCENT : '#E2E8F0'}`,
+                  background: active ? `${ACCENT}18` : '#fff',
+                  color: active ? ACCENT : '#64748B',
+                  transition: 'all 0.15s ease',
+                }}>{active ? '✓ ' : ''}{s.full_name}</button>
+              )
+            })}
+            {students.length === 0 && <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>No students available</span>}
+          </div>
+        </div>
 
         {target === 'shot' ? (
           <Select value={form.shot_id} onChange={v => setForm(f => ({ ...f, shot_id: v || null }))}

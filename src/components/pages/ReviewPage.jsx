@@ -13,7 +13,7 @@ function defaultLayout(task, media) {
   if (task) {
     const dept = DEPTS.find(d => d.id === task.department)
     if (dept) els.push({ id: 'badge', type: 'badge', x: 30, y: 20, w: 120, h: 28 })
-    if (task.assigned_to) els.push({ id: 'student', type: 'student', x: CW - 250, y: 20, w: 220, h: 28 })
+    if ((task.assignees || []).length > 0) els.push({ id: 'student', type: 'student', x: CW - 250, y: 20, w: 220, h: 28 })
     els.push({ id: 'title', type: 'title', x: 30, y: 70, w: CW - 60, h: 50, fontSize: 28 })
     els.push({ id: 'desc', type: 'description', x: 30, y: 130, w: CW - 60, h: 60, fontSize: 14 })
   }
@@ -822,7 +822,8 @@ function SlideCanvas({ slideId, task, layout, profiles, selectedEl, onSelectEl, 
 function ElementRender({ el, task, profiles, scale, isEditing, onTextBlur }) {
   const fs = (el.fontSize || 14) * scale
   const dept = task ? DEPTS.find(d => d.id === task.department) : null
-  const student = task ? profiles.find(p => p.id === task.assigned_to) : null
+  const firstAssigneeId = task?.assignees?.[0]?.user?.id || null
+  const student = firstAssigneeId ? profiles.find(p => p.id === firstAssigneeId) : null
 
   if (el.type === 'title' && task) {
     const text = task.review_title || task.title
