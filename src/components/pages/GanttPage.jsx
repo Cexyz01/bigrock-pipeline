@@ -26,8 +26,8 @@ const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'S
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'G', 'V', 'S']
 
 const ZOOMS = {
-  week:  { dayW: 14, label: 'Settimana' },
-  day:   { dayW: 28, label: 'Giorno' },
+  week:  { dayW: 18, label: 'Settimana' },
+  day:   { dayW: 32, label: 'Giorno' },
   hour:  { dayW: 56, label: 'Espanso' },
 }
 
@@ -194,7 +194,7 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
     }
   }, [currentProject?.id])
 
-  // ── Header: months + day numbers ──
+  // ── Header: months + day numbers + week chunks ──
   const headerCells = useMemo(() => {
     const days = []
     for (let i = 0; i < rangeDays; i++) {
@@ -203,17 +203,32 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
     }
     // group by month
     const months = []
-    let current = null
+    let currentMonth = null
     for (const d of days) {
       const key = `${d.date.getFullYear()}-${d.date.getMonth()}`
-      if (!current || current.key !== key) {
-        current = { key, label: `${MONTH_LABELS[d.date.getMonth()]} ${d.date.getFullYear()}`, x: d.x, w: dayW }
-        months.push(current)
+      if (!currentMonth || currentMonth.key !== key) {
+        currentMonth = { key, label: `${MONTH_LABELS[d.date.getMonth()]} ${d.date.getFullYear()}`, x: d.x, w: dayW }
+        months.push(currentMonth)
       } else {
-        current.w += dayW
+        currentMonth.w += dayW
       }
     }
-    return { days, months }
+    // group into weeks (Mon → Sun). Number sequentially from the first week visible.
+    const weeks = []
+    let currentWeek = null
+    let weekNum = 0
+    for (const d of days) {
+      // A new week starts on Monday OR on the very first day (which may not be Monday).
+      const isMonday = d.dow === 1
+      if (!currentWeek || isMonday) {
+        weekNum++
+        currentWeek = { num: weekNum, x: d.x, w: dayW, startDate: d.date }
+        weeks.push(currentWeek)
+      } else {
+        currentWeek.w += dayW
+      }
+    }
+    return { days, months, weeks }
   }, [rangeStart, rangeDays, dayW])
 
   const existingLanes = laneRecords.map(l => l.name)
@@ -338,32 +353,38 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
                 }}>{m.label}</div>
               ))}
             </div>
-            {/* Days row */}
+            {/* Days row OR Weeks row depending on zoom */}
             <div style={{ position: 'relative', height: HEADER_H / 2 }}>
-              {headerCells.days.map(d => {
-                const isToday = +d.date === +today
-                const isMonday = d.dow === 1
-                const isWeekend = d.dow === 0 || d.dow === 6
-                const showLabel = dayW >= 28 || isMonday
-                return (
-                  <div key={+d.date} style={{
-                    position: 'absolute', left: d.x, width: dayW, height: '100%',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 10,
-                    color: isToday ? '#fff' : (isWeekend ? '#94A3B8' : '#64748B'),
-                    background: isToday ? ACCENT : (isMonday ? '#F8FAFC' : 'transparent'),
-                    borderRight: isMonday ? '1px solid #E2E8F0' : '1px solid #F8FAFC',
-                    fontWeight: isToday ? 700 : 500,
-                  }}>
-                    {showLabel && (
-                      <>
-                        <span style={{ fontSize: 9, opacity: 0.7 }}>{DAY_LABELS[d.dow]}</span>
-                        <span>{d.date.getDate()}</span>
-                      </>
-                    )}
-                  </div>
-                )
-              })}
+              {zoom === 'week' ? (
+                headerCells.weeks.map(w => (
+                  <div key={w.num} style={{
+                    position: 'absolute', left: w.x, width: w.w, height: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, color: '#1a1a1a',
+                    borderRight: '1px solid #E2E8F0', background: w.num % 2 === 0 ? '#FAFBFD' : '#fff',
+                  }}>Week {w.num}</div>
+                ))
+              ) : (
+                headerCells.days.map(d => {
+                  const isToday = +d.date === +today
+                  const isMonday = d.dow === 1
+                  const isWeekend = d.dow === 0 || d.dow === 6
+                  return (
+                    <div key={+d.date} style={{
+                      position: 'absolute', left: d.x, width: dayW, height: '100%',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 10,
+                      color: isToday ? '#fff' : (isWeekend ? '#94A3B8' : '#64748B'),
+                      background: isToday ? ACCENT : (isMonday ? '#F8FAFC' : 'transparent'),
+                      borderRight: isMonday ? '1px solid #E2E8F0' : '1px solid #F8FAFC',
+                      fontWeight: isToday ? 700 : 500,
+                    }}>
+                      <span style={{ fontSize: 9, opacity: 0.7 }}>{DAY_LABELS[d.dow]}</span>
+                      <span>{d.date.getDate()}</span>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
 
