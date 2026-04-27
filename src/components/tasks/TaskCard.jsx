@@ -113,9 +113,29 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
         </div>
         {task.description && (
           <div style={{
-            fontSize: 13, color: '#64748B', lineHeight: 1.6, marginBottom: 12,
+            fontSize: 13, color: '#64748B', lineHeight: 1.6, marginBottom: 8,
             overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
           }}>{task.description}</div>
+        )}
+        {(task.start_date || task.duration_days) && (
+          <div style={{
+            fontSize: 11, color: '#64748B', marginBottom: 10,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            {task.start_date && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, background: '#F1F5F9', border: '1px solid #E2E8F0' }}>
+                📅 {(() => {
+                  const [y, m, d] = task.start_date.split('-').map(Number)
+                  return new Date(y, m - 1, d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })
+                })()}
+              </span>
+            )}
+            {task.duration_days > 0 && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, background: '#F1F5F9', border: '1px solid #E2E8F0' }}>
+                ⏱ {task.duration_days}g
+              </span>
+            )}
+          </div>
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 'auto' }}>

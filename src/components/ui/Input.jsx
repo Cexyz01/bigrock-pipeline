@@ -1,4 +1,4 @@
-export default function Input({ value, onChange, placeholder, style = {}, multiline, ...props }) {
+export default function Input({ value, onChange, onBlur, placeholder, style = {}, multiline, ...props }) {
   const Tag = multiline ? 'textarea' : 'input'
   return (
     <Tag
@@ -13,7 +13,10 @@ export default function Input({ value, onChange, placeholder, style = {}, multil
         minHeight: multiline ? 80 : undefined, ...style,
       }}
       onFocus={e => { e.target.style.borderColor = '#F28C28'; e.target.style.boxShadow = '0 0 0 3px rgba(242,140,40,0.08)' }}
-      onBlur={e => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none' }}
+      onBlur={e => {
+        e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'
+        onBlur?.(e)
+      }}
       {...props}
     />
   )

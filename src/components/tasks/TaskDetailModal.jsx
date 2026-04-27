@@ -23,14 +23,13 @@ export default function TaskDetailModal({
 }) {
   const isMobile = useIsMobile()
   const [mobileTab, setMobileTab] = useState('info') // mobile: info | wip
-  // Staff edit mode for title/description/department
-  const [editing, setEditing] = useState(false)
+  // Staff inline edit fields — auto-save on blur, no toggle
   const [editTitle, setEditTitle] = useState(task.title || '')
   const [editDesc, setEditDesc] = useState(task.description || '')
   const [editDept, setEditDept] = useState(task.department || '')
   const [editStartDate, setEditStartDate] = useState(task.start_date || '')
   const [editDuration, setEditDuration] = useState(task.duration_days || 1)
-  const [savingEdit, setSavingEdit] = useState(false)
+  const [savedFlash, setSavedFlash] = useState(false)
   // Reset edit fields if task identity changes
   useEffect(() => {
     setEditTitle(task.title || '')
@@ -38,8 +37,38 @@ export default function TaskDetailModal({
     setEditDept(task.department || '')
     setEditStartDate(task.start_date || '')
     setEditDuration(task.duration_days || 1)
-    setEditing(false)
   }, [task.id])
+
+  const flashSaved = () => {
+    setSavedFlash(true)
+    setTimeout(() => setSavedFlash(false), 1200)
+  }
+  const saveField = async (field, value) => {
+    await onUpdate(task.id, { [field]: value })
+    flashSaved()
+  }
+  const blurTitle = () => {
+    const next = editTitle.trim()
+    if (!next) { setEditTitle(task.title || ''); return }
+    if (next !== task.title) saveField('title', next)
+  }
+  const blurDesc = () => {
+    const next = editDesc.trim() || null
+    if (next !== (task.description || null)) saveField('description', next)
+  }
+  const changeDept = (val) => {
+    setEditDept(val)
+    if (val !== task.department) saveField('department', val || null)
+  }
+  const blurStartDate = () => {
+    const next = editStartDate || null
+    if (next !== (task.start_date || null)) saveField('start_date', next)
+  }
+  const blurDuration = () => {
+    const next = Math.max(1, parseInt(editDuration, 10) || 1)
+    setEditDuration(next)
+    if (next !== (task.duration_days || 1)) saveField('duration_days', next)
+  }
   const [wipUpdates, setWipUpdates] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
@@ -84,34 +113,6 @@ export default function TaskDetailModal({
   }, [])
 
   // ── Handlers ──
-
-  const handleSaveEdit = async () => {
-    if (!editTitle.trim()) {
-      addToast?.('Il titolo non può essere vuoto', 'danger')
-      return
-    }
-    const duration = Math.max(1, parseInt(editDuration, 10) || 1)
-    setSavingEdit(true)
-    await onUpdate(task.id, {
-      title: editTitle.trim(),
-      description: editDesc.trim() || null,
-      department: editDept || null,
-      start_date: editStartDate || null,
-      duration_days: duration,
-    })
-    addToast?.('Modifiche salvate', 'success')
-    setSavingEdit(false)
-    setEditing(false)
-  }
-
-  const handleCancelEdit = () => {
-    setEditTitle(task.title || '')
-    setEditDesc(task.description || '')
-    setEditDept(task.department || '')
-    setEditStartDate(task.start_date || '')
-    setEditDuration(task.duration_days || 1)
-    setEditing(false)
-  }
 
   const handleAction = async (action, updates, successMsg) => {
     setActionLoading(action)
@@ -273,32 +274,35 @@ export default function TaskDetailModal({
           />
         </div>
       )}
-      {staff && editing ? (
+      {staff ? (
         <>
           <div>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Title</span>
-            <Input value={editTitle} onChange={setEditTitle} placeholder="Task title" />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Title</span>
+              {savedFlash && <span style={{ fontSize: 10, color: '#10B981', fontWeight: 600 }}>✓ Salvato</span>}
+            </div>
+            <Input value={editTitle} onChange={setEditTitle} onBlur={blurTitle} placeholder="Task title" />
           </div>
           <div>
             <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Department</span>
-            <Select value={editDept} onChange={setEditDept} options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" style={{ fontSize: 13 }} />
+            <Select value={editDept} onChange={changeDept} options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" style={{ fontSize: 13 }} />
           </div>
           <div>
             <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Description</span>
-            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" rows={4}
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} onBlur={blurDesc} placeholder="Description" rows={4}
               style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box' }} />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1 }}>
               <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Inizio</span>
               <input type="date" value={editStartDate}
-                onChange={e => setEditStartDate(e.target.value)}
+                onChange={e => setEditStartDate(e.target.value)} onBlur={blurStartDate}
                 style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
             </div>
             <div style={{ flex: 1 }}>
               <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, display: 'block', marginBottom: 6 }}>Durata (giorni)</span>
               <input type="number" min={1} value={editDuration}
-                onChange={e => setEditDuration(e.target.value)}
+                onChange={e => setEditDuration(e.target.value)} onBlur={blurDuration}
                 style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
             </div>
           </div>
@@ -313,21 +317,13 @@ export default function TaskDetailModal({
       {staff && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Actions</span>
-          {editing ? (
-            <>
-              <Btn variant="primary" loading={savingEdit} onClick={handleSaveEdit} style={{ width: '100%', justifyContent: 'center' }}>Salva Modifiche</Btn>
-              <Btn variant="info" onClick={handleCancelEdit} style={{ width: '100%', justifyContent: 'center' }}>Annulla</Btn>
-            </>
-          ) : (
-            <Btn variant="info" onClick={() => setEditing(true)} style={{ width: '100%', justifyContent: 'center' }}>✎ Modifica</Btn>
-          )}
-          {!editing && task.status === 'todo' && (
+          {task.status === 'todo' && (
             <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task started!')} style={{ width: '100%', justifyContent: 'center' }}>Start</Btn>
           )}
-          {!editing && task.status === 'wip' && hasWipUpdates && (
+          {task.status === 'wip' && hasWipUpdates && (
             <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ width: '100%', justifyContent: 'center' }}>Submit for Review</Btn>
           )}
-          {!editing && task.status === 'review' && (
+          {task.status === 'review' && (
             <>
               <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
               <Btn variant="info" loading={actionLoading === 'reject'} onClick={handleReject} style={{ width: '100%', justifyContent: 'center' }}>
@@ -350,7 +346,7 @@ export default function TaskDetailModal({
               )}
             </>
           )}
-          {!editing && task.status === 'approved' && isSuperAdmin(user) && (
+          {task.status === 'approved' && isSuperAdmin(user) && (
             <Btn variant="info" loading={actionLoading === 'reopen'}
               onClick={() => requestConfirm('Riportare questo task in WIP?', async () => {
                 setActionLoading('reopen')
@@ -363,7 +359,7 @@ export default function TaskDetailModal({
               ↩ Riporta in WIP
             </Btn>
           )}
-          {!editing && <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>}
+          <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>
         </div>
       )}
     </div>
