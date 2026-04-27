@@ -249,15 +249,38 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
   }, [rangeStart, rangeDays, dayW])
 
   const existingLanes = laneRecords.map(l => l.name)
-  const [showNewLane, setShowNewLane] = useState(false)
-  const [newLaneName, setNewLaneName] = useState('')
+  // Inline editing state for lane names. `editingLaneId` is the lane.id being renamed,
+  // or the literal string 'new' for the bottom "+ Add" placeholder slot.
+  const [editingLaneId, setEditingLaneId] = useState(null)
+  const [laneDraft, setLaneDraft] = useState('')
 
-  const submitNewLane = async () => {
-    const name = newLaneName.trim()
-    if (!name) { setShowNewLane(false); return }
-    await onCreateLane(name)
-    setNewLaneName('')
-    setShowNewLane(false)
+  const startEditLane = (record) => {
+    setEditingLaneId(record.id)
+    setLaneDraft(record.name)
+  }
+
+  const startNewLane = () => {
+    setEditingLaneId('new')
+    setLaneDraft('')
+  }
+
+  const commitLaneEdit = async () => {
+    const name = laneDraft.trim()
+    if (editingLaneId === 'new') {
+      if (name) await onCreateLane(name)
+    } else if (editingLaneId) {
+      const record = laneRecords.find(l => l.id === editingLaneId)
+      if (record && name && name !== record.name) {
+        await onUpdateLane(record.id, { name })
+      }
+    }
+    setEditingLaneId(null)
+    setLaneDraft('')
+  }
+
+  const cancelLaneEdit = () => {
+    setEditingLaneId(null)
+    setLaneDraft('')
   }
 
   const handleDeleteLane = (laneName) => {
@@ -321,19 +344,6 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
                 }}>{v.label}</button>
               ))}
             </div>
-            {canEdit && (
-              showNewLane ? (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={newLaneName} onChange={e => setNewLaneName(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') submitNewLane(); if (e.key === 'Escape') { setShowNewLane(false); setNewLaneName('') } }}
-                    placeholder="Nome lane" autoFocus
-                    style={{ padding: '8px 12px', fontSize: 13, border: '1px solid #E2E8F0', borderRadius: 10, outline: 'none', background: '#fff' }} />
-                  <Btn variant="primary" onClick={submitNewLane}>OK</Btn>
-                </div>
-              ) : (
-                <Btn variant="info" onClick={() => setShowNewLane(true)}>+ Lane</Btn>
-              )
-            )}
             {canEdit && <Btn variant="primary" onClick={() => setEditing('new')}>+ Nuovo elemento</Btn>}
           </div>
         </div>
@@ -345,7 +355,7 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
         background: '#fff', border: '1px solid #E8ECF1', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         position: 'relative',
       }}>
-        <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
+        <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH + (canEdit ? ROW_H : 0), 240) }}>
           {/* Lane column corner — empty, no borders so the corner blends into the card */}
           <div style={{
             position: 'sticky', top: 0, left: 0, zIndex: 4,
@@ -407,37 +417,111 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
 
           {/* Lane rows */}
           <div style={{ position: 'relative' }}>
-            {lanes.map(([laneName, laneItems], li) => (
-              <div key={laneName} style={{
-                position: 'absolute', top: HEADER_H + li * ROW_H, left: 0,
-                width: LANE_W + totalW, height: ROW_H,
+            {lanes.map(([laneName, laneItems], li) => {
+              const record = laneRecords.find(l => l.name === laneName)
+              const isEditing = editingLaneId && record && editingLaneId === record.id
+              const isRecord = !!record
+              const rowBg = li % 2 === 0 ? '#FAFBFD' : '#fff'
+              return (
+                <div key={laneName} style={{
+                  position: 'absolute', top: HEADER_H + li * ROW_H, left: 0,
+                  width: LANE_W + totalW, height: ROW_H,
+                  borderBottom: '1px solid #F1F5F9',
+                  background: rowBg,
+                }}>
+                  <div className="gantt-lane-label" style={{
+                    position: 'sticky', left: 0, zIndex: 2,
+                    display: 'inline-flex', width: LANE_W, height: '100%',
+                    alignItems: 'center', padding: '0 12px 0 16px',
+                    background: rowBg,
+                    borderRight: '1px solid #E2E8F0',
+                    fontSize: 13, fontWeight: 600, color: '#1a1a1a',
+                    boxSizing: 'border-box', justifyContent: 'space-between', gap: 6,
+                  }}>
+                    {isEditing ? (
+                      <input
+                        autoFocus
+                        value={laneDraft}
+                        onChange={e => setLaneDraft(e.target.value)}
+                        onBlur={commitLaneEdit}
+                        onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = ''; cancelLaneEdit() } }}
+                        style={{
+                          flex: 1, minWidth: 0, padding: '6px 8px', fontSize: 13, fontWeight: 600,
+                          border: '1.5px solid ' + ACCENT, borderRadius: 6, outline: 'none',
+                          background: '#fff', color: '#1a1a1a', fontFamily: 'inherit',
+                        }}
+                      />
+                    ) : (
+                      <span
+                        onClick={canEdit && isRecord ? () => startEditLane(record) : undefined}
+                        title={canEdit && isRecord ? 'Click per rinominare' : undefined}
+                        style={{
+                          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          cursor: canEdit && isRecord ? 'text' : 'default',
+                          padding: '6px 0',
+                        }}
+                      >{laneName}</span>
+                    )}
+                    {canEdit && isRecord && !isEditing && (
+                      <button onClick={() => handleDeleteLane(laneName)} title="Elimina lane" style={{
+                        background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer',
+                        padding: 4, borderRadius: 6, fontSize: 14, lineHeight: 1, opacity: 0.6, flexShrink: 0,
+                      }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = '#EF4444' }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.color = '#94A3B8' }}
+                      >×</button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* "+ Lane" pseudo-row at the bottom — Excel-style inline create */}
+            {canEdit && (
+              <div style={{
+                position: 'absolute', top: HEADER_H + lanes.length * ROW_H, left: 0,
+                width: LANE_W, height: ROW_H,
                 borderBottom: '1px solid #F1F5F9',
-                background: li % 2 === 0 ? '#FAFBFD' : '#fff',
+                background: '#fff',
               }}>
-                {/* Lane label (sticky-ish via box) */}
                 <div className="gantt-lane-label" style={{
                   position: 'sticky', left: 0, zIndex: 2,
                   display: 'inline-flex', width: LANE_W, height: '100%',
-                  alignItems: 'center', padding: '0 16px',
-                  background: li % 2 === 0 ? '#FAFBFD' : '#fff',
-                  borderRight: '1px solid #E2E8F0',
-                  fontSize: 13, fontWeight: 600, color: '#1a1a1a',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  boxSizing: 'border-box', justifyContent: 'space-between', gap: 6,
+                  alignItems: 'center', padding: '0 12px 0 16px',
+                  background: '#fff', borderRight: '1px solid #E2E8F0',
+                  boxSizing: 'border-box', gap: 6,
                 }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{laneName}</span>
-                  {canEdit && laneRecords.some(l => l.name === laneName) && (
-                    <button onClick={() => handleDeleteLane(laneName)} title="Elimina lane" style={{
-                      background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer',
-                      padding: 4, borderRadius: 6, fontSize: 14, lineHeight: 1, opacity: 0.6,
+                  {editingLaneId === 'new' ? (
+                    <input
+                      autoFocus
+                      value={laneDraft}
+                      onChange={e => setLaneDraft(e.target.value)}
+                      onBlur={commitLaneEdit}
+                      onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = ''; cancelLaneEdit() } }}
+                      placeholder="Nome lane…"
+                      style={{
+                        flex: 1, minWidth: 0, padding: '6px 8px', fontSize: 13, fontWeight: 600,
+                        border: '1.5px solid ' + ACCENT, borderRadius: 6, outline: 'none',
+                        background: '#fff', color: '#1a1a1a', fontFamily: 'inherit',
+                      }}
+                    />
+                  ) : (
+                    <button onClick={startNewLane} style={{
+                      flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      padding: '6px 0', fontSize: 13, fontWeight: 600, color: '#94A3B8',
+                      textAlign: 'left', fontFamily: 'inherit',
                     }}
-                      onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = '#EF4444' }}
-                      onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.color = '#94A3B8' }}
-                    >×</button>
+                      onMouseEnter={e => { e.currentTarget.style.color = ACCENT }}
+                      onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
+                    >
+                      <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                      <span>Aggiungi lane</span>
+                    </button>
                   )}
                 </div>
               </div>
-            ))}
+            )}
 
             {/* Day grid lines + weekend shading (in timeline area) */}
             <div style={{ position: 'absolute', top: HEADER_H, left: LANE_W, width: totalW, height: totalH, pointerEvents: 'none' }}>
