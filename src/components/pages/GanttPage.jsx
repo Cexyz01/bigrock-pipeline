@@ -87,6 +87,10 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
   const dragMovedRef = useRef(false)
   // Track the last applied delta so we skip redundant updates without missing the 0-crossing.
   const lastDeltaRef = useRef(0)
+  const lastLaneIdxRef = useRef(0)
+  // Keep a ref of the current ordered lane names so the move handler isn't stale.
+  const laneNamesRef = useRef([])
+  laneNamesRef.current = lanes.map(([n]) => n)
 
   const handlePointerDown = useCallback((e, item, mode) => {
     if (!canEdit) return
@@ -95,28 +99,45 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
     e.target.setPointerCapture?.(e.pointerId)
     dragMovedRef.current = false
     lastDeltaRef.current = 0
+    lastLaneIdxRef.current = 0
+    const origLane = item.lane || 'Senza lane'
     setDrag({
       id: item.id, mode,
-      startX: e.clientX,
+      startX: e.clientX, startY: e.clientY,
       origStart: item.start_date,
       origEnd: item.end_date,
+      origLane,
+      origLaneIndex: laneNamesRef.current.indexOf(origLane),
     })
   }, [canEdit])
 
   const handlePointerMove = useCallback((e) => {
     if (!drag) return
     const deltaDays = Math.round((e.clientX - drag.startX) / dayW)
-    if (Math.abs(e.clientX - drag.startX) > 3) dragMovedRef.current = true
-    // Skip only if the delta hasn't changed since the last applied state — including the 0-crossing,
-    // otherwise reversing direction visually skips a cell.
-    if (deltaDays === lastDeltaRef.current) return
+    const laneDelta = Math.round((e.clientY - drag.startY) / ROW_H)
+    if (Math.abs(e.clientX - drag.startX) > 3 || Math.abs(e.clientY - drag.startY) > 3) dragMovedRef.current = true
+    // Skip only if neither delta changed — including the 0-crossing case for both axes.
+    if (deltaDays === lastDeltaRef.current && laneDelta === lastLaneIdxRef.current) return
     lastDeltaRef.current = deltaDays
+    lastLaneIdxRef.current = laneDelta
     setLocalItems(prev => prev.map(it => {
       if (it.id !== drag.id) return it
       const origS = parseDate(drag.origStart)
       const origE = parseDate(drag.origEnd)
       let newS = origS, newE = origE
-      if (drag.mode === 'move')   { newS = addDays(origS, deltaDays); newE = addDays(origE, deltaDays) }
+      let newLane = it.lane
+      if (drag.mode === 'move') {
+        newS = addDays(origS, deltaDays); newE = addDays(origE, deltaDays)
+        // Vertical drag: snap to lane row (only for 'move', resizes stay in their lane)
+        if (drag.origLaneIndex >= 0 && laneNamesRef.current.length > 0) {
+          const targetIdx = Math.max(0, Math.min(laneNamesRef.current.length - 1, drag.origLaneIndex + laneDelta))
+          const targetLane = laneNamesRef.current[targetIdx]
+          // Don't snap into the synthetic "Senza lane" bucket unless that's where we started.
+          if (targetLane !== 'Senza lane' || drag.origLane === 'Senza lane') {
+            newLane = targetLane
+          }
+        }
+      }
       if (drag.mode === 'resize-start') {
         newS = addDays(origS, deltaDays)
         if (newS > origE) newS = origE
@@ -125,7 +146,7 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
         newE = addDays(origE, deltaDays)
         if (newE < origS) newE = origS
       }
-      return { ...it, start_date: toISO(newS), end_date: toISO(newE) }
+      return { ...it, start_date: toISO(newS), end_date: toISO(newE), lane: newLane }
     }))
   }, [drag, dayW])
 
@@ -133,8 +154,15 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
     if (!drag) return
     const moved = localItems.find(it => it.id === drag.id)
     setDrag(null)
-    if (moved && (moved.start_date !== drag.origStart || moved.end_date !== drag.origEnd)) {
-      await onUpdate(drag.id, { start_date: moved.start_date, end_date: moved.end_date })
+    if (!moved) return
+    const updates = {}
+    if (moved.start_date !== drag.origStart) updates.start_date = moved.start_date
+    if (moved.end_date !== drag.origEnd) updates.end_date = moved.end_date
+    if ((moved.lane || '') !== (drag.origLane === 'Senza lane' ? '' : drag.origLane)) {
+      updates.lane = moved.lane === 'Senza lane' ? '' : moved.lane
+    }
+    if (Object.keys(updates).length > 0) {
+      await onUpdate(drag.id, updates)
     }
   }, [drag, localItems, onUpdate])
 
