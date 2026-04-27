@@ -337,12 +337,40 @@ export default function GanttPage({
               const top = HEADER_H + ri * ROW_H
               if (row.kind === 'lane') {
                 const isCollapsed = collapsed.has(row.dept.id)
+                const laneTasks = tasksByDept[row.dept.id] || []
+                // Aggregate bar: span from earliest start to latest end across the dept's scheduled tasks.
+                let agg = null
+                if (laneTasks.length > 0) {
+                  let minS = parseDate(laneTasks[0].start_date)
+                  let maxE = addDays(minS, (laneTasks[0].duration_days || 1) - 1)
+                  for (const lt of laneTasks) {
+                    const s2 = parseDate(lt.start_date)
+                    const e2 = addDays(s2, (lt.duration_days || 1) - 1)
+                    if (s2 < minS) minS = s2
+                    if (e2 > maxE) maxE = e2
+                  }
+                  const ax = LANE_W + daysBetween(rangeStart, minS) * dayW + 4
+                  const aw = Math.max(dayW * 0.6, (daysBetween(minS, maxE) + 1) * dayW - 8)
+                  agg = { x: ax, w: aw, days: workingDays(minS, maxE) }
+                }
                 return (
                   <div key={`lane-${row.dept.id}`} style={{
                     position: 'absolute', top, left: 0, width: LANE_W + totalW, height: ROW_H,
                     borderBottom: '1px solid #E8ECF1',
                     background: `${row.dept.color}10`,
                   }}>
+                    {/* Aggregate bar — sits behind any later interactions but above the row bg */}
+                    {agg && (
+                      <div title={`Span totale ${row.dept.label}: ${agg.days}g lavorativi`} style={{
+                        position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
+                        background: `repeating-linear-gradient(135deg, ${row.dept.color}99 0 8px, ${row.dept.color}66 8px 16px)`,
+                        borderRadius: 6, border: `1.5px solid ${row.dept.color}`,
+                        pointerEvents: 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                        padding: '0 10px', color: '#fff', fontSize: 10, fontWeight: 700,
+                        textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                      }}>{agg.days}g</div>
+                    )}
                     {/* Sticky lane header */}
                     <div style={{
                       position: 'sticky', left: 0, zIndex: 2,
@@ -378,6 +406,9 @@ export default function GanttPage({
               const w = Math.max(dayW * 0.6, (t.duration_days || 1) * dayW - 8)
               const isDragging = drag?.id === t.id
               const rowBg = ri % 2 === 0 ? '#FAFBFD' : '#fff'
+              // Display label: "Asset: Title" or "ShotCode: Title", fallback to just title
+              const containerLabel = t.asset?.name || t.shot?.code || ''
+              const fullLabel = containerLabel ? `${containerLabel}: ${t.title}` : t.title
               return (
                 <div key={`task-${t.id}`} style={{
                   position: 'absolute', top, left: 0, width: LANE_W + totalW, height: ROW_H,
@@ -390,11 +421,11 @@ export default function GanttPage({
                     alignItems: 'center', padding: '0 12px 0 36px', gap: 8,
                     background: rowBg, borderRight: `2px solid ${row.dept.color}`,
                     boxSizing: 'border-box',
-                  }}>
+                  }} title={fullLabel}>
                     <span style={{
                       fontSize: 12, color: '#1a1a1a', flex: 1,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{t.title}</span>
+                    }}>{fullLabel}</span>
                   </div>
                   {/* Bar */}
                   <div
@@ -414,7 +445,7 @@ export default function GanttPage({
                       transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
                       userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
                     }}
-                    title={`${t.title}\n${t.start_date} · ${t.duration_days} giorni`}
+                    title={`${fullLabel}\n${t.start_date} · ${t.duration_days} giorni`}
                   >
                     {/* Weekend dim overlays */}
                     {(() => {
@@ -436,7 +467,7 @@ export default function GanttPage({
                       <div onPointerDown={(ev) => handlePointerDown(ev, t, 'resize-start')}
                         style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' }} />
                     )}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{t.title}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{fullLabel}</span>
                     <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0, position: 'relative' }}>
                       {workingDays(s, e)}g
                     </span>
