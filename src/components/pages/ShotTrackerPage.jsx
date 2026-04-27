@@ -154,46 +154,64 @@ export default function ShotTrackerPage({
   const seqs = [...new Set(shots.map(sh => sh.sequence))].sort()
   const sortedAssets = [...assets].sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name))
 
+  const columnsHeader = activeTab === 'shots' ? (
+    <div style={{
+      display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `280px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
+      padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1',
+    }}>
+      <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Shot</div>
+      {DEPTS.map(d => (
+        <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div style={{
+      display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `280px repeat(${ASSET_DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
+      padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1',
+    }}>
+      <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Asset</div>
+      {ASSET_DEPTS.map(d => (
+        <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <div style={{ maxWidth: '100%' }}>
-      <Fade>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center',
-          marginBottom: isMobile ? 16 : 28, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 0,
-        }}>
-          <div>
-            <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Shot Tracker</h1>
-            <p style={{ fontSize: isMobile ? 12 : 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
+      <div style={{ position: 'sticky', top: 0, background: '#F0F2F5', zIndex: 5, paddingTop: isMobile ? 8 : 12, marginBottom: 6 }}>
+        <Fade>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center',
+            marginBottom: isMobile ? 12 : 20, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 0,
+          }}>
+            <div>
+              <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Shot Tracker</h1>
+              <p style={{ fontSize: isMobile ? 12 : 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {staff && activeTab === 'assets' && <Btn variant="primary" onClick={() => setShowCreateAsset(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Asset</Btn>}
+              {staff && activeTab === 'shots' && <Btn variant="primary" onClick={() => setShowCreate(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Shot</Btn>}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {staff && activeTab === 'assets' && <Btn variant="primary" onClick={() => setShowCreateAsset(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Asset</Btn>}
-            {staff && activeTab === 'shots' && <Btn variant="primary" onClick={() => setShowCreate(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Shot</Btn>}
-          </div>
-        </div>
-      </Fade>
+        </Fade>
 
-      {/* Tab switcher */}
-      <Fade delay={40}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <Pill label={`Shots${shots.length ? ` · ${shots.length}` : ''}`} active={activeTab === 'shots'} onClick={() => setActiveTab('shots')} />
-          <Pill label={`Assets${assets.length ? ` · ${assets.length}` : ''}`} active={activeTab === 'assets'} onClick={() => setActiveTab('assets')} />
-        </div>
-      </Fade>
+        {/* Tab switcher */}
+        <Fade delay={40}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <Pill label={`Shots${shots.length ? ` · ${shots.length}` : ''}`} active={activeTab === 'shots'} onClick={() => setActiveTab('shots')} />
+            <Pill label={`Assets${assets.length ? ` · ${assets.length}` : ''}`} active={activeTab === 'assets'} onClick={() => setActiveTab('assets')} />
+          </div>
+        </Fade>
+
+        {columnsHeader}
+      </div>
 
       {activeTab === 'assets' && (
         <div style={{ width: 'fit-content', maxWidth: '100%' }}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `280px repeat(${ASSET_DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
-            padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
-            position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
-          }}>
-            <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Asset</div>
-            {ASSET_DEPTS.map(d => (
-              <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
-              </div>
-            ))}
-          </div>
           {sortedAssets.length === 0 ? (
             <EmptyState title="No assets" sub={staff ? 'Add the first asset to get started' : 'Assets will appear here'} />
           ) : (
@@ -222,19 +240,6 @@ export default function ShotTrackerPage({
 
       {activeTab === 'shots' && (
         <div style={{ width: 'fit-content', maxWidth: '100%' }}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `280px repeat(${DEPTS.length}, 72px) 56px`, gap: isMobile ? 2 : 10,
-            padding: '10px 0 12px', borderBottom: '1px solid #E8ECF1', marginBottom: 6,
-            position: 'sticky', top: 60, background: '#F0F2F5', zIndex: 5,
-          }}>
-            <div style={{ fontSize: isMobile ? 10 : 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: isMobile ? 4 : 8 }}>Shot</div>
-            {DEPTS.map(d => (
-              <div key={d.id} style={{ fontSize: isMobile ? 8 : 11, textAlign: 'center', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <div style={{ fontSize: isMobile ? 8 : 10, marginTop: 2, fontWeight: 500 }}>{isMobile ? d.label.slice(0, 4) : d.label}</div>
-              </div>
-            ))}
-          </div>
-
           {shots.length === 0 ? (
             <EmptyState title="No shots" sub={staff ? 'Add the first shot to get started' : 'Shots will appear here'} />
           ) : (

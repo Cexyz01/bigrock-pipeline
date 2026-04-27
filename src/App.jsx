@@ -968,7 +968,8 @@ export default function App() {
             )}
           </div>
         ) : (
-          <div style={{ flex: 1, padding: contentPadding, overflowY: 'auto', ...(isMobile ? { overflowX: 'hidden' } : { maxWidth: 1400 }), width: '100%', margin: '0 auto' }}>
+          <div style={{ flex: 1, overflowY: 'auto', ...(isMobile ? { overflowX: 'hidden' } : {}), width: '100%' }}>
+          <div style={{ padding: contentPadding, ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             {view === 'overview' && <OverviewPage shots={shots} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
             {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
@@ -978,6 +979,7 @@ export default function App() {
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} />}
             {view === 'projects' && (hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || myPerms.can_manage_project || hasPermission(user, 'create_projects')) && <ProjectManagementPage user={user} profiles={profiles} projects={projects} myPerms={myPerms} onRefreshProjects={refreshProjects} onRefreshProfiles={async () => { const p = await getAllProfiles(); setProfiles(p) }} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'notifications' && renderMobileNotifications()}
+          </div>
           </div>
         )}
       </div>
