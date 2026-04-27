@@ -1071,7 +1071,7 @@ export default function App() {
       {/* Main content */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Full-bleed views: storyboard, timeline, pack — no padding, no maxWidth */}
-        {(view === 'storyboard' || view === 'timeline' || view === 'pack' || view === 'gantt') ? (
+        {(view === 'storyboard' || view === 'timeline' || view === 'pack' || view === 'gantt' || view === 'review') ? (
           <div style={{ flex: 1, overflow: 'hidden', ...(isMobile ? { paddingBottom: 49 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
             {view === 'timeline' && hasPermission(user, 'access_timeline') && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
@@ -1085,6 +1085,12 @@ export default function App() {
                 onUpdateProjectDates={handleUpdateProjectDates}
                 addToast={addToast} requestConfirm={requestConfirm} />
             )}
+            {view === 'review' && myPerms.can_review && (
+              <ReviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user}
+                currentProject={currentProject} ganttItems={ganttItems} ganttLanes={ganttLanes}
+                onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask}
+                addToast={addToast} requestConfirm={requestConfirm} />
+            )}
           </div>
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', ...(isMobile ? { overflowX: 'hidden' } : {}), width: '100%' }}>
@@ -1092,7 +1098,6 @@ export default function App() {
             {view === 'overview' && <OverviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
             {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
-            {view === 'review' && myPerms.can_review && <ReviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} ganttItems={ganttItems} ganttLanes={ganttLanes} onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} />}

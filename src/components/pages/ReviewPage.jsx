@@ -80,7 +80,7 @@ export default function ReviewPage({
   }, [shots, assets])
 
   return (
-    <div style={{ background: '#F0F2F5' }}>
+    <div style={{ background: '#F0F2F5', height: '100%', overflowY: 'auto' }}>
       <Hero project={currentProject} progress={progress} reviewCount={reviewTasks.length} />
 
       {/* Tasks */}
