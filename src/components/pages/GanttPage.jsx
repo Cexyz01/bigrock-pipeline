@@ -346,11 +346,11 @@ export default function GanttPage({ items, lanes: laneRecords = [], currentProje
         position: 'relative',
       }}>
         <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
-          {/* Lane column corner — kept empty so the header band lines up but no redundant "LANE" label */}
+          {/* Lane column corner — empty, no borders so the corner blends into the card */}
           <div style={{
             position: 'sticky', top: 0, left: 0, zIndex: 4,
             width: LANE_W, height: HEADER_H,
-            background: '#fff', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0',
+            background: '#fff',
           }} />
 
           {/* Timeline header (sticky top) */}
