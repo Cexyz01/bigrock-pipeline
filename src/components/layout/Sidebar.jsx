@@ -512,8 +512,16 @@ export default function Sidebar({
             <div style={{ overflow: 'hidden', maxHeight: hovered ? 40 : 0, transition: 'max-height 0.25s ease', padding: '0 12px' }}>
               <button onClick={onSignOut}
                 style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid #2d2d2d', borderRadius: 8, padding: '6px 0', color: '#94A3B8', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s ease', marginTop: 4 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = '#EF4444'
+                  e.currentTarget.style.borderColor = '#EF4444'
+                  e.currentTarget.style.color = '#fff'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                  e.currentTarget.style.borderColor = '#2d2d2d'
+                  e.currentTarget.style.color = '#94A3B8'
+                }}
               >
                 <IconLogOut size={14} /> Sign Out
               </button>
