@@ -80,10 +80,11 @@ export default function ReviewPage({
   }, [shots, assets])
 
   return (
-    <div style={{ background: '#F0F2F5', height: '100%', overflowY: 'auto' }}>
+    <div style={{ background: '#1a1a1a', height: '100%', overflowY: 'auto' }}>
       <Hero project={currentProject} progress={progress} reviewCount={reviewTasks.length} />
 
       {/* Tasks */}
+      <div style={{ background: '#F0F2F5', paddingTop: 40 }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px 40px' }}>
         {reviewTasks.length === 0 ? (
           <div style={{ background: '#fff', borderRadius: 24, padding: 60, border: '1px solid #E8ECF1' }}>
@@ -117,6 +118,7 @@ export default function ReviewPage({
           <MiniGantt items={ganttItems} lanes={ganttLanes} project={currentProject} />
         </div>
       )}
+      </div>
     </div>
   )
 }
@@ -131,7 +133,6 @@ function Hero({ project, progress, reviewCount }) {
       position: 'relative',
       background: `linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)`,
       color: '#fff', padding: '60px 32px 80px',
-      marginBottom: 40,
       overflow: 'hidden',
     }}>
       {/* Decorative orange glow */}
