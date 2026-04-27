@@ -4,6 +4,7 @@ import Modal from '../ui/Modal'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 import Btn from '../ui/Btn'
+import AssigneePicker from './AssigneePicker'
 
 export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill }) {
   // target: 'shot' or 'asset'
@@ -89,21 +90,7 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
           options={depts.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" />
         <div>
           <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Assign to students (optional, multi)</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 140, overflowY: 'auto', padding: 4 }}>
-            {students.map(s => {
-              const active = form.assignee_ids.includes(s.id)
-              return (
-                <button key={s.id} type="button" onClick={() => toggleAssignee(s.id)} style={{
-                  padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  border: `1.5px solid ${active ? ACCENT : '#E2E8F0'}`,
-                  background: active ? `${ACCENT}18` : '#fff',
-                  color: active ? ACCENT : '#64748B',
-                  transition: 'all 0.15s ease',
-                }}>{active ? '✓ ' : ''}{s.full_name}</button>
-              )
-            })}
-            {students.length === 0 && <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>No students available</span>}
-          </div>
+          <AssigneePicker students={students} selectedIds={form.assignee_ids} onToggle={toggleAssignee} selectedDept={form.department} />
         </div>
 
         {target === 'shot' ? (

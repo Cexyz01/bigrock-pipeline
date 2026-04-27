@@ -9,6 +9,7 @@ import Input from '../ui/Input'
 import Select from '../ui/Select'
 import ImageLightbox from '../ui/ImageLightbox'
 import { IconX, IconImage, IconSend, IconCheck } from '../ui/Icons'
+import AssigneePicker from './AssigneePicker'
 import { cld } from '../../lib/cld'
 
 const MAX_IMAGES = 4
@@ -255,20 +256,12 @@ export default function TaskDetailModal({
       {staff && (
         <div>
           <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginBottom: 6 }}>Manage assignees (click to toggle)</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {students.map(s => {
-              const active = assignees.some(a => a.user.id === s.id)
-              return (
-                <button key={s.id} type="button" onClick={() => toggleAssignee(s.id)} style={{
-                  padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  border: `1.5px solid ${active ? '#F28C28' : '#E2E8F0'}`,
-                  background: active ? '#F28C2818' : '#fff',
-                  color: active ? '#F28C28' : '#64748B',
-                  transition: 'all 0.15s ease',
-                }}>{active ? '✓ ' : ''}{s.full_name}</button>
-              )
-            })}
-          </div>
+          <AssigneePicker
+            students={students}
+            selectedIds={assignees.map(a => a.user.id)}
+            onToggle={toggleAssignee}
+            selectedDept={task.department}
+          />
         </div>
       )}
       {staff && editing ? (
