@@ -116,11 +116,11 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
           {canStart && (
             <button onClick={handleStartClick} style={{
               fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 8,
-              background: '#F28C28', color: '#fff', border: 'none', cursor: 'pointer',
+              background: '#10B981', color: '#fff', border: 'none', cursor: 'pointer',
               transition: 'background 0.15s ease',
             }}
-              onMouseEnter={e => e.currentTarget.style.background = '#E07A1E'}
-              onMouseLeave={e => e.currentTarget.style.background = '#F28C28'}
+              onMouseEnter={e => e.currentTarget.style.background = '#059669'}
+              onMouseLeave={e => e.currentTarget.style.background = '#10B981'}
             >▶ Start</button>
           )}
           <StatusBadge status={task.status} type="task" />

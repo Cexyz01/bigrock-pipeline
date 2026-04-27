@@ -32,6 +32,7 @@ export default function TasksPage({
 }) {
   const [filter, setFilter] = useState({ dept: '', status: '', user: '', shot: '', asset: '' })
   const [showCreate, setShowCreate] = useState(false)
+  const [createPrefill, setCreatePrefill] = useState(null)
   const [selectedTask, setSelectedTask] = useState(null)
   const [viewMode, setViewMode] = useState('all')
   const staff = hasPermission(user, 'create_edit_tasks')
@@ -178,7 +179,7 @@ export default function TasksPage({
             <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Tasks</h1>
             <p style={{ fontSize: 14, color: '#64748B' }}>{staff ? 'Manage all tasks' : 'Your tasks'}</p>
           </div>
-          {staff && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ New Task</Btn>}
+          {staff && <Btn variant="primary" onClick={() => { setCreatePrefill(null); setShowCreate(true) }}>+ New Task</Btn>}
         </div>
       </Fade>
 
@@ -248,6 +249,21 @@ export default function TasksPage({
                     <span style={{ fontSize: 14, fontWeight: 600, color: '#94A3B8' }}>No Shot / Asset</span>
                   )}
                   <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, marginLeft: 'auto', flexShrink: 0 }}>{group.tasks.length} task{group.tasks.length !== 1 ? 's' : ''}</span>
+                  {staff && group.kind !== 'none' && (
+                    <button
+                      onClick={() => {
+                        setCreatePrefill(group.kind === 'asset' ? { asset_id: group.asset.id } : { shot_id: group.shot.id })
+                        setShowCreate(true)
+                      }}
+                      style={{
+                        fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 8,
+                        background: '#F28C28', color: '#fff', border: 'none', cursor: 'pointer',
+                        flexShrink: 0, transition: 'background 0.15s ease',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#E07A1E'}
+                      onMouseLeave={e => e.currentTarget.style.background = '#F28C28'}
+                    >+ New Task</button>
+                  )}
                 </div>
                 {/* Tasks under this group */}
                 <div style={{
@@ -274,8 +290,8 @@ export default function TasksPage({
       )}
 
       {/* Create Task Modal */}
-      <CreateTaskModal open={showCreate} onClose={() => setShowCreate(false)}
-        shots={shots} assets={assets} students={students} user={user} onCreate={onCreateTask} />
+      <CreateTaskModal open={showCreate} onClose={() => { setShowCreate(false); setCreatePrefill(null) }}
+        shots={shots} assets={assets} students={students} user={user} onCreate={onCreateTask} prefill={createPrefill} />
 
       {/* Task Detail Modal */}
       {selectedTask && (

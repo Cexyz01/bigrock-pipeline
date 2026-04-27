@@ -1,14 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { SHOT_DEPTS, ASSET_DEPTS, ACCENT } from '../../lib/constants'
 import Modal from '../ui/Modal'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 import Btn from '../ui/Btn'
 
-export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate }) {
+export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill }) {
   // target: 'shot' or 'asset'
   const [target, setTarget] = useState('shot')
   const [form, setForm] = useState({ title: '', description: '', department: '', assigned_to: '', shot_id: '', asset_id: '', startNow: false })
+
+  // Apply prefill (asset_id / shot_id) when modal opens
+  useEffect(() => {
+    if (!open) return
+    if (prefill?.asset_id) {
+      setTarget('asset')
+      setForm(f => ({ ...f, asset_id: prefill.asset_id, shot_id: '' }))
+    } else if (prefill?.shot_id) {
+      setTarget('shot')
+      setForm(f => ({ ...f, shot_id: prefill.shot_id, asset_id: '' }))
+    }
+  }, [open, prefill?.asset_id, prefill?.shot_id])
 
   const depts = target === 'asset' ? ASSET_DEPTS : SHOT_DEPTS
 
