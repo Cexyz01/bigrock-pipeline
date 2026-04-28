@@ -547,7 +547,9 @@ export default function GanttPage({
               const w = Math.max(6, barRightX - barLeftX - 8)
               const isDragging = drag?.id === t.id
               const rowBg = ri % 2 === 0 ? '#FAFBFD' : '#fff'
-              const isUnassigned = !((t.assignees || []).length)
+              const assigneeCount = (t.assignees || []).length
+              const requiredCount = t.required_assignees || 1
+              const isUnassigned = assigneeCount < requiredCount
               // Display label: "Asset: Title" or "ShotCode: Title", fallback to just title
               const containerLabel = t.asset?.name || t.shot?.code || ''
               const fullLabel = containerLabel ? `${containerLabel}: ${t.title}` : t.title
@@ -590,7 +592,7 @@ export default function GanttPage({
                       transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
                       userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
                     }}
-                    title={`${fullLabel}\n${t.start_date} · ${t.duration_days} giorni`}
+                    title={`${fullLabel}\n${t.start_date} · ${t.duration_days} giorni\nAssegnati: ${assigneeCount}/${requiredCount}`}
                   >
                     {/* Weekend / pause dim overlays — positions are relative to the bar's left edge,
                         and each day uses its layout width so overlays stay aligned with the timeline. */}

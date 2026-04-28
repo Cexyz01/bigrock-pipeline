@@ -30,6 +30,7 @@ export default function TaskDetailModal({
   const [editDept, setEditDept] = useState(task.department || '')
   const [editStartDate, setEditStartDate] = useState(task.start_date || projectStartDate || '')
   const [editDuration, setEditDuration] = useState(task.duration_days || 1)
+  const [editRequired, setEditRequired] = useState(task.required_assignees || 1)
   const [savedFlash, setSavedFlash] = useState(false)
   // Track initial date-field value so blurring without a user edit doesn't auto-persist
   // the project default (only persist if user actually changes it).
@@ -43,6 +44,7 @@ export default function TaskDetailModal({
     setEditStartDate(initStart)
     initialStartRef.current = initStart
     setEditDuration(task.duration_days || 1)
+    setEditRequired(task.required_assignees || 1)
   }, [task.id, projectStartDate])
 
   const flashSaved = () => {
@@ -77,6 +79,11 @@ export default function TaskDetailModal({
     const next = Math.max(1, parseInt(editDuration, 10) || 1)
     setEditDuration(next)
     if (next !== (task.duration_days || 1)) saveField('duration_days', next)
+  }
+  const blurRequired = () => {
+    const next = Math.max(1, parseInt(editRequired, 10) || 1)
+    setEditRequired(next)
+    if (next !== (task.required_assignees || 1)) saveField('required_assignees', next)
   }
   const [wipUpdates, setWipUpdates] = useState([])
   const [loading, setLoading] = useState(true)
@@ -272,6 +279,12 @@ export default function TaskDetailModal({
               <span style={fieldLabel}>Durata (g)</span>
               <input type="number" min={1} value={editDuration}
                 onChange={e => setEditDuration(e.target.value)} onBlur={blurDuration}
+                style={compactInput} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={fieldLabel}>Richiesti</span>
+              <input type="number" min={1} value={editRequired}
+                onChange={e => setEditRequired(e.target.value)} onBlur={blurRequired}
                 style={compactInput} />
             </div>
           </div>

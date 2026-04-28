@@ -9,7 +9,7 @@ import AssigneePicker from './AssigneePicker'
 export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill, projectStartDate }) {
   // target: 'shot' or 'asset'
   const [target, setTarget] = useState('shot')
-  const [form, setForm] = useState({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false, start_date: '', duration_days: 5 })
+  const [form, setForm] = useState({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false, start_date: '', duration_days: 5, required_assignees: 1 })
 
   // Apply prefill (asset_id / shot_id) when modal opens; seed start date from project.
   useEffect(() => {
@@ -41,6 +41,7 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
   const handleCreate = async () => {
     if (!form.title || !form.department) return
     const duration = Math.max(1, parseInt(form.duration_days, 10) || 1)
+    const required = Math.max(1, parseInt(form.required_assignees, 10) || 1)
     await onCreate({
       title: form.title,
       description: form.description,
@@ -52,8 +53,9 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
       status: form.startNow ? 'wip' : 'todo',
       start_date: form.start_date || null,
       duration_days: duration,
+      required_assignees: required,
     })
-    setForm({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false, start_date: projectStartDate || '', duration_days: 5 })
+    setForm({ title: '', description: '', department: '', assignee_ids: [], shot_id: '', asset_id: '', startNow: false, start_date: projectStartDate || '', duration_days: 5, required_assignees: 1 })
     setTarget('shot')
     onClose()
   }
@@ -122,6 +124,12 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
             <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Durata (giorni)</div>
             <input type="number" min={1} value={form.duration_days}
               onChange={e => setForm(f => ({ ...f, duration_days: e.target.value }))}
+              style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Persone richieste</div>
+            <input type="number" min={1} value={form.required_assignees}
+              onChange={e => setForm(f => ({ ...f, required_assignees: e.target.value }))}
               style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
           </div>
         </div>
