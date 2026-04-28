@@ -150,6 +150,39 @@ export default function GanttPage({
       .filter(r => r.w > 0)
   }, [pauses, dateToX, dateToEndX])
 
+  // Position of each shot/asset in the canonical (Shot Tracker) page order, so tasks
+  // that share start_date fall in the same vertical order users see elsewhere.
+  const shotOrderMap = useMemo(() => {
+    const sorted = [...(shots || [])].sort((a, b) =>
+      (a.sequence || '').localeCompare(b.sequence || '') ||
+      ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+      (a.code || '').localeCompare(b.code || '')
+    )
+    const m = {}
+    sorted.forEach((s, i) => { m[s.id] = i })
+    return m
+  }, [shots])
+  const assetOrderMap = useMemo(() => {
+    const sorted = [...(assets || [])].sort((a, b) =>
+      ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+      (a.name || '').localeCompare(b.name || '')
+    )
+    const m = {}
+    sorted.forEach((a, i) => { m[a.id] = i })
+    return m
+  }, [assets])
+
+  const taskSortKey = useCallback((t) => {
+    // Tasks attached to shots come first within their dept, in shot order, then asset-bound
+    // tasks (offset to keep them after shots), then orphans (very large index).
+    const SHOT_BASE = 0
+    const ASSET_BASE = 100000
+    const ORPHAN_BASE = 200000
+    if (t.shot_id && shotOrderMap[t.shot_id] !== undefined) return SHOT_BASE + shotOrderMap[t.shot_id]
+    if (t.asset_id && assetOrderMap[t.asset_id] !== undefined) return ASSET_BASE + assetOrderMap[t.asset_id]
+    return ORPHAN_BASE
+  }, [shotOrderMap, assetOrderMap])
+
   // Stable vertical ordering: capture once per project so tasks don't snap to a new
   // row mid-drag when their start_date changes. New tasks added during the session
   // fall back to a sort-by-date placement (Infinity index → appended).
@@ -158,7 +191,11 @@ export default function GanttPage({
   if (!orderRef.current || orderRef.current.projectKey !== projectKey) {
     const sorted = [...tasks]
       .filter(t => t.department && t.start_date && t.duration_days)
-      .sort((a, b) => a.start_date.localeCompare(b.start_date) || (a.title || '').localeCompare(b.title || ''))
+      .sort((a, b) =>
+        a.start_date.localeCompare(b.start_date) ||
+        (taskSortKey(a) - taskSortKey(b)) ||
+        (a.title || '').localeCompare(b.title || '')
+      )
     const indexById = {}
     sorted.forEach((t, i) => { indexById[t.id] = i })
     orderRef.current = { projectKey, indexById }
@@ -635,9 +672,10 @@ export default function GanttPage({
                       )
                     })()}
                     {(() => {
-                      // Dynamic font size: shrink as the bar gets narrower so more of the title fits.
-                      const labelFont = w >= 110 ? 12 : w >= 80 ? 11 : w >= 55 ? 10 : w >= 35 ? 9 : 8
-                      const showDaysBadge = w >= 60
+                      // Dynamic font size: shrink aggressively as the bar gets narrower so more
+                      // of the title fits before the ellipsis kicks in.
+                      const labelFont = w >= 200 ? 12 : w >= 150 ? 11 : w >= 110 ? 10 : w >= 80 ? 9 : w >= 55 ? 8 : 7
+                      const showDaysBadge = w >= 90
                       return (
                         <>
                           <span style={{
