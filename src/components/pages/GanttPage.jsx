@@ -45,10 +45,11 @@ export default function GanttPage({
   const [selectedTaskId, setSelectedTaskId] = useState(null)
 
   const [zoom, setZoom] = useState('day')
+  const [groupBy, setGroupBy] = useState('dept') // 'dept' | 'entity'
   const [containerW, setContainerW] = useState(1200)
   const [drag, setDrag] = useState(null)
   const [localTasks, setLocalTasks] = useState(tasks)
-  const [collapsed, setCollapsed] = useState(new Set()) // dept ids that are collapsed
+  const [collapsed, setCollapsed] = useState(new Set()) // group ids that are collapsed
   useEffect(() => { setLocalTasks(tasks) }, [tasks])
 
   // Visible date range: project window if set, otherwise auto-fit around scheduled tasks
@@ -183,18 +184,31 @@ export default function GanttPage({
   }, [shotOrderMap, assetOrderMap])
 
   // Stable vertical ordering: capture once per project so tasks don't snap to a new
-  // row mid-drag when their start_date changes. New tasks added during the session
-  // fall back to a sort-by-date placement (Infinity index → appended).
+  // row mid-drag when their start_date changes. Within each (department, entity) group
+  // tasks share the group's earliest start_date as primary sort key, so all tasks of
+  // the same shot/asset appear together as a "mini-cascade" instead of being scattered.
   const orderRef = useRef(null)
   const projectKey = currentProject?.id || 'none'
   if (!orderRef.current || orderRef.current.projectKey !== projectKey) {
-    const sorted = [...tasks]
-      .filter(t => t.department && t.start_date && t.duration_days)
-      .sort((a, b) =>
-        a.start_date.localeCompare(b.start_date) ||
-        (taskSortKey(a) - taskSortKey(b)) ||
-        (a.title || '').localeCompare(b.title || '')
-      )
+    const validTasks = tasks.filter(t => t.department && t.start_date && t.duration_days)
+    const groupKey = (t) => `${t.department}|${t.shot_id || t.asset_id || 'orphan-' + t.id}`
+    // For each (dept, entity) group, find the earliest start_date — drives the group's row block.
+    const groupMinDate = {}
+    for (const t of validTasks) {
+      const k = groupKey(t)
+      if (!groupMinDate[k] || t.start_date < groupMinDate[k]) groupMinDate[k] = t.start_date
+    }
+    const sorted = [...validTasks].sort((a, b) => {
+      const ka = groupKey(a), kb = groupKey(b)
+      // 1. Group block ordered by its earliest task date (preserves overall cascade)
+      const cmpDate = (groupMinDate[ka] || '').localeCompare(groupMinDate[kb] || '')
+      if (cmpDate) return cmpDate
+      // 2. Same earliest date but different entity → use canonical shot/asset order
+      if (ka !== kb) return taskSortKey(a) - taskSortKey(b)
+      // 3. Same group → tasks of the same shot/asset cascade by their own start_date
+      return (a.start_date || '').localeCompare(b.start_date || '') ||
+             (a.title || '').localeCompare(b.title || '')
+    })
     const indexById = {}
     sorted.forEach((t, i) => { indexById[t.id] = i })
     orderRef.current = { projectKey, indexById }
@@ -224,18 +238,104 @@ export default function GanttPage({
     return m
   }, [localTasks, projectKey])
 
-  // Flatten visible rows: each dept lane is 1 header row, plus N task rows when expanded.
+  // Lookup of department definitions by id (for color/label of task bars in entity mode)
+  const deptById = useMemo(() => {
+    const m = {}; for (const d of DEPTS) m[d.id] = d; return m
+  }, [])
+
+  // Build lane groups for the current groupBy mode.
+  // Each group: { id, label, color, tasks[] } — id used for collapse state and react keys.
+  const groups = useMemo(() => {
+    if (groupBy === 'dept') {
+      return DEPTS.map(d => ({
+        id: `dept-${d.id}`,
+        label: d.label,
+        color: d.color,
+        kind: 'dept',
+        dept: d,
+        tasks: tasksByDept[d.id] || [],
+      }))
+    }
+    // Entity mode: one lane per shot/asset, tasks inside cascade by start_date.
+    // Tasks keep their dept color (computed at render time from t.department).
+    const byShot = new Map()
+    const byAsset = new Map()
+    const orphanTasks = []
+    for (const t of localTasks) {
+      if (!t.department || !t.start_date || !t.duration_days) continue
+      if (t.shot_id) {
+        if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, [])
+        byShot.get(t.shot_id).push(t)
+      } else if (t.asset_id) {
+        if (!byAsset.has(t.asset_id)) byAsset.set(t.asset_id, [])
+        byAsset.get(t.asset_id).push(t)
+      } else {
+        orphanTasks.push(t)
+      }
+    }
+    const sortByDate = (a, b) => (a.start_date || '').localeCompare(b.start_date || '') ||
+      (a.title || '').localeCompare(b.title || '')
+    for (const arr of byShot.values()) arr.sort(sortByDate)
+    for (const arr of byAsset.values()) arr.sort(sortByDate)
+    orphanTasks.sort(sortByDate)
+    // Walk shots in canonical Shot Tracker order, then assets in their order.
+    const sortedShots = [...(shots || [])].sort((a, b) =>
+      (a.sequence || '').localeCompare(b.sequence || '') ||
+      ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+      (a.code || '').localeCompare(b.code || '')
+    )
+    const sortedAssets = [...(assets || [])].sort((a, b) =>
+      ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+      (a.name || '').localeCompare(b.name || '')
+    )
+    const out = []
+    for (const s of sortedShots) {
+      const arr = byShot.get(s.id)
+      if (!arr || !arr.length) continue
+      out.push({
+        id: `shot-${s.id}`,
+        label: s.code,
+        color: '#64748B',
+        kind: 'shot',
+        shot: s,
+        tasks: arr,
+      })
+    }
+    for (const a of sortedAssets) {
+      const arr = byAsset.get(a.id)
+      if (!arr || !arr.length) continue
+      out.push({
+        id: `asset-${a.id}`,
+        label: a.name,
+        color: '#7C3AED',
+        kind: 'asset',
+        asset: a,
+        tasks: arr,
+      })
+    }
+    if (orphanTasks.length) {
+      out.push({
+        id: 'orphan',
+        label: 'Senza shot/asset',
+        color: '#94A3B8',
+        kind: 'orphan',
+        tasks: orphanTasks,
+      })
+    }
+    return out
+  }, [groupBy, localTasks, tasksByDept, shots, assets])
+
+  // Flatten visible rows: each lane is 1 header row + N task rows when expanded.
   const rows = useMemo(() => {
     const out = []
-    for (const d of DEPTS) {
-      const arr = tasksByDept[d.id] || []
-      out.push({ kind: 'lane', dept: d, count: arr.length })
-      if (!collapsed.has(d.id)) {
-        for (const t of arr) out.push({ kind: 'task', dept: d, task: t })
+    for (const g of groups) {
+      out.push({ kind: 'lane', group: g, count: g.tasks.length })
+      if (!collapsed.has(g.id)) {
+        for (const t of g.tasks) out.push({ kind: 'task', group: g, task: t })
       }
     }
     return out
-  }, [tasksByDept, collapsed])
+  }, [groups, collapsed])
 
   const totalH = rows.length * ROW_H
 
@@ -359,14 +459,14 @@ export default function GanttPage({
     return { days, months, weeks, pauseSpans }
   }, [dayLayout])
 
-  const toggleLane = (deptId) => setCollapsed(prev => {
+  const toggleLane = (groupId) => setCollapsed(prev => {
     const next = new Set(prev)
-    if (next.has(deptId)) next.delete(deptId); else next.add(deptId)
+    if (next.has(groupId)) next.delete(groupId); else next.add(groupId)
     return next
   })
 
   const expandAll = () => setCollapsed(new Set())
-  const collapseAll = () => setCollapsed(new Set(DEPTS.map(d => d.id)))
+  const collapseAll = () => setCollapsed(new Set(groups.map(g => g.id)))
 
   // Count of unscheduled tasks (have a department but no start_date / duration)
   const unscheduledCount = localTasks.filter(t => t.department && (!t.start_date || !t.duration_days)).length
@@ -398,6 +498,19 @@ export default function GanttPage({
               </div>
             )}
             <div style={{ display: 'inline-flex', background: '#fff', borderRadius: 999, padding: 3, gap: 2, border: '1px solid #E2E8F0' }}>
+              {[
+                { k: 'dept',   label: 'Dipartimento' },
+                { k: 'entity', label: 'Shot / Asset' },
+              ].map(({ k, label }) => (
+                <button key={k} onClick={() => { setGroupBy(k); setCollapsed(new Set()) }} style={{
+                  padding: '5px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 600,
+                  background: groupBy === k ? ACCENT : 'transparent',
+                  color: groupBy === k ? '#fff' : '#64748B', transition: 'all 0.15s',
+                }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ display: 'inline-flex', background: '#fff', borderRadius: 999, padding: 3, gap: 2, border: '1px solid #E2E8F0' }}>
               {Object.entries(ZOOMS).map(([k, v]) => (
                 <button key={k} onClick={() => setZoom(k)} style={{
                   padding: '5px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
@@ -412,8 +525,8 @@ export default function GanttPage({
                 Pause {pauses.length > 0 ? `(${pauses.length})` : ''}
               </Btn>
             )}
-            <Btn variant="info" onClick={collapsed.size === DEPTS.length ? expandAll : collapseAll}>
-              {collapsed.size === DEPTS.length ? 'Espandi tutto' : 'Comprimi tutto'}
+            <Btn variant="info" onClick={collapsed.size >= groups.length ? expandAll : collapseAll}>
+              {collapsed.size >= groups.length ? 'Espandi tutto' : 'Comprimi tutto'}
             </Btn>
           </div>
         </div>
@@ -499,9 +612,10 @@ export default function GanttPage({
             {rows.map((row, ri) => {
               const top = HEADER_H + ri * ROW_H
               if (row.kind === 'lane') {
-                const isCollapsed = collapsed.has(row.dept.id)
-                const laneTasks = tasksByDept[row.dept.id] || []
-                // Aggregate bar: span from earliest start to latest end across the dept's scheduled tasks.
+                const g = row.group
+                const isCollapsed = collapsed.has(g.id)
+                const laneTasks = g.tasks
+                // Aggregate bar: span from earliest start to latest end across this lane's tasks.
                 let agg = null
                 if (laneTasks.length > 0) {
                   let minS = parseDate(laneTasks[0].start_date)
@@ -517,17 +631,17 @@ export default function GanttPage({
                   agg = { x: ax, w: aw, days: workingDays(minS, maxE) }
                 }
                 return (
-                  <div key={`lane-${row.dept.id}`} style={{
+                  <div key={`lane-${g.id}`} style={{
                     position: 'absolute', top, left: 0, width: LANE_W + totalW, height: ROW_H,
                     borderBottom: '1px solid #E8ECF1',
-                    background: `${row.dept.color}10`,
+                    background: `${g.color}10`,
                   }}>
-                    {/* Aggregate bar — sits behind any later interactions but above the row bg */}
+                    {/* Aggregate bar */}
                     {agg && (
-                      <div title={`Span totale ${row.dept.label}: ${agg.days}g lavorativi`} style={{
+                      <div title={`Span totale ${g.label}: ${agg.days}g lavorativi`} style={{
                         position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
-                        background: `repeating-linear-gradient(135deg, ${row.dept.color} 0 8px, ${shade(row.dept.color, -18)} 8px 16px)`,
-                        borderRadius: 6, border: `1.5px solid ${shade(row.dept.color, -25)}`,
+                        background: `repeating-linear-gradient(135deg, ${g.color} 0 8px, ${shade(g.color, -18)} 8px 16px)`,
+                        borderRadius: 6, border: `1.5px solid ${shade(g.color, -25)}`,
                         boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
                         pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
@@ -540,29 +654,32 @@ export default function GanttPage({
                       position: 'sticky', left: 0, zIndex: 2,
                       display: 'inline-flex', width: LANE_W, height: '100%',
                       alignItems: 'center', padding: '0 12px', gap: 10,
-                      background: `${row.dept.color}10`,
-                      borderRight: `2px solid ${row.dept.color}`,
+                      background: `${g.color}10`,
+                      borderRight: `2px solid ${g.color}`,
                       cursor: 'pointer', boxSizing: 'border-box',
                     }}
-                      onClick={() => toggleLane(row.dept.id)}
+                      onClick={() => toggleLane(g.id)}
                     >
                       <span style={{
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         width: 22, height: 22, borderRadius: 6, background: 'rgba(255,255,255,0.6)',
                         transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease',
-                        color: row.dept.color,
+                        color: g.color,
                       }}><IconChevronDown size={14} /></span>
-                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: row.dept.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.dept.label}</span>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</span>
                       <span style={{
-                        fontSize: 11, fontWeight: 700, color: row.dept.color,
+                        fontSize: 11, fontWeight: 700, color: g.color,
                         padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.7)',
                       }}>{row.count}</span>
                     </div>
                   </div>
                 )
               }
-              // Task row
+              // Task row — bar color always reflects the task's department,
+              // regardless of how the lanes are grouped.
+              const g = row.group
+              const taskDept = deptById[row.task.department] || { color: '#94A3B8', label: row.task.department }
               const t = row.task
               const s = parseDate(t.start_date)
               const e = addDays(s, (t.duration_days || 1) - 1)
@@ -588,7 +705,7 @@ export default function GanttPage({
                     position: 'sticky', left: 0, zIndex: 2,
                     display: 'inline-flex', width: LANE_W, height: '100%',
                     alignItems: 'center', padding: '0 12px 0 36px', gap: 8,
-                    background: rowBg, borderRight: `2px solid ${row.dept.color}`,
+                    background: rowBg, borderRight: `2px solid ${g.color}`,
                     boxSizing: 'border-box',
                   }} title={fullLabel}>
                     <span style={{
@@ -607,10 +724,10 @@ export default function GanttPage({
                       position: 'absolute', left: x, top: 6, width: w, height: ROW_H - 12,
                       background: isUnassigned
                         ? `linear-gradient(135deg, #CBD5E1 0%, #94A3B8 100%)`
-                        : `linear-gradient(135deg, ${row.dept.color} 0%, ${shade(row.dept.color, -10)} 100%)`,
+                        : `linear-gradient(135deg, ${taskDept.color} 0%, ${shade(taskDept.color, -10)} 100%)`,
                       opacity: isUnassigned ? 0.55 : 1,
                       borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
-                      boxShadow: isDragging ? `0 8px 24px ${row.dept.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
+                      boxShadow: isDragging ? `0 8px 24px ${taskDept.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: w < 50 ? '0 4px' : '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
                       transition: isDragging ? 'none' : 'box-shadow 0.15s ease, transform 0.15s ease',
