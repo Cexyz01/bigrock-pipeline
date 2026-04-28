@@ -587,7 +587,7 @@ export default function GanttPage({
                       borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
                       boxShadow: isDragging ? `0 8px 24px ${row.dept.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
+                      padding: w < 50 ? '0 4px' : '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
                       transition: isDragging ? 'none' : 'box-shadow 0.15s ease, transform 0.15s ease',
                       transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
                       userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
@@ -634,10 +634,25 @@ export default function GanttPage({
                         </>
                       )
                     })()}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, paddingLeft: 4, position: 'relative' }}>{fullLabel}</span>
-                    <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 8, flexShrink: 0, position: 'relative' }}>
-                      {workingDays(s, e)}g
-                    </span>
+                    {(() => {
+                      // Dynamic font size: shrink as the bar gets narrower so more of the title fits.
+                      const labelFont = w >= 110 ? 12 : w >= 80 ? 11 : w >= 55 ? 10 : w >= 35 ? 9 : 8
+                      const showDaysBadge = w >= 60
+                      return (
+                        <>
+                          <span style={{
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            flex: 1, paddingLeft: w < 50 ? 0 : 4, position: 'relative',
+                            fontSize: labelFont, lineHeight: 1.1,
+                          }}>{fullLabel}</span>
+                          {showDaysBadge && (
+                            <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 6, flexShrink: 0, position: 'relative' }}>
+                              {workingDays(s, e)}g
+                            </span>
+                          )}
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
               )
