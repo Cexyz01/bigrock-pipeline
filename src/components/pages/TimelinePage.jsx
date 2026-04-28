@@ -687,7 +687,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
 
       {tab === 'table' ? (
         /* ══ TABLE VIEW ══ */
-        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '20px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div style={{ width: '100%', maxWidth: 900, background: '#111827', borderRadius: 12, border: '1px solid #1E293B', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
