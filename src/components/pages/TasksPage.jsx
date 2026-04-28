@@ -156,9 +156,15 @@ export default function TasksPage({
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       })
 
+    const oldDraggedIdx = groupTasks.findIndex(t => t.id === draggedId)
+    const oldTargetIdx = groupTasks.findIndex(t => t.id === targetId)
     const without = groupTasks.filter(t => t.id !== draggedId)
-    const targetIdx = without.findIndex(t => t.id === targetId)
-    without.splice(targetIdx, 0, dragged)
+    // Drop semantics: if user dragged downward, insert AFTER the target;
+    // if upward, insert BEFORE. Without this, dropping the first item onto the
+    // second was a no-op (insert before target == original position).
+    let insertAt = without.findIndex(t => t.id === targetId)
+    if (oldDraggedIdx < oldTargetIdx) insertAt += 1
+    without.splice(insertAt, 0, dragged)
     const changes = without
       .map((t, i) => (t.sort_order !== i ? { id: t.id, updates: { sort_order: i } } : null))
       .filter(Boolean)
