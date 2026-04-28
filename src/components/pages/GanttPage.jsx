@@ -289,18 +289,6 @@ export default function GanttPage({
       (a.name || '').localeCompare(b.name || '')
     )
     const out = []
-    for (const s of sortedShots) {
-      const arr = byShot.get(s.id)
-      if (!arr || !arr.length) continue
-      out.push({
-        id: `shot-${s.id}`,
-        label: s.code,
-        color: '#64748B',
-        kind: 'shot',
-        shot: s,
-        tasks: arr,
-      })
-    }
     for (const a of sortedAssets) {
       const arr = byAsset.get(a.id)
       if (!arr || !arr.length) continue
@@ -310,6 +298,18 @@ export default function GanttPage({
         color: '#7C3AED',
         kind: 'asset',
         asset: a,
+        tasks: arr,
+      })
+    }
+    for (const s of sortedShots) {
+      const arr = byShot.get(s.id)
+      if (!arr || !arr.length) continue
+      out.push({
+        id: `shot-${s.id}`,
+        label: s.code,
+        color: '#64748B',
+        kind: 'shot',
+        shot: s,
         tasks: arr,
       })
     }
