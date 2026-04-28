@@ -135,6 +135,21 @@ export default function GanttPage({
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
   const todayX = dateToX(today)
 
+  // Render-friendly per-pause ranges (one band per pause record, with its label).
+  const pauseRanges = useMemo(() => {
+    return pauses
+      .filter(p => p.start_date && p.end_date)
+      .map(p => {
+        const s = parseDate(p.start_date)
+        const e = parseDate(p.end_date)
+        const x = dateToX(s)
+        const w = dateToEndX(e) - x
+        const days = daysBetween(s, e) + 1
+        return { id: p.id, x, w, days, label: p.label || 'Pausa', start: p.start_date, end: p.end_date }
+      })
+      .filter(r => r.w > 0)
+  }, [pauses, dateToX, dateToEndX])
+
   // Stable vertical ordering: capture once per project so tasks don't snap to a new
   // row mid-drag when their start_date changes. New tasks added during the session
   // fall back to a sort-by-date placement (Infinity index → appended).
@@ -409,18 +424,10 @@ export default function GanttPage({
                 ))
               ) : (
                 headerCells.days.map(d => {
+                  if (d.isPause) return null // covered by the dedicated pause band below
                   const isToday = +d.date === +today
                   const isMonday = d.dow === 1
                   const isWeekend = d.dow === 0 || d.dow === 6
-                  if (d.isPause) {
-                    return (
-                      <div key={+d.date} style={{
-                        position: 'absolute', left: d.x, width: d.w, height: '100%',
-                        background: 'repeating-linear-gradient(135deg, #E2E8F0 0 4px, #CBD5E1 4px 8px)',
-                        borderRight: '1px solid #CBD5E1',
-                      }} />
-                    )
-                  }
                   return (
                     <div key={+d.date} style={{
                       position: 'absolute', left: d.x, width: d.w, height: '100%',
@@ -438,6 +445,28 @@ export default function GanttPage({
                 })
               )}
             </div>
+            {/* Pause bands in the header — span full HEADER_H so they cover both month + day rows */}
+            {pauseRanges.map(p => (
+              <div key={`hdr-pause-${p.id}`} title={`${p.label} · ${p.start} → ${p.end} (${p.days} giorni)`}
+                style={{
+                  position: 'absolute', left: p.x, top: 0, width: p.w, height: HEADER_H,
+                  background: 'linear-gradient(180deg, #FEF3C7 0%, #FDE68A 100%)',
+                  borderLeft: '1.5px dashed #F59E0B',
+                  borderRight: '1.5px dashed #F59E0B',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  overflow: 'hidden', boxSizing: 'border-box',
+                }}>
+                <div style={{
+                  writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+                  fontSize: p.w >= 18 ? 10 : 9, fontWeight: 700, color: '#92400E',
+                  letterSpacing: 1.2, textTransform: 'uppercase',
+                  whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden',
+                  maxHeight: HEADER_H - 8,
+                }}>
+                  {p.label}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Body rows */}
@@ -578,7 +607,8 @@ export default function GanttPage({
                         if (isPauseDay) {
                           overlays.push(<div key={`p${i}`} style={{
                             position: 'absolute', left: dxLeft, top: 0, bottom: 0, width: dWidth,
-                            background: 'rgba(0,0,0,0.45)', pointerEvents: 'none',
+                            background: 'repeating-linear-gradient(135deg, rgba(146,64,14,0.28) 0 3px, rgba(146,64,14,0.42) 3px 6px)',
+                            pointerEvents: 'none',
                           }} />)
                         } else if (isWeekend) {
                           overlays.push(<div key={`w${i}`} style={{
@@ -611,22 +641,31 @@ export default function GanttPage({
               )
             })}
 
-            {/* Day grid lines + weekend / pause shading (in timeline area) */}
+            {/* Day grid lines + weekend shading (pause days handled separately below) */}
             <div style={{ position: 'absolute', top: HEADER_H, left: LANE_W, width: totalW, height: totalH, pointerEvents: 'none' }}>
               {headerCells.days.map(d => {
+                if (d.isPause) return null
                 const isWeekend = d.dow === 0 || d.dow === 6
                 const isMonday = d.dow === 1
-                if (!d.isPause && !isWeekend && !isMonday) return null
+                if (!isWeekend && !isMonday) return null
                 return (
                   <div key={+d.date} style={{
                     position: 'absolute', left: d.x, top: 0, width: d.w, height: '100%',
-                    background: d.isPause
-                      ? 'rgba(100,116,139,0.18)'
-                      : (isWeekend ? 'rgba(148,163,184,0.06)' : 'transparent'),
-                    borderLeft: isMonday && !d.isPause ? '1px solid #E2E8F0' : 'none',
+                    background: isWeekend ? 'rgba(148,163,184,0.06)' : 'transparent',
+                    borderLeft: isMonday ? '1px solid #E2E8F0' : 'none',
                   }} />
                 )
               })}
+              {/* Pause bands across the full body — one band per pause range */}
+              {pauseRanges.map(p => (
+                <div key={`body-pause-${p.id}`} style={{
+                  position: 'absolute', left: p.x, top: 0, width: p.w, height: '100%',
+                  background: 'rgba(254,243,199,0.55)',
+                  borderLeft: '1.5px dashed rgba(245,158,11,0.55)',
+                  borderRight: '1.5px dashed rgba(245,158,11,0.55)',
+                  boxSizing: 'border-box',
+                }} />
+              ))}
             </div>
 
             {/* Today vertical line */}
