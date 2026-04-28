@@ -646,17 +646,19 @@ export default function GanttPage({
                     borderBottom: '1px solid #E8ECF1',
                     background: `${g.color}10`,
                   }}>
-                    {/* Aggregate bar */}
+                    {/* Aggregate bar — softened so it reads as a background indicator
+                        rather than competing with the actual task bars below. */}
                     {agg && (
                       <div title={`Span totale ${g.label}: ${agg.days}g lavorativi`} style={{
                         position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
-                        background: `repeating-linear-gradient(135deg, ${g.color} 0 8px, ${shade(g.color, -18)} 8px 16px)`,
-                        borderRadius: 6, border: `1.5px solid ${shade(g.color, -25)}`,
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                        background: `repeating-linear-gradient(135deg, ${shade(g.color, 25)} 0 8px, ${shade(g.color, 10)} 8px 16px)`,
+                        opacity: 0.7,
+                        borderRadius: 6, border: `1px solid ${shade(g.color, 5)}`,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
                         pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                         padding: '0 10px', color: '#fff', fontSize: 10, fontWeight: 700,
-                        textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                        textShadow: '0 1px 2px rgba(0,0,0,0.25)',
                       }}>{agg.days}g</div>
                     )}
                     {/* Sticky lane header */}
