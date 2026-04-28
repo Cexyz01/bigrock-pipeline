@@ -22,10 +22,9 @@ const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'S
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'G', 'V', 'S']
 
 const ZOOMS = {
-  week: { label: 'Settimana' },
-  day:  { label: 'Giorno' },
+  day:  { label: 'Giorno', weeks: 5 },
+  zoom: { label: 'Zoom',   weeks: 2 },
 }
-const WEEKS_VISIBLE_TARGET = 5
 
 const LANE_W = 220
 const ROW_H = 40
@@ -96,7 +95,7 @@ export default function GanttPage({
 
   const dayW = Math.max(
     10,
-    Math.floor((containerW - LANE_W - pauseDayCount * PAUSE_DAY_W) / Math.max(1, WEEKS_VISIBLE_TARGET * 7))
+    Math.floor((containerW - LANE_W - pauseDayCount * PAUSE_DAY_W) / Math.max(1, (ZOOMS[zoom]?.weeks || 5) * 7))
   )
 
   // Per-day layout: x and w for every day in the visible range.
@@ -450,17 +449,7 @@ export default function GanttPage({
               ))}
             </div>
             <div style={{ position: 'relative', height: HEADER_H / 2 }}>
-              {zoom === 'week' ? (
-                headerCells.weeks.map(w => (
-                  <div key={w.num} style={{
-                    position: 'absolute', left: w.x, width: w.w, height: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 700, color: '#1a1a1a',
-                    borderRight: '1px solid #E2E8F0', background: w.num % 2 === 0 ? '#FAFBFD' : '#fff',
-                  }}>Week {w.num}</div>
-                ))
-              ) : (
-                headerCells.days.map(d => {
+              {headerCells.days.map(d => {
                   if (d.isPause) return null // covered by the dedicated pause band below
                   const isToday = +d.date === +today
                   const isMonday = d.dow === 1
@@ -479,8 +468,7 @@ export default function GanttPage({
                       <span>{d.date.getDate()}</span>
                     </div>
                   )
-                })
-              )}
+                })}
             </div>
             {/* Pause bands in the header — span full HEADER_H so they cover both month + day rows */}
             {pauseRanges.map(p => (
