@@ -468,6 +468,16 @@ export default function GanttPage({
   const expandAll = () => setCollapsed(new Set())
   const collapseAll = () => setCollapsed(new Set(groups.map(g => g.id)))
 
+  // Default to fully collapsed on first load and whenever the project or groupBy mode
+  // changes — the expanded view gets unwieldy fast, the user can open what they want.
+  const initCollapseRef = useRef('')
+  const initKey = `${projectKey}|${groupBy}`
+  if (initCollapseRef.current !== initKey && groups.length > 0) {
+    initCollapseRef.current = initKey
+    // Schedule out of render to avoid setting state during render
+    queueMicrotask(() => setCollapsed(new Set(groups.map(g => g.id))))
+  }
+
   // Count of unscheduled tasks (have a department but no start_date / duration)
   const unscheduledCount = localTasks.filter(t => t.department && (!t.start_date || !t.duration_days)).length
 
