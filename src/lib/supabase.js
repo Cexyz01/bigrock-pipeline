@@ -351,6 +351,26 @@ export async function deleteGanttLane(id) {
   return supabase.from('gantt_lanes').delete().eq('id', id)
 }
 
+// ── Project pauses (Planning timeline compression) ──
+
+export async function getProjectPauses(projectId) {
+  if (!projectId) return []
+  const { data } = await supabase.from('project_pauses')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('start_date')
+  return data || []
+}
+
+export async function createProjectPause(pause) {
+  const { data, error } = await supabase.from('project_pauses').insert(pause).select().single()
+  return { data, error }
+}
+
+export async function deleteProjectPause(id) {
+  return supabase.from('project_pauses').delete().eq('id', id)
+}
+
 // ── WIP Images ──
 
 export async function getStoryboardImages(projectId) {

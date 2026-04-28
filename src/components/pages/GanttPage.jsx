@@ -4,6 +4,7 @@ import Btn from '../ui/Btn'
 import Fade from '../ui/Fade'
 import { IconChevronDown } from '../ui/Icons'
 import TaskDetailModal from '../tasks/TaskDetailModal'
+import Modal from '../ui/Modal'
 
 // ── Date helpers (work with YYYY-MM-DD strings, no timezone surprises) ──
 const MS_DAY = 86400000
@@ -29,14 +30,17 @@ const WEEKS_VISIBLE_TARGET = 5
 const LANE_W = 220
 const ROW_H = 40
 const HEADER_H = 64
+const PAUSE_DAY_W = 4 // compressed width for days inside a pause range
 
 export default function GanttPage({
   tasks = [], shots = [], assets = [], currentProject, user, profiles = [],
+  pauses = [], onCreatePause, onDeletePause,
   onUpdateTask, onUpdateProjectDates, onGoToTask, addToast,
   onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
   onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
   wipViews, requestConfirm,
 }) {
+  const [showPauseManager, setShowPauseManager] = useState(false)
   const canEdit = hasPermission(user, 'create_edit_tasks') || hasPermission(user, 'manage_project_settings')
   const staff = hasPermission(user, 'create_edit_tasks')
   const [selectedTaskId, setSelectedTaskId] = useState(null)
@@ -47,9 +51,6 @@ export default function GanttPage({
   const [localTasks, setLocalTasks] = useState(tasks)
   const [collapsed, setCollapsed] = useState(new Set()) // dept ids that are collapsed
   useEffect(() => { setLocalTasks(tasks) }, [tasks])
-
-  // Both zoom modes auto-fit ~5 weeks horizontally; only the header presentation differs.
-  const dayW = Math.max(10, Math.floor((containerW - LANE_W) / (WEEKS_VISIBLE_TARGET * 7)))
 
   // Visible date range: project window if set, otherwise auto-fit around scheduled tasks
   const { rangeStart, rangeDays } = useMemo(() => {
@@ -70,9 +71,69 @@ export default function GanttPage({
     return { rangeStart: start, rangeDays: daysBetween(start, addDays(max, 14)) + 1 }
   }, [localTasks, currentProject?.start_date, currentProject?.end_date])
 
+  // Build pause-day lookup (Set of YYYY-MM-DD strings inside any pause range)
+  const pauseSet = useMemo(() => {
+    const s = new Set()
+    for (const p of pauses) {
+      if (!p.start_date || !p.end_date) continue
+      const a = parseDate(p.start_date), b = parseDate(p.end_date)
+      const cur = new Date(a)
+      while (cur <= b) { s.add(toISO(cur)); cur.setDate(cur.getDate() + 1) }
+    }
+    return s
+  }, [pauses])
+
+  // Count normal vs pause days inside the visible range so we can size dayW to fit ~5 weeks
+  // of normal days, with pause days fixed at PAUSE_DAY_W.
+  const { normalDayCount, pauseDayCount } = useMemo(() => {
+    let nd = 0, pd = 0
+    for (let i = 0; i < rangeDays; i++) {
+      const iso = toISO(addDays(rangeStart, i))
+      if (pauseSet.has(iso)) pd++; else nd++
+    }
+    return { normalDayCount: nd, pauseDayCount: pd }
+  }, [rangeStart, rangeDays, pauseSet])
+
+  const dayW = Math.max(
+    10,
+    Math.floor((containerW - LANE_W - pauseDayCount * PAUSE_DAY_W) / Math.max(1, WEEKS_VISIBLE_TARGET * 7))
+  )
+
+  // Per-day layout: x and w for every day in the visible range.
+  // Pause days collapse to PAUSE_DAY_W; everything else uses dayW.
+  const dayLayout = useMemo(() => {
+    const arr = new Array(rangeDays)
+    let x = 0
+    for (let i = 0; i < rangeDays; i++) {
+      const date = addDays(rangeStart, i)
+      const iso = toISO(date)
+      const isPause = pauseSet.has(iso)
+      const w = isPause ? PAUSE_DAY_W : dayW
+      arr[i] = { date, dow: date.getDay(), x, w, isPause, iso }
+      x += w
+    }
+    return arr
+  }, [rangeStart, rangeDays, dayW, pauseSet])
+
+  const totalW = useMemo(() => dayLayout.length ? (dayLayout[dayLayout.length - 1].x + dayLayout[dayLayout.length - 1].w) : 0, [dayLayout])
+
+  // x of the LEFT edge of a given date; clamped if outside the visible range.
+  const dateToX = useCallback((d) => {
+    const idx = daysBetween(rangeStart, d)
+    if (idx < 0) return 0
+    if (idx >= dayLayout.length) return totalW
+    return dayLayout[idx].x
+  }, [rangeStart, dayLayout, totalW])
+  // x of the RIGHT edge of a given date (i.e. x + w).
+  const dateToEndX = useCallback((d) => {
+    const idx = daysBetween(rangeStart, d)
+    if (idx < 0) return 0
+    if (idx >= dayLayout.length) return totalW
+    return dayLayout[idx].x + dayLayout[idx].w
+  }, [rangeStart, dayLayout, totalW])
+
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
-  const todayX = daysBetween(rangeStart, today) * dayW
-  const totalW = rangeDays * dayW
+  const todayX = dateToX(today)
 
   // Stable vertical ordering: capture once per project so tasks don't snap to a new
   // row mid-drag when their start_date changes. New tasks added during the session
@@ -214,30 +275,38 @@ export default function GanttPage({
   }, [drag, handlePointerMove, handlePointerUp])
 
   // ── Header months/days/weeks ──
+  // Uses dayLayout so pause days collapse along with the rest of the timeline.
   const headerCells = useMemo(() => {
-    const days = []
-    for (let i = 0; i < rangeDays; i++) {
-      const d = addDays(rangeStart, i)
-      days.push({ date: d, dow: d.getDay(), x: i * dayW })
-    }
+    const days = dayLayout
     const months = []
     let curM = null
     for (const d of days) {
       const key = `${d.date.getFullYear()}-${d.date.getMonth()}`
       if (!curM || curM.key !== key) {
-        curM = { key, label: `${MONTH_LABELS[d.date.getMonth()]} ${d.date.getFullYear()}`, x: d.x, w: dayW }
+        curM = { key, label: `${MONTH_LABELS[d.date.getMonth()]} ${d.date.getFullYear()}`, x: d.x, w: d.w }
         months.push(curM)
-      } else curM.w += dayW
+      } else curM.w += d.w
     }
     const weeks = []
     let curW = null, weekNum = 0
     for (const d of days) {
       const isMonday = d.dow === 1
-      if (!curW || isMonday) { weekNum++; curW = { num: weekNum, x: d.x, w: dayW }; weeks.push(curW) }
-      else curW.w += dayW
+      if (!curW || isMonday) { weekNum++; curW = { num: weekNum, x: d.x, w: d.w }; weeks.push(curW) }
+      else curW.w += d.w
     }
-    return { days, months, weeks }
-  }, [rangeStart, rangeDays, dayW])
+    // Contiguous pause spans (for the grey overlay band on the timeline body)
+    const pauseSpans = []
+    let curP = null
+    for (const d of days) {
+      if (d.isPause) {
+        if (!curP) { curP = { x: d.x, w: d.w }; pauseSpans.push(curP) }
+        else curP.w += d.w
+      } else {
+        curP = null
+      }
+    }
+    return { days, months, weeks, pauseSpans }
+  }, [dayLayout])
 
   const toggleLane = (deptId) => setCollapsed(prev => {
     const next = new Set(prev)
@@ -287,6 +356,11 @@ export default function GanttPage({
                 }}>{v.label}</button>
               ))}
             </div>
+            {canEdit && (
+              <Btn variant="info" onClick={() => setShowPauseManager(true)}>
+                Pause {pauses.length > 0 ? `(${pauses.length})` : ''}
+              </Btn>
+            )}
             <Btn variant="info" onClick={collapsed.size === DEPTS.length ? expandAll : collapseAll}>
               {collapsed.size === DEPTS.length ? 'Espandi tutto' : 'Comprimi tutto'}
             </Btn>
@@ -338,9 +412,18 @@ export default function GanttPage({
                   const isToday = +d.date === +today
                   const isMonday = d.dow === 1
                   const isWeekend = d.dow === 0 || d.dow === 6
+                  if (d.isPause) {
+                    return (
+                      <div key={+d.date} style={{
+                        position: 'absolute', left: d.x, width: d.w, height: '100%',
+                        background: 'repeating-linear-gradient(135deg, #E2E8F0 0 4px, #CBD5E1 4px 8px)',
+                        borderRight: '1px solid #CBD5E1',
+                      }} />
+                    )
+                  }
                   return (
                     <div key={+d.date} style={{
-                      position: 'absolute', left: d.x, width: dayW, height: '100%',
+                      position: 'absolute', left: d.x, width: d.w, height: '100%',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                       fontSize: 10,
                       color: isToday ? '#fff' : (isWeekend ? '#94A3B8' : '#64748B'),
@@ -375,8 +458,8 @@ export default function GanttPage({
                     if (s2 < minS) minS = s2
                     if (e2 > maxE) maxE = e2
                   }
-                  const ax = LANE_W + daysBetween(rangeStart, minS) * dayW + 4
-                  const aw = Math.max(dayW * 0.6, (daysBetween(minS, maxE) + 1) * dayW - 8)
+                  const ax = LANE_W + dateToX(minS) + 4
+                  const aw = Math.max(dayW * 0.6, dateToEndX(maxE) - dateToX(minS) - 8)
                   agg = { x: ax, w: aw, days: workingDays(minS, maxE) }
                 }
                 return (
@@ -429,8 +512,10 @@ export default function GanttPage({
               const t = row.task
               const s = parseDate(t.start_date)
               const e = addDays(s, (t.duration_days || 1) - 1)
-              const x = LANE_W + daysBetween(rangeStart, s) * dayW + 4
-              const w = Math.max(dayW * 0.6, (t.duration_days || 1) * dayW - 8)
+              const barLeftX = dateToX(s)
+              const barRightX = dateToEndX(e)
+              const x = LANE_W + barLeftX + 4
+              const w = Math.max(6, barRightX - barLeftX - 8)
               const isDragging = drag?.id === t.id
               const rowBg = ri % 2 === 0 ? '#FAFBFD' : '#fff'
               const isUnassigned = !((t.assignees || []).length)
@@ -478,16 +563,26 @@ export default function GanttPage({
                     }}
                     title={`${fullLabel}\n${t.start_date} · ${t.duration_days} giorni`}
                   >
-                    {/* Weekend dim overlays */}
+                    {/* Weekend / pause dim overlays — positions are relative to the bar's left edge,
+                        and each day uses its layout width so overlays stay aligned with the timeline. */}
                     {(() => {
                       const overlays = []
                       const total = (t.duration_days || 1)
                       for (let i = 0; i < total; i++) {
                         const d = addDays(s, i)
                         const dow = d.getDay()
-                        if (dow === 0 || dow === 6) {
-                          overlays.push(<div key={i} style={{
-                            position: 'absolute', left: i * dayW, top: 0, bottom: 0, width: dayW,
+                        const dxLeft = dateToX(d) - barLeftX - 4 // bar is offset by +4 from barLeftX
+                        const dWidth = dateToEndX(d) - dateToX(d)
+                        const isPauseDay = pauseSet.has(toISO(d))
+                        const isWeekend = dow === 0 || dow === 6
+                        if (isPauseDay) {
+                          overlays.push(<div key={`p${i}`} style={{
+                            position: 'absolute', left: dxLeft, top: 0, bottom: 0, width: dWidth,
+                            background: 'rgba(0,0,0,0.45)', pointerEvents: 'none',
+                          }} />)
+                        } else if (isWeekend) {
+                          overlays.push(<div key={`w${i}`} style={{
+                            position: 'absolute', left: dxLeft, top: 0, bottom: 0, width: dWidth,
                             background: 'rgba(0,0,0,0.22)', pointerEvents: 'none',
                           }} />)
                         }
@@ -516,17 +611,19 @@ export default function GanttPage({
               )
             })}
 
-            {/* Day grid lines + weekend shading (in timeline area) */}
+            {/* Day grid lines + weekend / pause shading (in timeline area) */}
             <div style={{ position: 'absolute', top: HEADER_H, left: LANE_W, width: totalW, height: totalH, pointerEvents: 'none' }}>
               {headerCells.days.map(d => {
                 const isWeekend = d.dow === 0 || d.dow === 6
                 const isMonday = d.dow === 1
-                if (!isWeekend && !isMonday) return null
+                if (!d.isPause && !isWeekend && !isMonday) return null
                 return (
                   <div key={+d.date} style={{
-                    position: 'absolute', left: d.x, top: 0, width: dayW, height: '100%',
-                    background: isWeekend ? 'rgba(148,163,184,0.06)' : 'transparent',
-                    borderLeft: isMonday ? '1px solid #E2E8F0' : 'none',
+                    position: 'absolute', left: d.x, top: 0, width: d.w, height: '100%',
+                    background: d.isPause
+                      ? 'rgba(100,116,139,0.18)'
+                      : (isWeekend ? 'rgba(148,163,184,0.06)' : 'transparent'),
+                    borderLeft: isMonday && !d.isPause ? '1px solid #E2E8F0' : 'none',
                   }} />
                 )
               })}
@@ -543,6 +640,18 @@ export default function GanttPage({
           </div>
         </div>
       </div>
+
+      {/* Pause manager — list / add / delete */}
+      {showPauseManager && (
+        <PauseManagerModal
+          pauses={pauses}
+          onClose={() => setShowPauseManager(false)}
+          onCreate={onCreatePause}
+          onDelete={onDeletePause}
+          projectStart={currentProject?.start_date}
+          projectEnd={currentProject?.end_date}
+        />
+      )}
 
       {/* Inline task detail modal — opened by double-click, no page navigation */}
       {selectedTaskId && (() => {
@@ -567,6 +676,89 @@ export default function GanttPage({
         )
       })()}
     </div>
+  )
+}
+
+function PauseManagerModal({ pauses, onClose, onCreate, onDelete, projectStart, projectEnd }) {
+  const [start, setStart] = useState(projectStart || '')
+  const [end, setEnd] = useState(projectEnd || '')
+  const [label, setLabel] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleAdd = async () => {
+    if (!start || !end) return
+    if (end < start) { alert('La data fine deve essere uguale o successiva a quella di inizio'); return }
+    setSaving(true)
+    await onCreate(start, end, label.trim() || null)
+    setSaving(false)
+    setLabel('')
+  }
+
+  const inputStyle = {
+    fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0',
+    borderRadius: 10, padding: '9px 12px', outline: 'none', background: '#F8FAFC',
+    fontFamily: 'inherit',
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Pause progetto" width={560}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <p style={{ fontSize: 12, color: '#64748B', margin: 0 }}>
+          I giorni dentro una pausa vengono compressi nella timeline (resi piccoli e grigi) per non sprecare spazio.
+          Le date dei task non vengono modificate.
+        </p>
+
+        {/* Existing list */}
+        <div>
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8, fontWeight: 600 }}>Pause esistenti</div>
+          {pauses.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic', padding: '10px 12px', background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 8 }}>
+              Nessuna pausa configurata.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {pauses.map(p => (
+                <div key={p.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10,
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+                    {p.label || 'Pausa'}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#64748B' }}>
+                    {p.start_date} → {p.end_date}
+                  </span>
+                  <button onClick={() => onDelete(p.id)} style={{
+                    marginLeft: 'auto', background: 'transparent', border: 'none',
+                    color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  }}>Elimina</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Add new */}
+        <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14 }}>
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8, fontWeight: 600 }}>Nuova pausa</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Inizio</div>
+              <input type="date" value={start} onChange={e => setStart(e.target.value)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Fine</div>
+              <input type="date" value={end} min={start || undefined} onChange={e => setEnd(e.target.value)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+            </div>
+          </div>
+          <input type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder="Etichetta (es. Pausa estiva)"
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', marginBottom: 12 }} />
+          <Btn variant="primary" onClick={handleAdd} loading={saving} disabled={!start || !end || saving}>
+            Aggiungi pausa
+          </Btn>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

@@ -12,6 +12,7 @@ import {
   getTasks, createTask, updateTask, deleteTask, setTaskAssignees,
   getGanttItems, createGanttItem, updateGanttItem, deleteGanttItem,
   getGanttLanes, createGanttLane, updateGanttLane, deleteGanttLane,
+  getProjectPauses, createProjectPause, deleteProjectPause,
   updateProject,
   addComment,
   getCalendarEvents, createCalendarEvent, deleteCalendarEvent,
@@ -76,6 +77,7 @@ export default function App() {
   const [tasks, setTasks] = useState([])
   const [ganttItems, setGanttItems] = useState([])
   const [ganttLanes, setGanttLanes] = useState([])
+  const [projectPauses, setProjectPauses] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
   const [view, setViewRaw] = useState('overview')
@@ -196,7 +198,7 @@ export default function App() {
   }
 
   const loadData = async (userId, projectId) => {
-    const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl] = await Promise.all([
+    const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl, pp] = await Promise.all([
       getAllProfiles(),
       getShots(projectId),
       getAssets(projectId),
@@ -208,8 +210,9 @@ export default function App() {
       getWipViews(userId),
       getGanttItems(projectId),
       getGanttLanes(projectId),
+      getProjectPauses(projectId),
     ])
-    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi); setGanttLanes(gl)
+    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi); setGanttLanes(gl); setProjectPauses(pp)
     // Derive permissions from global role only
     const myProfile = p.find(pr => pr.id === userId)
     setMyPerms({
@@ -889,6 +892,19 @@ export default function App() {
     return result
   }
 
+  // ── Project pause handlers ──
+  const handleCreateProjectPause = async (start_date, end_date, label) => {
+    if (!currentProject?.id) return
+    const { error } = await createProjectPause({ project_id: currentProject.id, start_date, end_date, label: label || null })
+    if (error) { addToast('Errore creazione pausa: ' + error.message, 'danger'); return }
+    setProjectPauses(await getProjectPauses(currentProject.id))
+  }
+  const handleDeleteProjectPause = async (id) => {
+    const { error } = await deleteProjectPause(id)
+    if (error) { addToast('Errore eliminazione pausa', 'danger'); return }
+    setProjectPauses(prev => prev.filter(p => p.id !== id))
+  }
+
   // ── Gantt handlers ──
   const handleCreateGanttItem = async (payload) => {
     const { error } = await createGanttItem(payload)
@@ -1081,6 +1097,9 @@ export default function App() {
             {view === 'gantt' && (
               <GanttPage tasks={tasks} shots={shots} assets={assets} currentProject={currentProject} user={user}
                 profiles={profiles}
+                pauses={projectPauses}
+                onCreatePause={handleCreateProjectPause}
+                onDeletePause={handleDeleteProjectPause}
                 onUpdateTask={handleUpdateTask}
                 onUpdateProjectDates={handleUpdateProjectDates}
                 onGoToTask={(taskId) => { setDeepLink({ type: 'tasks', id: taskId }); setView('tasks') }}
