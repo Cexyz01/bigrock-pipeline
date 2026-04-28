@@ -559,37 +559,51 @@ function MiniGantt({ items, lanes: laneRecords, project }) {
         </div>
 
         {/* Lane rows */}
-        {lanes.map(([name, arr], li) => (
+        {lanes.map(([name, arr], li) => {
+          const rangeEnd = addDays(rangeStart, rangeDays - 1)
+          return (
           <div key={name} style={{
             position: 'absolute', top: HEAD + li * ROW_H, left: 0, right: 0, height: ROW_H,
             background: li % 2 === 0 ? '#FAFBFD' : '#fff',
             borderBottom: '1px solid #F1F5F9',
+            overflow: 'hidden',
           }}>
+            {/* Bars area — confined to the timeline (after the lane label column) */}
+            <div style={{ position: 'absolute', left: LANE_W, top: 0, right: 0, height: '100%' }}>
+              {arr.map(it => {
+                const s = parseISO(it.start_date), e = parseISO(it.end_date)
+                // Clamp to visible range so out-of-range items truncate cleanly instead of bleeding
+                const sClamped = s < rangeStart ? rangeStart : s
+                const eClamped = e > rangeEnd ? rangeEnd : e
+                if (eClamped < sClamped) return null
+                const truncLeft = s < rangeStart
+                const truncRight = e > rangeEnd
+                const x = daysBetween(rangeStart, sClamped) * dayW + 2
+                const w = Math.max(4, (daysBetween(sClamped, eClamped) + 1) * dayW - 4)
+                return (
+                  <div key={it.id} title={`${it.title}  ·  ${it.start_date} → ${it.end_date}`}
+                    style={{
+                      position: 'absolute', left: x, top: 6, height: ROW_H - 12, width: w,
+                      background: `linear-gradient(135deg, ${it.color} 0%, ${shade(it.color, -10)} 100%)`,
+                      borderRadius: truncLeft && truncRight ? 0 : (truncLeft ? '0 6px 6px 0' : truncRight ? '6px 0 0 6px' : 6),
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                      color: '#fff', fontSize: 11, fontWeight: 600,
+                      display: 'flex', alignItems: 'center', padding: '0 8px',
+                      overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                    }}>{it.title}</div>
+                )
+              })}
+            </div>
+            {/* Lane label sits on top so out-of-range bars can't bleed under it */}
             <div style={{
-              position: 'absolute', left: 0, top: 0, bottom: 0, width: LANE_W,
+              position: 'absolute', left: 0, top: 0, bottom: 0, width: LANE_W, zIndex: 1,
               display: 'flex', alignItems: 'center', padding: '0 16px',
               fontSize: 12, fontWeight: 600, color: '#1a1a1a',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               borderRight: '1px solid #E2E8F0', background: li % 2 === 0 ? '#FAFBFD' : '#fff',
             }}>{name}</div>
-            {arr.map(it => {
-              const s = parseISO(it.start_date), e = parseISO(it.end_date)
-              const x = LANE_W + daysBetween(rangeStart, s) * dayW + 2
-              const w = Math.max(dayW * 0.6, (daysBetween(s, e) + 1) * dayW - 4)
-              return (
-                <div key={it.id} title={`${it.title}  ·  ${it.start_date} → ${it.end_date}`}
-                  style={{
-                    position: 'absolute', left: x, top: 6, height: ROW_H - 12, width: w,
-                    background: `linear-gradient(135deg, ${it.color} 0%, ${shade(it.color, -10)} 100%)`,
-                    borderRadius: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
-                    color: '#fff', fontSize: 11, fontWeight: 600,
-                    display: 'flex', alignItems: 'center', padding: '0 8px',
-                    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                  }}>{it.title}</div>
-              )
-            })}
           </div>
-        ))}
+        )})}
 
         {/* Today line */}
         {todayX >= 0 && todayX <= rangeDays * dayW && (
