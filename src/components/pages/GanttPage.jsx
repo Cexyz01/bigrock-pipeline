@@ -646,21 +646,28 @@ export default function GanttPage({
                     borderBottom: '1px solid #E8ECF1',
                     background: `${g.color}10`,
                   }}>
-                    {/* Aggregate bar — original dark gradient pulled toward gray
-                        (less saturated, same luminance), so it stays bold without burning the eye. */}
-                    {agg && (
-                      <div title={`Span totale ${g.label}: ${agg.days}g lavorativi`} style={{
-                        position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
-                        background: `repeating-linear-gradient(135deg, ${desaturate(g.color, 0.45)} 0 8px, ${desaturate(shade(g.color, -18), 0.45)} 8px 16px)`,
-                        opacity: 0.85,
-                        borderRadius: 6, border: `1.5px solid ${desaturate(shade(g.color, -25), 0.45)}`,
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
-                        pointerEvents: 'none',
-                        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                        padding: '0 10px', color: '#fff', fontSize: 10, fontWeight: 700,
-                        textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                      }}>{agg.days}g</div>
-                    )}
+                    {/* Aggregate bar — keep the saturated dept palette in Dipartimento view,
+                        only desaturate in Shot/Asset view where the lane colors (deep purple, near-black)
+                        were too harsh. */}
+                    {agg && (() => {
+                      const isEntity = groupBy === 'entity'
+                      const c1 = isEntity ? desaturate(g.color, 0.45) : g.color
+                      const c2 = isEntity ? desaturate(shade(g.color, -18), 0.45) : shade(g.color, -18)
+                      const cBorder = isEntity ? desaturate(shade(g.color, -25), 0.45) : shade(g.color, -25)
+                      return (
+                        <div title={`Span totale ${g.label}: ${agg.days}g lavorativi`} style={{
+                          position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
+                          background: `repeating-linear-gradient(135deg, ${c1} 0 8px, ${c2} 8px 16px)`,
+                          opacity: isEntity ? 0.85 : 1,
+                          borderRadius: 6, border: `1.5px solid ${cBorder}`,
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                          pointerEvents: 'none',
+                          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                          padding: '0 10px', color: '#fff', fontSize: 10, fontWeight: 700,
+                          textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                        }}>{agg.days}g</div>
+                      )
+                    })()}
                     {/* Sticky lane header */}
                     <div style={{
                       position: 'sticky', left: 0, zIndex: 2,
