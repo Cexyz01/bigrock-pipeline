@@ -707,7 +707,13 @@ export default function GanttPage({
                     alignItems: 'center', padding: '0 12px 0 36px', gap: 8,
                     background: rowBg, borderRight: `2px solid ${g.color}`,
                     boxSizing: 'border-box',
-                  }} title={fullLabel}>
+                  }} title={`${fullLabel} · ${taskDept.label}`}>
+                    {/* Department tab — always shows the dept color so a dimmed (unassigned)
+                        task is still recognisable at a glance, especially in Shot/Asset view. */}
+                    <span style={{
+                      position: 'absolute', left: 22, top: 8, bottom: 8, width: 4,
+                      borderRadius: 2, background: taskDept.color,
+                    }} />
                     <span style={{
                       fontSize: 12, color: '#1a1a1a', flex: 1,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
