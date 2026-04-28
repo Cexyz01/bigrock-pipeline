@@ -646,19 +646,19 @@ export default function GanttPage({
                     borderBottom: '1px solid #E8ECF1',
                     background: `${g.color}10`,
                   }}>
-                    {/* Aggregate bar — softened so it reads as a background indicator
-                        rather than competing with the actual task bars below. */}
+                    {/* Aggregate bar — original dark gradient pulled toward gray
+                        (less saturated, same luminance), so it stays bold without burning the eye. */}
                     {agg && (
                       <div title={`Span totale ${g.label}: ${agg.days}g lavorativi`} style={{
                         position: 'absolute', left: agg.x, top: 8, width: agg.w, height: ROW_H - 16,
-                        background: `repeating-linear-gradient(135deg, ${shade(g.color, 25)} 0 8px, ${shade(g.color, 10)} 8px 16px)`,
+                        background: `repeating-linear-gradient(135deg, ${desaturate(g.color, 0.45)} 0 8px, ${desaturate(shade(g.color, -18), 0.45)} 8px 16px)`,
                         opacity: 0.85,
-                        borderRadius: 6, border: `1px solid ${shade(g.color, 5)}`,
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                        borderRadius: 6, border: `1.5px solid ${desaturate(shade(g.color, -25), 0.45)}`,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
                         pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                         padding: '0 10px', color: '#fff', fontSize: 10, fontWeight: 700,
-                        textShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                        textShadow: '0 1px 2px rgba(0,0,0,0.3)',
                       }}>{agg.days}g</div>
                     )}
                     {/* Sticky lane header */}
@@ -985,5 +985,17 @@ function shade(hex, percent) {
   const n = parseInt(h, 16)
   let r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff
   const f = (c) => Math.max(0, Math.min(255, Math.round(c + (percent / 100) * 255)))
+  return '#' + [f(r), f(g), f(b)].map(x => x.toString(16).padStart(2, '0')).join('')
+}
+
+// Pull a colour toward its luma-equivalent gray. amount 0..1 — preserves brightness,
+// reduces chroma. Used by the lane aggregate bars so they stay dark but less vivid.
+function desaturate(hex, amount) {
+  if (!hex || !hex.startsWith('#')) return hex
+  let h = hex.slice(1); if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const n = parseInt(h, 16)
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff
+  const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b)
+  const f = (c) => Math.max(0, Math.min(255, Math.round(c + (gray - c) * amount)))
   return '#' + [f(r), f(g), f(b)].map(x => x.toString(16).padStart(2, '0')).join('')
 }
