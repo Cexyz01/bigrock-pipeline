@@ -3,6 +3,7 @@ import { ACCENT, DEPTS, hasPermission } from '../../lib/constants'
 import Btn from '../ui/Btn'
 import Fade from '../ui/Fade'
 import { IconChevronDown } from '../ui/Icons'
+import TaskDetailModal from '../tasks/TaskDetailModal'
 
 // ── Date helpers (work with YYYY-MM-DD strings, no timezone surprises) ──
 const MS_DAY = 86400000
@@ -30,10 +31,15 @@ const ROW_H = 40
 const HEADER_H = 64
 
 export default function GanttPage({
-  tasks = [], shots = [], assets = [], currentProject, user,
+  tasks = [], shots = [], assets = [], currentProject, user, profiles = [],
   onUpdateTask, onUpdateProjectDates, onGoToTask, addToast,
+  onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
+  onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
+  wipViews, requestConfirm,
 }) {
   const canEdit = hasPermission(user, 'create_edit_tasks') || hasPermission(user, 'manage_project_settings')
+  const staff = hasPermission(user, 'create_edit_tasks')
+  const [selectedTaskId, setSelectedTaskId] = useState(null)
 
   const [zoom, setZoom] = useState('day')
   const [containerW, setContainerW] = useState(1200)
@@ -68,6 +74,20 @@ export default function GanttPage({
   const todayX = daysBetween(rangeStart, today) * dayW
   const totalW = rangeDays * dayW
 
+  // Stable vertical ordering: capture once per project so tasks don't snap to a new
+  // row mid-drag when their start_date changes. New tasks added during the session
+  // fall back to a sort-by-date placement (Infinity index → appended).
+  const orderRef = useRef(null)
+  const projectKey = currentProject?.id || 'none'
+  if (!orderRef.current || orderRef.current.projectKey !== projectKey) {
+    const sorted = [...tasks]
+      .filter(t => t.department && t.start_date && t.duration_days)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date) || (a.title || '').localeCompare(b.title || ''))
+    const indexById = {}
+    sorted.forEach((t, i) => { indexById[t.id] = i })
+    orderRef.current = { projectKey, indexById }
+  }
+
   // Group scheduled tasks by department; lanes are fixed = DEPTS in canonical order.
   const taskLookup = useMemo(() => {
     const m = {}; for (const t of localTasks) m[t.id] = t; return m
@@ -80,11 +100,17 @@ export default function GanttPage({
       if (!m[t.department]) m[t.department] = []
       m[t.department].push(t)
     }
+    const idx = orderRef.current?.indexById || {}
     for (const arr of Object.values(m)) {
-      arr.sort((a, b) => a.start_date.localeCompare(b.start_date) || (a.title || '').localeCompare(b.title || ''))
+      arr.sort((a, b) => {
+        const ia = idx[a.id] ?? Infinity
+        const ib = idx[b.id] ?? Infinity
+        if (ia !== ib) return ia - ib
+        return (a.start_date || '').localeCompare(b.start_date || '') || (a.title || '').localeCompare(b.title || '')
+      })
     }
     return m
-  }, [localTasks])
+  }, [localTasks, projectKey])
 
   // Flatten visible rows: each dept lane is 1 header row, plus N task rows when expanded.
   const rows = useMemo(() => {
@@ -407,6 +433,7 @@ export default function GanttPage({
               const w = Math.max(dayW * 0.6, (t.duration_days || 1) * dayW - 8)
               const isDragging = drag?.id === t.id
               const rowBg = ri % 2 === 0 ? '#FAFBFD' : '#fff'
+              const isUnassigned = !((t.assignees || []).length)
               // Display label: "Asset: Title" or "ShotCode: Title", fallback to just title
               const containerLabel = t.asset?.name || t.shot?.code || ''
               const fullLabel = containerLabel ? `${containerLabel}: ${t.title}` : t.title
@@ -434,10 +461,13 @@ export default function GanttPage({
                     onClick={(ev) => {
                       if (dragMovedRef.current) { ev.stopPropagation(); dragMovedRef.current = false; return }
                     }}
-                    onDoubleClick={(ev) => { ev.stopPropagation(); onGoToTask?.(t.id) }}
+                    onDoubleClick={(ev) => { ev.stopPropagation(); setSelectedTaskId(t.id) }}
                     style={{
                       position: 'absolute', left: x, top: 6, width: w, height: ROW_H - 12,
-                      background: `linear-gradient(135deg, ${row.dept.color} 0%, ${shade(row.dept.color, -10)} 100%)`,
+                      background: isUnassigned
+                        ? `linear-gradient(135deg, #CBD5E1 0%, #94A3B8 100%)`
+                        : `linear-gradient(135deg, ${row.dept.color} 0%, ${shade(row.dept.color, -10)} 100%)`,
+                      opacity: isUnassigned ? 0.55 : 1,
                       borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
                       boxShadow: isDragging ? `0 8px 24px ${row.dept.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -513,6 +543,29 @@ export default function GanttPage({
           </div>
         </div>
       </div>
+
+      {/* Inline task detail modal — opened by double-click, no page navigation */}
+      {selectedTaskId && (() => {
+        const t = tasks.find(x => x.id === selectedTaskId)
+        if (!t) return null
+        return (
+          <TaskDetailModal
+            task={t} user={user} staff={staff} profiles={profiles}
+            projectStartDate={currentProject?.start_date || null}
+            onClose={() => setSelectedTaskId(null)}
+            onUpdate={onUpdateTask}
+            onSetAssignees={onSetAssignees}
+            onDelete={async (...args) => { await onDeleteTask?.(...args); setSelectedTaskId(null) }}
+            onReject={onRejectTask}
+            onAddWipComment={onAddWipComment}
+            onCreateWipUpdate={onCreateWipUpdate}
+            onCommitForReview={onCommitForReview}
+            onMarkWipViewed={onMarkWipViewed}
+            addToast={addToast}
+            requestConfirm={requestConfirm}
+          />
+        )
+      })()}
     </div>
   )
 }

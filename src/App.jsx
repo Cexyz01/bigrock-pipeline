@@ -1080,9 +1080,19 @@ export default function App() {
             )}
             {view === 'gantt' && (
               <GanttPage tasks={tasks} shots={shots} assets={assets} currentProject={currentProject} user={user}
+                profiles={profiles}
                 onUpdateTask={handleUpdateTask}
                 onUpdateProjectDates={handleUpdateProjectDates}
                 onGoToTask={(taskId) => { setDeepLink({ type: 'tasks', id: taskId }); setView('tasks') }}
+                onSetAssignees={handleSetTaskAssignees}
+                onDeleteTask={handleDeleteTask}
+                onRejectTask={handleRejectTask}
+                onAddWipComment={handleAddWipComment}
+                onCreateWipUpdate={handleCreateWipUpdate}
+                onCommitForReview={handleCommitForReview}
+                onMarkWipViewed={handleMarkWipViewed}
+                wipViews={wipViews}
+                requestConfirm={requestConfirm}
                 addToast={addToast} />
             )}
             {view === 'review' && myPerms.can_review && (
