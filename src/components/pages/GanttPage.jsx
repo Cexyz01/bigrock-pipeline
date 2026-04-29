@@ -12,9 +12,14 @@ const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return ne
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const daysBetween = (a, b) => Math.round((b.getTime() - a.getTime()) / MS_DAY)
-const workingDays = (a, b) => {
+const workingDays = (a, b, pauseSet) => {
   let n = 0; const cur = new Date(a)
-  while (cur <= b) { const dow = cur.getDay(); if (dow !== 0 && dow !== 6) n++; cur.setDate(cur.getDate() + 1) }
+  while (cur <= b) {
+    const dow = cur.getDay()
+    const iso = pauseSet ? toISO(cur) : null
+    if (dow !== 0 && dow !== 6 && !(pauseSet && pauseSet.has(iso))) n++
+    cur.setDate(cur.getDate() + 1)
+  }
   return n
 }
 
@@ -638,7 +643,7 @@ export default function GanttPage({
                   }
                   const ax = LANE_W + dateToX(minS) + 4
                   const aw = Math.max(dayW * 0.6, dateToEndX(maxE) - dateToX(minS) - 8)
-                  agg = { x: ax, w: aw, days: workingDays(minS, maxE) }
+                  agg = { x: ax, w: aw, days: workingDays(minS, maxE, pauseSet) }
                 }
                 return (
                   <div key={`lane-${g.id}`} style={{
@@ -670,10 +675,10 @@ export default function GanttPage({
                     })()}
                     {/* Sticky lane header */}
                     <div style={{
-                      position: 'sticky', left: 0, zIndex: 2,
+                      position: 'sticky', left: 0, zIndex: 3,
                       display: 'inline-flex', width: LANE_W, height: '100%',
                       alignItems: 'center', padding: '0 12px', gap: 10,
-                      background: `${g.color}10`,
+                      background: `linear-gradient(${g.color}10, ${g.color}10), #fff`,
                       borderRight: `2px solid ${g.color}`,
                       cursor: 'pointer', boxSizing: 'border-box',
                     }}
@@ -815,7 +820,7 @@ export default function GanttPage({
                           }}>{fullLabel}</span>
                           {showDaysBadge && (
                             <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 6, flexShrink: 0, position: 'relative' }}>
-                              {workingDays(s, e)}g
+                              {workingDays(s, e, pauseSet)}g
                             </span>
                           )}
                         </>
