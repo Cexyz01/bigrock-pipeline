@@ -35,6 +35,7 @@ const LANE_W = 220
 const ROW_H = 40
 const HEADER_H = 64
 const PAUSE_DAY_W = 4 // compressed width for days inside a pause range
+const MIN_PAUSE_RANGE_W = 30 // floor width for a whole pause range so the label can wrap onto 2 lines
 
 export default function GanttPage({
   tasks = [], shots = [], assets = [], currentProject, user, profiles = [],
@@ -88,24 +89,40 @@ export default function GanttPage({
     return s
   }, [pauses])
 
-  // Count normal vs pause days inside the visible range so we can size dayW to fit ~5 weeks
-  // of normal days, with pause days fixed at PAUSE_DAY_W.
-  const { normalDayCount, pauseDayCount } = useMemo(() => {
-    let nd = 0, pd = 0
+  // Walk visible days, find contiguous pause ranges, and reserve at least MIN_PAUSE_RANGE_W
+  // for each so the rotated label has room to wrap onto 2 lines instead of being clipped.
+  const pauseLayoutInfo = useMemo(() => {
+    const perDayWByIdx = new Map()
+    let totalPauseW = 0
+    let curStart = -1, curLen = 0
+    const flush = () => {
+      if (curLen <= 0) return
+      const totalW = Math.max(MIN_PAUSE_RANGE_W, curLen * PAUSE_DAY_W)
+      const perDay = totalW / curLen
+      for (let k = 0; k < curLen; k++) perDayWByIdx.set(curStart + k, perDay)
+      totalPauseW += totalW
+    }
     for (let i = 0; i < rangeDays; i++) {
       const iso = toISO(addDays(rangeStart, i))
-      if (pauseSet.has(iso)) pd++; else nd++
+      if (pauseSet.has(iso)) {
+        if (curLen === 0) curStart = i
+        curLen++
+      } else {
+        flush()
+        curStart = -1; curLen = 0
+      }
     }
-    return { normalDayCount: nd, pauseDayCount: pd }
+    flush()
+    return { perDayWByIdx, totalPauseW }
   }, [rangeStart, rangeDays, pauseSet])
 
   const dayW = Math.max(
     10,
-    Math.floor((containerW - LANE_W - pauseDayCount * PAUSE_DAY_W) / Math.max(1, (ZOOMS[zoom]?.weeks || 5) * 7))
+    Math.floor((containerW - LANE_W - pauseLayoutInfo.totalPauseW) / Math.max(1, (ZOOMS[zoom]?.weeks || 5) * 7))
   )
 
   // Per-day layout: x and w for every day in the visible range.
-  // Pause days collapse to PAUSE_DAY_W; everything else uses dayW.
+  // Pause days share their range's reserved width; non-pause days use dayW.
   const dayLayout = useMemo(() => {
     const arr = new Array(rangeDays)
     let x = 0
@@ -113,12 +130,12 @@ export default function GanttPage({
       const date = addDays(rangeStart, i)
       const iso = toISO(date)
       const isPause = pauseSet.has(iso)
-      const w = isPause ? PAUSE_DAY_W : dayW
+      const w = isPause ? (pauseLayoutInfo.perDayWByIdx.get(i) || PAUSE_DAY_W) : dayW
       arr[i] = { date, dow: date.getDay(), x, w, isPause, iso }
       x += w
     }
     return arr
-  }, [rangeStart, rangeDays, dayW, pauseSet])
+  }, [rangeStart, rangeDays, dayW, pauseSet, pauseLayoutInfo])
 
   const totalW = useMemo(() => dayLayout.length ? (dayLayout[dayLayout.length - 1].x + dayLayout[dayLayout.length - 1].w) : 0, [dayLayout])
 
@@ -611,10 +628,10 @@ export default function GanttPage({
                 }}>
                 <div style={{
                   writingMode: 'vertical-rl', transform: 'rotate(180deg)',
-                  fontSize: p.w >= 18 ? 10 : 9, fontWeight: 700, color: '#92400E',
-                  letterSpacing: 1.2, textTransform: 'uppercase',
-                  whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden',
-                  maxHeight: HEADER_H - 8,
+                  fontSize: p.w >= 32 ? 10 : 9, fontWeight: 700, color: '#92400E',
+                  letterSpacing: 1.0, textTransform: 'uppercase',
+                  whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'center',
+                  lineHeight: 1.1, maxHeight: HEADER_H - 8,
                 }}>
                   {p.label}
                 </div>
