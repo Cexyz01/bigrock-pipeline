@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, isAudioUrl, isVideoUrl, isDeptEnabled, ACCENT } from '../../lib/constants'
 import { getWipUpdates } from '../../lib/supabase'
 import Av from '../ui/Av'
@@ -28,12 +28,41 @@ export default function ReviewPage({
   shots = [], assets = [], tasks = [], profiles = [], user, currentProject,
   onUpdateTask, onRejectTask, addToast, requestConfirm,
 }) {
+  // Optimistic dismissal: once the user acts on a task we hide it locally
+  // (no waiting for the tasks refetch) so the surrounding list stays put and
+  // the scroll position doesn't jump. The underlying tasks state will catch
+  // up shortly via the realtime subscription.
+  const [dismissedIds, setDismissedIds] = useState(() => new Set())
+  const dismissTask = useCallback((id) => {
+    setDismissedIds(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+  }, [])
+
   const reviewTasks = useMemo(
     () => tasks
-      .filter(t => t.status === 'review')
+      .filter(t => t.status === 'review' && !dismissedIds.has(t.id))
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
-    [tasks],
+    [tasks, dismissedIds],
   )
+
+  // Clean up dismissedIds for tasks that have actually left review status
+  // (otherwise the Set grows forever and re-reviewed tasks would stay hidden).
+  useEffect(() => {
+    setDismissedIds(prev => {
+      if (prev.size === 0) return prev
+      const stillInReview = new Set(tasks.filter(t => t.status === 'review').map(t => t.id))
+      let changed = false
+      const next = new Set()
+      for (const id of prev) {
+        if (stillInReview.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [tasks])
 
   // Load WIP updates per task
   const [wipsByTask, setWipsByTask] = useState({})
@@ -100,6 +129,7 @@ export default function ReviewPage({
                 wips={wipsByTask[task.id] || []}
                 onUpdateTask={onUpdateTask}
                 onRejectTask={onRejectTask}
+                onDismiss={dismissTask}
                 addToast={addToast}
                 requestConfirm={requestConfirm}
               />
@@ -214,7 +244,7 @@ function Stat({ label, value, accent }) {
 // ────────────────────────────────────────────────────────────
 // TASK REVIEW CARD
 // ────────────────────────────────────────────────────────────
-function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, addToast, requestConfirm }) {
+function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, onDismiss, addToast, requestConfirm }) {
   const dept = DEPTS.find(d => d.id === task.department)
   const assignees = task.assignees || []
   const [actionLoading, setActionLoading] = useState(null)
@@ -234,6 +264,9 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
 
   const handleApprove = async () => {
     setActionLoading('approve')
+    // Optimistic dismissal — the card vanishes from the page immediately so the
+    // staff can keep working through the queue without losing scroll position.
+    onDismiss?.(task.id)
     try { await onUpdateTask(task.id, { status: 'approved' }) } catch (e) { console.error(e) }
     setActionLoading(null)
     addToast?.('Task approvato', 'success')
@@ -244,6 +277,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
     const comment = rejectComment.trim()
     setActionLoading('reject')
     setShowRejectBox(false)
+    onDismiss?.(task.id)
     onRejectTask(task.id, comment)
       .catch(e => console.error(e))
       .finally(() => {

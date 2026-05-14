@@ -648,9 +648,10 @@ export default function App() {
   }
 
   const handleUpdateTask = async (id, updates) => {
-    // Clear revision comment when task is approved or re-submitted for review
+    // Clear pinned revision comment when task is approved or re-submitted for review
     if (updates.status === 'approved' || updates.status === 'review') {
       updates.revision_comment = null
+      updates.revision_comment_at = null
     }
     await updateTask(id, updates)
     const task = tasks.find(t => t.id === id)
@@ -669,15 +670,21 @@ export default function App() {
     if (currentProject?.miro_board_id) {
       try { await deleteTaskMiroImages(id, currentProject.miro_board_id) } catch (err) { console.warn('Miro reject cleanup skipped:', err) }
     }
-    // 2. Set status back to WIP
-    await updateTask(id, { status: 'wip' })
-    // 3. Add comment to the latest WIP update if provided
-    if (comment.trim()) {
+    // 2. Set status back to WIP and pin the revision comment on the task itself
+    // (also surfaced as a banner above the WIPs in TaskDetailModal).
+    const trimmed = comment.trim()
+    await updateTask(id, {
+      status: 'wip',
+      revision_comment: trimmed || null,
+      revision_comment_at: trimmed ? new Date().toISOString() : null,
+    })
+    // 3. Mirror the comment onto the latest WIP update for inline history
+    if (trimmed) {
       try {
         const { data: wipUpdates } = await supabase.from('task_wip_updates')
           .select('id').eq('task_id', id).order('created_at', { ascending: false }).limit(1)
         if (wipUpdates?.length > 0) {
-          await addWipComment(wipUpdates[0].id, user.id, `📌 Modifiche richieste: ${comment.trim()}`)
+          await addWipComment(wipUpdates[0].id, user.id, `📌 Modifiche richieste: ${trimmed}`)
         }
       } catch (err) { console.warn('Failed to add revision comment:', err) }
     }
@@ -762,8 +769,9 @@ export default function App() {
       if (!latestPerUser.has(u.user_id)) latestPerUser.set(u.user_id, u)
     }
 
-    // 2. Change status to review FIRST — placeCellImages filters by status review/approved
-    await updateTask(taskId, { status: 'review' })
+    // 2. Change status to review FIRST — placeCellImages filters by status review/approved.
+    // Also clear any pinned revision comment since the student has now responded.
+    await updateTask(taskId, { status: 'review', revision_comment: null, revision_comment_at: null })
 
     // 3. Upload each user's latest WIP to storyboard.
     //    Each user's row set is replaced independently — other students' rows untouched.

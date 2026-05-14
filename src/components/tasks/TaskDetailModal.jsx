@@ -471,6 +471,31 @@ export default function TaskDetailModal({
   const renderWipContent = () => (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? 0 : 20 }}>
+        {/* Pinned revision feedback — surfaced when staff sent the task back to WIP
+            with a comment. Cleared automatically when status moves to review/approved. */}
+        {task.revision_comment && (
+          <div style={{
+            marginBottom: 16, padding: '14px 16px', borderRadius: 14,
+            background: 'linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%)',
+            border: '1.5px solid #F59E0B', boxShadow: '0 2px 8px rgba(245,158,11,0.18)',
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}>
+            <div style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>📌</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                Revisione richiesta
+                {task.revision_comment_at && (
+                  <span style={{ fontWeight: 500, opacity: 0.8, marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+                    · {new Date(task.revision_comment_at).toLocaleDateString('it', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 14, color: '#78350F', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {task.revision_comment}
+              </div>
+            </div>
+          </div>
+        )}
         {loading ? (
           <div style={{ textAlign: 'center', color: '#94A3B8', paddingTop: 40 }}>Loading...</div>
         ) : wipUpdates.length === 0 ? (
