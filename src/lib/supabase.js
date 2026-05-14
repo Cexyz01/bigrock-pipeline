@@ -125,6 +125,37 @@ export async function getUnseenSuperNotifications(userId) {
   return data || []
 }
 
+// Pre-register a student account before their first Google login. The edge
+// function calls auth.admin.createUser so the auth.users row exists
+// immediately; the profile trigger then creates a Studente profile that can
+// be assigned to projects right away. When the real person logs in via Google
+// with the same email, Supabase reuses the existing auth user.
+export async function preregStudent(email, fullName) {
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) return { data: null, error: { message: 'Not signed in' } }
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action: 'prereg_student', email, full_name: fullName }),
+    })
+  } catch (e) {
+    return { data: null, error: { message: 'Network error: ' + (e.message || String(e)) } }
+  }
+  let json
+  try { json = await res.json() } catch (_) {
+    return { data: null, error: { message: `Edge function status ${res.status} — invalid JSON` } }
+  }
+  if (!res.ok) return { data: null, error: { message: json.error || `Status ${res.status}` } }
+  return { data: json, error: null }
+}
+
 export async function sendSuperNotification(targetUserId, senderId, message) {
   const { data, error } = await supabase.from('super_notifications')
     .insert({ target_user_id: targetUserId, sender_id: senderId, message })

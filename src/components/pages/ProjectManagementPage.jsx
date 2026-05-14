@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { isAdmin, isStaff, hasPermission, ACCENT, DEPTS, PERMISSION_CATALOG, ALL_PERMISSION_IDS, displayRole, SUPER_ADMIN_EMAILS } from '../../lib/constants'
-import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole } from '../../lib/supabase'
+import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole, preregStudent } from '../../lib/supabase'
 import { getCloudinaryUsage } from '../../lib/miro'
 import Btn from '../ui/Btn'
 import Modal from '../ui/Modal'
@@ -38,7 +38,7 @@ export default function ProjectManagementPage({ user, profiles, projects, curren
         ))}
       </div>
 
-      {tab === 'members' && <MembersTab user={user} profiles={profiles} projects={projects} currentProject={currentProject} addToast={addToast} myPerms={myPerms} />}
+      {tab === 'members' && <MembersTab user={user} profiles={profiles} projects={projects} currentProject={currentProject} addToast={addToast} myPerms={myPerms} onRefreshProfiles={onRefreshProfiles} />}
       {tab === 'projects' && canManageProjects && <ProjectsTab user={user} projects={projects} onRefreshProjects={onRefreshProjects} addToast={addToast} requestConfirm={requestConfirm} />}
       {tab === 'roles' && canManageRoles && <RolesManager user={user} profiles={profiles} addToast={addToast} onRefreshProfiles={onRefreshProfiles} />}
       {tab === 'manager' && canManagerTab && <AdminTab user={user} profiles={profiles} addToast={addToast} />}
@@ -50,7 +50,25 @@ export default function ProjectManagementPage({ user, profiles, projects, curren
 // TAB: MEMBRI — checklist per progetto
 // ═══════════════════════════════════════════════
 
-function MembersTab({ user, profiles, projects, currentProject, addToast, myPerms }) {
+function MembersTab({ user, profiles, projects, currentProject, addToast, myPerms, onRefreshProfiles }) {
+  // Pre-registration form state (open form, fields, in-flight)
+  const [preregOpen, setPreregOpen] = useState(false)
+  const [preregEmail, setPreregEmail] = useState('')
+  const [preregName, setPreregName] = useState('')
+  const [preregSubmitting, setPreregSubmitting] = useState(false)
+  const canPrereg = hasPermission(user, 'create_projects')
+  const handlePrereg = async () => {
+    const email = preregEmail.trim()
+    const name = preregName.trim()
+    if (!email || !name) { addToast('Email e nome richiesti', 'danger'); return }
+    setPreregSubmitting(true)
+    const { error } = await preregStudent(email, name)
+    setPreregSubmitting(false)
+    if (error) { addToast('Errore: ' + error.message, 'danger'); return }
+    addToast(`${name} pre-registrato — pronto per le assegnazioni`, 'success')
+    setPreregEmail(''); setPreregName(''); setPreregOpen(false)
+    onRefreshProfiles?.()
+  }
   const admin = hasPermission(user, 'manage_roles')
   // Default to the project the user is currently working on (sidebar selection),
   // falling back to the first project if the sidebar choice isn't in the list.
@@ -165,7 +183,49 @@ function MembersTab({ user, profiles, projects, currentProject, addToast, myPerm
 
           {/* Students section */}
           <div>
-            <div style={sectionTitle}>Studenti ({studentProfiles.length})</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={sectionTitle}>Studenti ({studentProfiles.length})</div>
+              {canPrereg && !preregOpen && (
+                <button onClick={() => setPreregOpen(true)} style={{
+                  padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${ACCENT}`,
+                  background: '#fff', color: ACCENT, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}>+ Aggiungi studente</button>
+              )}
+            </div>
+            {canPrereg && preregOpen && (
+              <Card>
+                <div style={{ fontSize: 12, color: '#64748B', fontWeight: 600, marginBottom: 8 }}>
+                  Pre-registra uno studente
+                </div>
+                <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 10 }}>
+                  L'account viene creato subito così puoi assegnarlo a progetti e reparti. Quando la persona farà login con Google sulla stessa email, troverà tutte le sue assegnazioni già pronte.
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: '1 1 220px', minWidth: 200 }}>
+                    <label style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Email</label>
+                    <input type="email" value={preregEmail} onChange={e => setPreregEmail(e.target.value)}
+                      placeholder="nome.cognome@bigrock.it" disabled={preregSubmitting}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #E8ECF1', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+                    <label style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Nome completo</label>
+                    <input type="text" value={preregName} onChange={e => setPreregName(e.target.value)}
+                      placeholder="Mario Rossi" disabled={preregSubmitting}
+                      onKeyDown={e => e.key === 'Enter' && !preregSubmitting && handlePrereg()}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #E8ECF1', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Btn variant="primary" onClick={handlePrereg} loading={preregSubmitting} disabled={preregSubmitting || !preregEmail.trim() || !preregName.trim()}>
+                      Crea
+                    </Btn>
+                    <button onClick={() => { setPreregOpen(false); setPreregEmail(''); setPreregName('') }} disabled={preregSubmitting}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'transparent', color: '#94A3B8', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      Annulla
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            )}
             <Card>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {studentProfiles.map(p => {

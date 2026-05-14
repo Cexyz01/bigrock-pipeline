@@ -10,6 +10,7 @@ const BOARD_ID = Deno.env.get("MIRO_BOARD_ID")!
 const MIRO_TOKEN = Deno.env.get("MIRO_ACCESS_TOKEN")!
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || ""
 
 const CLD_CLOUD = Deno.env.get("CLOUDINARY_CLOUD_NAME") || ""
 const CLD_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
@@ -1123,6 +1124,63 @@ async function handleFixSync(supabase: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// PRE-REGISTER STUDENT — create an auth user + profile before they sign in
+// via Google. When the real person later signs in with the same email,
+// Supabase reuses the existing auth user, so all the pre-set assignments
+// (project_members rows, project_role, etc.) automatically flow to them.
+// ══════════════════════════════════════════════════════════════
+
+async function handlePreregStudent(supabase: any, params: any, authHeader: string | null) {
+  const { email, full_name } = params
+  if (!email || !full_name) return err("email and full_name are required")
+  const trimmedEmail = String(email).trim().toLowerCase()
+  const trimmedName = String(full_name).trim()
+  if (!trimmedEmail || !trimmedName) return err("email and full_name are required")
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return err("Invalid email format")
+
+  // Authorization: caller must have create_projects permission. We re-create
+  // a Supabase client with the caller's JWT so RLS/auth.uid() works for the
+  // permission check, then keep using the service-role client for writes.
+  if (!authHeader) return err("Missing Authorization header", 401)
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY ?? SUPABASE_SERVICE_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  })
+  const { data: { user: caller }, error: callerErr } = await userClient.auth.getUser()
+  if (callerErr || !caller) return err("Invalid auth token", 401)
+  const { data: hasPerm, error: permErr } = await supabase.rpc("has_permission", {
+    user_id: caller.id,
+    perm: "create_projects",
+  })
+  if (permErr) return err("Permission check failed: " + permErr.message, 500)
+  if (!hasPerm) return err("Forbidden: requires create_projects permission", 403)
+
+  // Check duplicate (Supabase admin.createUser would also fail but the error
+  // is opaque — better to surface a friendly message).
+  const { data: existing } = await supabase.from("profiles").select("id, email").eq("email", trimmedEmail).maybeSingle()
+  if (existing) return err(`Esiste già un profilo con email ${trimmedEmail}`, 409)
+
+  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+    email: trimmedEmail,
+    email_confirm: true,
+    user_metadata: { full_name: trimmedName },
+  })
+  if (createErr || !created?.user) {
+    return err("Failed to create user: " + (createErr?.message || "unknown error"), 500)
+  }
+
+  // The handle_new_user trigger has already inserted the profile with role_id=studente.
+  // Wait briefly then fetch + ensure full_name matches what the caller asked for.
+  await sleep(150)
+  const { data: profile } = await supabase
+    .from("profiles")
+    .update({ full_name: trimmedName })
+    .eq("id", created.user.id)
+    .select("*")
+    .maybeSingle()
+  return ok({ profile, user_id: created.user.id })
+}
+
+// ══════════════════════════════════════════════════════════════
 // MAIN
 // ══════════════════════════════════════════════════════════════
 
@@ -1160,6 +1218,7 @@ serve(async (req) => {
       case "get_output_upload_sig": return await handleGetOutputUploadSig(supabase, params)
       case "get_timeline_upload_sig": return await handleGetTimelineUploadSig(supabase, params)
       case "cloudinary_usage":  return await handleCloudinaryUsage()
+      case "prereg_student":    return await handlePreregStudent(supabase, params, req.headers.get("Authorization"))
       default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {
