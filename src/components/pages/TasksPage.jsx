@@ -24,7 +24,7 @@ const statusRowHoverBg = {
 }
 
 export default function TasksPage({
-  tasks, shots, assets = [], profiles, user, currentProject,
+  tasks, shots, assets = [], profiles, projectMembers = [], user, currentProject,
   onCreateTask, onUpdateTask, onReorderTasks, onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
   onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
   wipViews,
@@ -75,7 +75,18 @@ export default function TasksPage({
     return true
   })
 
-  const students = profiles.filter(p => p.role === 'studente')
+  // Only show students who are members of the current project, and override their
+  // global department with the per-project `project_role` so the AssigneePicker
+  // groups them by what they were actually assigned to do here.
+  const students = useMemo(() => {
+    const memberByUser = new Map((projectMembers || []).map(m => [m.user_id, m]))
+    return profiles
+      .filter(p => p.role === 'studente' && memberByUser.has(p.id))
+      .map(s => {
+        const m = memberByUser.get(s.id)
+        return { ...s, department: m.project_role || s.department || null }
+      })
+  }, [profiles, projectMembers])
 
   // Group tasks by container (asset, then shot, then unassigned).
   // Asset groups are listed first.
@@ -304,7 +315,7 @@ export default function TasksPage({
       {/* Task Detail Modal */}
       {selectedTask && (
         <TaskDetailModal
-          task={selectedTask} user={user} staff={staff} profiles={profiles}
+          task={selectedTask} user={user} staff={staff} profiles={profiles} students={students}
           projectStartDate={currentProject?.start_date || null}
           onClose={() => setSelectedTask(null)}
           onUpdate={onUpdateTask} onSetAssignees={onSetAssignees} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}

@@ -38,7 +38,7 @@ const PAUSE_DAY_W = 4 // compressed width for days inside a pause range
 const MIN_PAUSE_RANGE_W = 30 // floor width for a whole pause range so the label can wrap onto 2 lines
 
 export default function GanttPage({
-  tasks = [], shots = [], assets = [], currentProject, user, profiles = [],
+  tasks = [], shots = [], assets = [], currentProject, user, profiles = [], projectMembers = [],
   pauses = [], onCreatePause, onDeletePause,
   onUpdateTask, onUpdateProjectDates, onGoToTask, addToast,
   onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
@@ -504,6 +504,18 @@ export default function GanttPage({
   // Respects the Asset/Shot filters so the badge matches what the user is looking at.
   const unscheduledCount = visibleTasks.filter(t => t.department && (!t.start_date || !t.duration_days)).length
 
+  // Project-filtered + project_role-enriched students for the AssigneePicker
+  // shown inside TaskDetailModal. Same shape as TasksPage.
+  const students = useMemo(() => {
+    const memberByUser = new Map((projectMembers || []).map(m => [m.user_id, m]))
+    return (profiles || [])
+      .filter(p => p.role === 'studente' && memberByUser.has(p.id))
+      .map(s => {
+        const m = memberByUser.get(s.id)
+        return { ...s, department: m.project_role || s.department || null }
+      })
+  }, [profiles, projectMembers])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F0F2F5' }}>
       {/* Top bar */}
@@ -920,7 +932,7 @@ export default function GanttPage({
         if (!t) return null
         return (
           <TaskDetailModal
-            task={t} user={user} staff={staff} profiles={profiles}
+            task={t} user={user} staff={staff} profiles={profiles} students={students}
             projectStartDate={currentProject?.start_date || null}
             onClose={() => setSelectedTaskId(null)}
             onUpdate={onUpdateTask}

@@ -17,7 +17,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 
 export default function TaskDetailModal({
-  task, user, staff, profiles, projectStartDate = null,
+  task, user, staff, profiles, students: studentsProp = null, projectStartDate = null,
   onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
   onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
   addToast, requestConfirm,
@@ -246,7 +246,9 @@ export default function TaskDetailModal({
     setWipCommentInputs(prev => ({ ...prev, [wipUpdateId]: '' }))
   }
 
-  const students = profiles ? profiles.filter(p => p.role === 'studente') : []
+  // Prefer the explicit `students` prop (project-filtered + project_role enriched)
+  // over deriving from profiles, which would show ALL students globally.
+  const students = studentsProp ?? (profiles ? profiles.filter(p => p.role === 'studente') : [])
   const hasWipUpdates = wipUpdates.length > 0
 
   // ── Shared content renderers ──

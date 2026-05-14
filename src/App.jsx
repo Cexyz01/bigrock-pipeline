@@ -27,7 +27,7 @@ import {
   getWipUpdates, createWipUpdate, uploadWipImage, addWipComment,
   getWipViews, markWipViewed, uploadWipFile,
   updateReviewMeta, subscribeToWipUpdates,
-  getProjects, getUserProjects,
+  getProjects, getUserProjects, getProjectMembers,
   getUnseenSuperNotifications, markSuperNotificationSeen,
 } from './lib/supabase'
 
@@ -94,6 +94,7 @@ export default function App() {
   const [activeTradeId, setActiveTradeId] = useState(null)
   const [projects, setProjects] = useState([])
   const [currentProject, setCurrentProject] = useState(null)
+  const [projectMembers, setProjectMembers] = useState([])
   const [myPerms, setMyPerms] = useState({ can_manage_project: false, can_manage_shots: false, can_review: false })
   const [superNotifs, setSuperNotifs] = useState([])
   const [currentSuperNotif, setCurrentSuperNotif] = useState(null)
@@ -347,10 +348,13 @@ export default function App() {
   useEffect(() => {
     if (!user || !currentProject) return
     const pid = currentProject.id
+    // Initial load — project members drive the AssigneePicker roster
+    getProjectMembers(pid).then(setProjectMembers)
     const channels = [
       subscribeToTable('shots', () => getShots(pid).then(setShots), `project_id=eq.${pid}`),
       subscribeToTable('assets', () => getAssets(pid).then(setAssets), `project_id=eq.${pid}`),
       subscribeToTable('tasks', () => getTasks({ project_id: pid }).then(setTasks), `project_id=eq.${pid}`),
+      subscribeToTable('project_members', () => getProjectMembers(pid).then(setProjectMembers), `project_id=eq.${pid}`),
       subscribeToTable('notifications', () => getNotifications(user.id).then(setNotifications)),
       subscribeToNotifications(user.id, (payload) => {
         const n = payload.new
@@ -1097,6 +1101,7 @@ export default function App() {
             {view === 'gantt' && (
               <GanttPage tasks={tasks} shots={shots} assets={assets} currentProject={currentProject} user={user}
                 profiles={profiles}
+                projectMembers={projectMembers}
                 pauses={projectPauses}
                 onCreatePause={handleCreateProjectPause}
                 onDeletePause={handleDeleteProjectPause}
@@ -1126,7 +1131,7 @@ export default function App() {
           <div style={{ padding: contentPadding, ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             {view === 'overview' && <OverviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} user={user} currentProject={currentProject} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} projectMembers={projectMembers} user={user} currentProject={currentProject} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} />}
