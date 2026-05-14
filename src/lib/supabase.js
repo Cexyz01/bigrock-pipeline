@@ -157,20 +157,28 @@ export async function preregStudent(email, fullName) {
 }
 
 export async function sendSuperNotification(targetUserId, senderId, message) {
-  // Make sure we have a live session — otherwise PostgREST sees the anon role
-  // and the RLS policy will reject the insert with a misleading "row-level
-  // security policy" error rather than a 401.
+  // Goes through a SECURITY DEFINER RPC that does the permission check inline
+  // and inserts on behalf of the caller — avoids fighting with RLS policies
+  // and surfaces a clear error if the session is missing/expired.
   const { data: sessionData } = await supabase.auth.getSession()
   if (!sessionData?.session?.access_token) {
-    // Try one explicit refresh before giving up
     const { data: refreshed } = await supabase.auth.refreshSession()
     if (!refreshed?.session?.access_token) {
       return { data: null, error: { message: 'Sessione scaduta — esci e rientra con Google.' } }
     }
   }
-  const { data, error } = await supabase.from('super_notifications')
-    .insert({ target_user_id: targetUserId, sender_id: senderId, message })
-    .select().single()
+  const { data, error } = await supabase.rpc('send_super_notification', {
+    p_target_user_id: targetUserId,
+    p_message: message,
+  })
+  if (error) {
+    if (error.message?.includes('not_authenticated')) {
+      return { data: null, error: { message: 'Sessione non valida — esci e rientra con Google.' } }
+    }
+    if (error.message?.includes('insufficient_permissions')) {
+      return { data: null, error: { message: 'Non hai i permessi per inviare super notifiche.' } }
+    }
+  }
   return { data, error }
 }
 
