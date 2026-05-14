@@ -12,12 +12,14 @@ import { IconPlus, IconTrash, IconEdit } from '../ui/Icons'
 export default function ProjectManagementPage({ user, profiles, projects, currentProject, myPerms, onRefreshProjects, onRefreshProfiles, addToast, requestConfirm }) {
   const canManageRoles = hasPermission(user, 'manage_roles')
   const canManageProjects = hasPermission(user, 'manage_project_settings') || canManageRoles || myPerms?.can_manage_project || hasPermission(user, 'create_projects')
-  const canSendNotifs = hasPermission(user, 'send_notifications')
+  // The "Manager" tab (formerly "Admin") is now open to anyone who can create
+  // projects, since they often need to broadcast/notify the people they invite.
+  const canManagerTab = hasPermission(user, 'create_projects')
   const tabs = []
   tabs.push({ id: 'members', label: 'Membri' })
   if (canManageProjects) tabs.push({ id: 'projects', label: 'Progetti' })
   if (canManageRoles) tabs.push({ id: 'roles', label: 'Ruoli' })
-  if (canSendNotifs) tabs.push({ id: 'admin', label: 'Admin' })
+  if (canManagerTab) tabs.push({ id: 'manager', label: 'Manager' })
   const [tab, setTab] = useState('members')
 
   return (
@@ -39,7 +41,7 @@ export default function ProjectManagementPage({ user, profiles, projects, curren
       {tab === 'members' && <MembersTab user={user} profiles={profiles} projects={projects} currentProject={currentProject} addToast={addToast} myPerms={myPerms} />}
       {tab === 'projects' && canManageProjects && <ProjectsTab user={user} projects={projects} onRefreshProjects={onRefreshProjects} addToast={addToast} requestConfirm={requestConfirm} />}
       {tab === 'roles' && canManageRoles && <RolesManager user={user} profiles={profiles} addToast={addToast} onRefreshProfiles={onRefreshProfiles} />}
-      {tab === 'admin' && canSendNotifs && <AdminTab user={user} profiles={profiles} addToast={addToast} />}
+      {tab === 'manager' && canManagerTab && <AdminTab user={user} profiles={profiles} addToast={addToast} />}
     </div>
   )
 }
