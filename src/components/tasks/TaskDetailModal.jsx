@@ -363,6 +363,18 @@ export default function TaskDetailModal({
           {task.status === 'wip' && hasWipUpdates && (
             <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ width: '100%', justifyContent: 'center' }}>Submit for Review</Btn>
           )}
+          {task.status === 'wip' && (
+            <Btn variant="info" loading={actionLoading === 'reset-todo'}
+              onClick={() => requestConfirm('Riportare questo task in TO DO?', async () => {
+                setActionLoading('reset-todo')
+                await onUpdate(task.id, { status: 'todo' })
+                if (addToast) addToast('Task riportato in TO DO', 'success')
+                setActionLoading(null)
+              })}
+              style={{ width: '100%', justifyContent: 'center' }}>
+              ↩ Riporta in TO DO
+            </Btn>
+          )}
           {task.status === 'review' && (
             <>
               <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
