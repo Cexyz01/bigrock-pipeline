@@ -9,7 +9,7 @@ import Av from '../ui/Av'
 import Card from '../ui/Card'
 import { IconPlus, IconTrash, IconEdit } from '../ui/Icons'
 
-export default function ProjectManagementPage({ user, profiles, projects, myPerms, onRefreshProjects, onRefreshProfiles, addToast, requestConfirm }) {
+export default function ProjectManagementPage({ user, profiles, projects, currentProject, myPerms, onRefreshProjects, onRefreshProfiles, addToast, requestConfirm }) {
   const canManageRoles = hasPermission(user, 'manage_roles')
   const canManageProjects = hasPermission(user, 'manage_project_settings') || canManageRoles || myPerms?.can_manage_project || hasPermission(user, 'create_projects')
   const canSendNotifs = hasPermission(user, 'send_notifications')
@@ -36,7 +36,7 @@ export default function ProjectManagementPage({ user, profiles, projects, myPerm
         ))}
       </div>
 
-      {tab === 'members' && <MembersTab user={user} profiles={profiles} projects={projects} addToast={addToast} myPerms={myPerms} />}
+      {tab === 'members' && <MembersTab user={user} profiles={profiles} projects={projects} currentProject={currentProject} addToast={addToast} myPerms={myPerms} />}
       {tab === 'projects' && canManageProjects && <ProjectsTab user={user} projects={projects} onRefreshProjects={onRefreshProjects} addToast={addToast} requestConfirm={requestConfirm} />}
       {tab === 'roles' && canManageRoles && <RolesManager user={user} profiles={profiles} addToast={addToast} onRefreshProfiles={onRefreshProfiles} />}
       {tab === 'admin' && canSendNotifs && <AdminTab user={user} profiles={profiles} addToast={addToast} />}
@@ -48,9 +48,14 @@ export default function ProjectManagementPage({ user, profiles, projects, myPerm
 // TAB: MEMBRI — checklist per progetto
 // ═══════════════════════════════════════════════
 
-function MembersTab({ user, profiles, projects, addToast, myPerms }) {
+function MembersTab({ user, profiles, projects, currentProject, addToast, myPerms }) {
   const admin = hasPermission(user, 'manage_roles')
-  const [selectedProject, setSelectedProject] = useState(projects[0] || null)
+  // Default to the project the user is currently working on (sidebar selection),
+  // falling back to the first project if the sidebar choice isn't in the list.
+  const [selectedProject, setSelectedProject] = useState(() => {
+    if (currentProject && projects.some(p => p.id === currentProject.id)) return currentProject
+    return projects[0] || null
+  })
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(false)
 
