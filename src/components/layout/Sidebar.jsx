@@ -198,7 +198,7 @@ export default function Sidebar({
                 ...(myPerms?.can_review ? [{ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount, show: true }] : []),
                 { id: 'calendar', icon: <IconCalendar size={20} />, label: 'Calendar', show: true, action: () => { setShowCalendar(true); setShowMore(false) } },
                 ...(showTcg ? [{ id: 'pack', icon: <IconCards size={20} />, label: 'Pack', show: true }] : []),
-                ...((hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || hasPermission(user, 'create_projects')) ? [{ id: 'projects', icon: <IconSettings size={20} />, label: 'Gestione', show: true }] : []),
+                ...((hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || hasPermission(user, 'create_projects') || hasPermission(user, 'manage_project_members')) ? [{ id: 'projects', icon: <IconSettings size={20} />, label: 'Gestione', show: true }] : []),
                 { id: 'crew', icon: <IconUsers size={20} />, label: 'Crew', show: true },
                 { id: 'profile', icon: <Av name={user.full_name} size={20} url={user.avatar_url} />, label: 'Profile', show: true },
               ].filter(i => i.show).map(item => (
@@ -312,7 +312,7 @@ export default function Sidebar({
 
         {/* Projects section: management link + selector */}
         <div style={{ borderBottom: '1px solid #2d2d2d' }}>
-          {(hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || hasPermission(user, 'create_projects')) && (
+          {(hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || hasPermission(user, 'create_projects') || hasPermission(user, 'manage_project_members')) && (
             <div style={{ paddingTop: 6 }}>
               <NavBtn icon={<IconSettings size={20} />} label="Gestione" active={view === 'projects'} onClick={() => setView('projects')} />
             </div>
