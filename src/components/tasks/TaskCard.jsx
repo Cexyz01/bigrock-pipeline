@@ -14,7 +14,7 @@ const statusHoverBg = {
   approved: '#6EE7B7', review: '#FCD34D', wip: '#93C5FD', todo: '#CBD5E1',
 }
 
-export default function TaskCard({ task, user, staff, onClick, wipViews, onStart, draggable = false, onDragStart, onDrop }) {
+export default function TaskCard({ task, user, staff, onClick, wipViews, onStart, requestConfirm, draggable = false, onDragStart, onDrop }) {
   const isMobile = useIsMobile()
   const [h, setH] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -28,11 +28,24 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
     const [y, m, d] = task.start_date.split('-').map(Number)
     return new Date(y, m - 1, d) <= today
   })()
+  // Too-early flag: planned start_date is in the future. Start button still
+  // works but is grey-styled and asks for confirmation first.
+  const tooEarly = task.status === 'todo' && task.start_date && (() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const [y, m, d] = task.start_date.split('-').map(Number)
+    return new Date(y, m - 1, d) > today
+  })()
 
   const handleStartClick = useCallback((e) => {
     e.stopPropagation()
+    if (tooEarly && requestConfirm) {
+      const [y, m, d] = task.start_date.split('-').map(Number)
+      const planned = new Date(y, m - 1, d).toLocaleDateString('it', { day: 'numeric', month: 'long' })
+      requestConfirm(`Sei sicuro? Non è ancora il giorno previsto per l'inizio (${planned}). Procedere comunque?`, () => onStart?.(task))
+      return
+    }
     onStart?.(task)
-  }, [task, onStart])
+  }, [task, onStart, tooEarly, requestConfirm])
 
   const handleDragStartCb = useCallback((e) => {
     e.dataTransfer.effectAllowed = 'move'
@@ -162,16 +175,22 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
           {task.shot && <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 10, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {canStart && (
-            <button onClick={handleStartClick} style={{
-              fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 8,
-              background: '#10B981', color: '#fff', border: 'none', cursor: 'pointer',
-              transition: 'background 0.15s ease',
-            }}
-              onMouseEnter={e => e.currentTarget.style.background = '#059669'}
-              onMouseLeave={e => e.currentTarget.style.background = '#10B981'}
-            >▶ Start</button>
-          )}
+          {canStart && (() => {
+            const baseBg = tooEarly ? '#CBD5E1' : '#10B981'
+            const hoverBg = tooEarly ? '#94A3B8' : '#059669'
+            const color = tooEarly ? '#475569' : '#fff'
+            const title = tooEarly ? 'Non è ancora il giorno previsto' : undefined
+            return (
+              <button onClick={handleStartClick} title={title} style={{
+                fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 8,
+                background: baseBg, color, border: 'none', cursor: 'pointer',
+                transition: 'background 0.15s ease',
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = hoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = baseBg}
+              >▶ Start</button>
+            )
+          })()}
           <StatusBadge status={task.status} type="task" />
         </div>
       </div>

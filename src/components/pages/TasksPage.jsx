@@ -296,6 +296,7 @@ export default function TasksPage({
                       onClick={() => setSelectedTask(task)}
                       wipViews={wipViews}
                       onStart={handleStartTask}
+                      requestConfirm={requestConfirm}
                       draggable
                       onDrop={handleTaskDrop}
                     />

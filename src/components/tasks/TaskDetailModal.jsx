@@ -359,9 +359,35 @@ export default function TaskDetailModal({
       {staff && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 10, borderTop: '1px solid #E8ECF1' }}>
           <span style={{ ...sectionHeader, marginBottom: 4 }}>Azioni</span>
-          {task.status === 'todo' && (
-            <Btn variant="primary" loading={actionLoading === 'start'} onClick={() => handleAction('start', { status: 'wip' }, 'Task started!')} style={{ width: '100%', justifyContent: 'center' }}>Start</Btn>
-          )}
+          {task.status === 'todo' && (() => {
+            // Grey-style + confirm prompt when today is before the planned start_date.
+            let tooEarly = false
+            let plannedLabel = ''
+            if (task.start_date) {
+              const today = new Date(); today.setHours(0, 0, 0, 0)
+              const [y, m, d] = task.start_date.split('-').map(Number)
+              const planned = new Date(y, m - 1, d)
+              if (planned > today) {
+                tooEarly = true
+                plannedLabel = planned.toLocaleDateString('it', { day: 'numeric', month: 'long' })
+              }
+            }
+            const startNow = () => handleAction('start', { status: 'wip' }, 'Task started!')
+            const onClick = () => {
+              if (tooEarly && requestConfirm) {
+                requestConfirm(`Sei sicuro? Non è ancora il giorno previsto per l'inizio (${plannedLabel}). Procedere comunque?`, startNow)
+                return
+              }
+              startNow()
+            }
+            return (
+              <Btn variant={tooEarly ? 'info' : 'primary'} loading={actionLoading === 'start'} onClick={onClick}
+                title={tooEarly ? 'Non è ancora il giorno previsto' : undefined}
+                style={{ width: '100%', justifyContent: 'center', ...(tooEarly ? { background: '#CBD5E1', color: '#475569', borderColor: '#CBD5E1' } : {}) }}>
+                Start
+              </Btn>
+            )
+          })()}
           {task.status === 'wip' && hasWipUpdates && (
             <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ width: '100%', justifyContent: 'center' }}>Submit for Review</Btn>
           )}
