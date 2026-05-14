@@ -52,11 +52,21 @@ export default function GanttPage({
 
   const [zoom, setZoom] = useState('day')
   const [groupBy, setGroupBy] = useState('dept') // 'dept' | 'entity'
+  const [showAssets, setShowAssets] = useState(true)
+  const [showShots, setShowShots] = useState(true)
   const [containerW, setContainerW] = useState(1200)
   const [drag, setDrag] = useState(null)
   const [localTasks, setLocalTasks] = useState(tasks)
   const [collapsed, setCollapsed] = useState(new Set()) // group ids that are collapsed
   useEffect(() => { setLocalTasks(tasks) }, [tasks])
+
+  // Tasks visible after the Asset/Shot toggles. Orphans (no shot or asset)
+  // always show — the toggles only gate entity-bound tasks.
+  const visibleTasks = useMemo(() => localTasks.filter(t => {
+    if (t.asset_id) return showAssets
+    if (t.shot_id) return showShots
+    return true
+  }), [localTasks, showAssets, showShots])
 
   // Visible date range: project window if set, otherwise auto-fit around scheduled tasks
   const { rangeStart, rangeDays } = useMemo(() => {
@@ -194,40 +204,30 @@ export default function GanttPage({
     return m
   }, [assets])
 
-  const taskSortKey = useCallback((t) => {
-    // Tasks attached to shots come first within their dept, in shot order, then asset-bound
-    // tasks (offset to keep them after shots), then orphans (very large index).
-    const SHOT_BASE = 0
-    const ASSET_BASE = 100000
-    const ORPHAN_BASE = 200000
-    if (t.shot_id && shotOrderMap[t.shot_id] !== undefined) return SHOT_BASE + shotOrderMap[t.shot_id]
-    if (t.asset_id && assetOrderMap[t.asset_id] !== undefined) return ASSET_BASE + assetOrderMap[t.asset_id]
-    return ORPHAN_BASE
+  // Bucket index: assets render above shots above orphans, regardless of date.
+  const entityBucket = (t) => t.asset_id ? 0 : (t.shot_id ? 1 : 2)
+  const entityOrder = useCallback((t) => {
+    if (t.asset_id && assetOrderMap[t.asset_id] !== undefined) return assetOrderMap[t.asset_id]
+    if (t.shot_id && shotOrderMap[t.shot_id] !== undefined) return shotOrderMap[t.shot_id]
+    return Number.MAX_SAFE_INTEGER
   }, [shotOrderMap, assetOrderMap])
 
   // Stable vertical ordering: capture once per project so tasks don't snap to a new
-  // row mid-drag when their start_date changes. Within each (department, entity) group
-  // tasks share the group's earliest start_date as primary sort key, so all tasks of
-  // the same shot/asset appear together as a "mini-cascade" instead of being scattered.
+  // row mid-drag when their start_date changes. Hard separation: all asset-bound tasks
+  // first (in canonical asset order), then all shot-bound tasks (in canonical shot
+  // order), then orphans. Tasks of the same entity cascade by their own start_date.
   const orderRef = useRef(null)
   const projectKey = currentProject?.id || 'none'
   if (!orderRef.current || orderRef.current.projectKey !== projectKey) {
     const validTasks = tasks.filter(t => t.department && t.start_date && t.duration_days)
-    const groupKey = (t) => `${t.department}|${t.shot_id || t.asset_id || 'orphan-' + t.id}`
-    // For each (dept, entity) group, find the earliest start_date — drives the group's row block.
-    const groupMinDate = {}
-    for (const t of validTasks) {
-      const k = groupKey(t)
-      if (!groupMinDate[k] || t.start_date < groupMinDate[k]) groupMinDate[k] = t.start_date
-    }
     const sorted = [...validTasks].sort((a, b) => {
-      const ka = groupKey(a), kb = groupKey(b)
-      // 1. Group block ordered by its earliest task date (preserves overall cascade)
-      const cmpDate = (groupMinDate[ka] || '').localeCompare(groupMinDate[kb] || '')
-      if (cmpDate) return cmpDate
-      // 2. Same earliest date but different entity → use canonical shot/asset order
-      if (ka !== kb) return taskSortKey(a) - taskSortKey(b)
-      // 3. Same group → tasks of the same shot/asset cascade by their own start_date
+      // 1. Asset tasks above shot tasks above orphans
+      const ba = entityBucket(a), bb = entityBucket(b)
+      if (ba !== bb) return ba - bb
+      // 2. Canonical entity order within the bucket
+      const ea = entityOrder(a), eb = entityOrder(b)
+      if (ea !== eb) return ea - eb
+      // 3. Within the same entity, cascade by start_date then title
       return (a.start_date || '').localeCompare(b.start_date || '') ||
              (a.title || '').localeCompare(b.title || '')
     })
@@ -243,7 +243,7 @@ export default function GanttPage({
   const tasksByDept = useMemo(() => {
     const m = {}
     for (const d of DEPTS) m[d.id] = []
-    for (const t of localTasks) {
+    for (const t of visibleTasks) {
       if (!t.department || !t.start_date || !t.duration_days) continue
       if (!m[t.department]) m[t.department] = []
       m[t.department].push(t)
@@ -258,7 +258,7 @@ export default function GanttPage({
       })
     }
     return m
-  }, [localTasks, projectKey])
+  }, [visibleTasks, projectKey])
 
   // Lookup of department definitions by id (for color/label of task bars in entity mode)
   const deptById = useMemo(() => {
@@ -283,7 +283,7 @@ export default function GanttPage({
     const byShot = new Map()
     const byAsset = new Map()
     const orphanTasks = []
-    for (const t of localTasks) {
+    for (const t of visibleTasks) {
       if (!t.department || !t.start_date || !t.duration_days) continue
       if (t.shot_id) {
         if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, [])
@@ -345,7 +345,7 @@ export default function GanttPage({
       })
     }
     return out
-  }, [groupBy, localTasks, tasksByDept, shots, assets])
+  }, [groupBy, visibleTasks, tasksByDept, shots, assets])
 
   // Flatten visible rows: each lane is 1 header row + N task rows when expanded.
   const rows = useMemo(() => {
@@ -500,8 +500,9 @@ export default function GanttPage({
     queueMicrotask(() => setCollapsed(new Set(groups.map(g => g.id))))
   }
 
-  // Count of unscheduled tasks (have a department but no start_date / duration)
-  const unscheduledCount = localTasks.filter(t => t.department && (!t.start_date || !t.duration_days)).length
+  // Count of unscheduled tasks (have a department but no start_date / duration).
+  // Respects the Asset/Shot filters so the badge matches what the user is looking at.
+  const unscheduledCount = visibleTasks.filter(t => t.department && (!t.start_date || !t.duration_days)).length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F0F2F5' }}>
@@ -540,6 +541,20 @@ export default function GanttPage({
                   background: groupBy === k ? ACCENT : 'transparent',
                   color: groupBy === k ? '#fff' : '#64748B', transition: 'all 0.15s',
                 }}>{label}</button>
+              ))}
+            </div>
+            {/* Entity filter — assets render above shots, each toggle hides its kind */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, padding: '5px 12px', background: '#fff', borderRadius: 999, border: '1px solid #E2E8F0' }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Mostra:</span>
+              {[
+                { k: 'asset', label: 'Asset', checked: showAssets, setter: setShowAssets },
+                { k: 'shot',  label: 'Shot',  checked: showShots,  setter: setShowShots },
+              ].map(({ k, label, checked, setter }) => (
+                <label key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: checked ? '#1a1a1a' : '#94A3B8', cursor: 'pointer', userSelect: 'none' }}>
+                  <input type="checkbox" checked={checked} onChange={e => setter(e.target.checked)}
+                    style={{ width: 14, height: 14, accentColor: ACCENT, cursor: 'pointer', margin: 0 }} />
+                  {label}
+                </label>
               ))}
             </div>
             <div style={{ display: 'inline-flex', background: '#fff', borderRadius: 999, padding: 3, gap: 2, border: '1px solid #E2E8F0' }}>
