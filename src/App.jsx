@@ -1121,7 +1121,7 @@ export default function App() {
             )}
             {view === 'review' && myPerms.can_review && (
               <ReviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user}
-                currentProject={currentProject} ganttItems={ganttItems} ganttLanes={ganttLanes}
+                currentProject={currentProject}
                 onUpdateTask={handleUpdateTask} onRejectTask={handleRejectTask}
                 addToast={addToast} requestConfirm={requestConfirm} />
             )}

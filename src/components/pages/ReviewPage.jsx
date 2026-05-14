@@ -26,7 +26,6 @@ function shade(hex, percent) {
 
 export default function ReviewPage({
   shots = [], assets = [], tasks = [], profiles = [], user, currentProject,
-  ganttItems = [], ganttLanes = [],
   onUpdateTask, onRejectTask, addToast, requestConfirm,
 }) {
   const reviewTasks = useMemo(
@@ -109,15 +108,6 @@ export default function ReviewPage({
         )}
       </div>
 
-      {/* Mini Gantt section */}
-      {(ganttItems.length > 0 || (currentProject?.start_date && currentProject?.end_date)) && (
-        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 32px 60px' }}>
-          <div style={{ marginBottom: 16 }}>
-            <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Andamento Progetto</h2>
-          </div>
-          <MiniGantt items={ganttItems} lanes={ganttLanes} project={currentProject} />
-        </div>
-      )}
       </div>
     </div>
   )
@@ -353,7 +343,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
             }}
             onMouseEnter={e => { if (!actionLoading) e.currentTarget.style.transform = 'translateY(-1px)' }}
             onMouseLeave={e => e.currentTarget.style.transform = 'none'}
-          >{actionLoading === 'approve' ? '...' : '✓ Approva'}</button>
+          >{actionLoading === 'approve' ? '...' : '✓ Approve'}</button>
 
           <button
             onClick={handleRejectClick}
@@ -367,7 +357,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
               opacity: actionLoading === 'reject' ? 0.5 : 1,
               transition: 'all 0.15s ease',
             }}
-          >{actionLoading === 'reject' ? '...' : (showRejectBox ? 'Invia richiesta modifiche' : '↩ Richiedi modifiche')}</button>
+          >{actionLoading === 'reject' ? '...' : (showRejectBox ? 'Submit' : '↩ Back to Wip')}</button>
 
           {showRejectBox && (
             <button
@@ -468,157 +458,6 @@ function WipBlock({ wip }) {
               <audio key={i} src={src} controls style={{ width: '100%' }} />
             ))}
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────
-// MINI GANTT
-// ────────────────────────────────────────────────────────────
-function MiniGantt({ items, lanes: laneRecords, project }) {
-  const containerRef = useRef(null)
-  const [containerW, setContainerW] = useState(1000)
-
-  useEffect(() => {
-    if (!containerRef.current) return
-    const el = containerRef.current
-    const update = () => setContainerW(el.clientWidth)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
-
-  const { rangeStart, rangeDays } = useMemo(() => {
-    if (project?.start_date && project?.end_date) {
-      const s = parseISO(project.start_date), e = parseISO(project.end_date)
-      return { rangeStart: s, rangeDays: Math.max(1, daysBetween(s, e) + 1) }
-    }
-    let min = addDays(today, -14), max = addDays(today, 56)
-    for (const it of items) {
-      const s = parseISO(it.start_date), e = parseISO(it.end_date)
-      if (s < min) min = s; if (e > max) max = e
-    }
-    const dow = (min.getDay() + 6) % 7
-    return { rangeStart: addDays(min, -dow - 7), rangeDays: daysBetween(addDays(min, -dow - 7), addDays(max, 14)) + 1 }
-  }, [project?.start_date, project?.end_date, items, today])
-
-  const dayW = Math.max(2, (containerW - 200) / rangeDays)
-  const todayX = daysBetween(rangeStart, today) * dayW
-
-  // Group by lane (declared first, then orphans)
-  const lanes = useMemo(() => {
-    const map = new Map()
-    for (const l of laneRecords) map.set(l.name, [])
-    for (const it of items) {
-      const key = it.lane || 'Senza lane'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key).push(it)
-    }
-    for (const arr of map.values()) arr.sort((a, b) => a.start_date.localeCompare(b.start_date))
-    return Array.from(map.entries()).filter(([, arr]) => arr.length > 0)
-  }, [laneRecords, items])
-
-  // Months strip
-  const months = useMemo(() => {
-    const arr = []
-    let cur = null
-    for (let i = 0; i < rangeDays; i++) {
-      const d = addDays(rangeStart, i)
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (!cur || cur.key !== key) {
-        cur = { key, label: d.toLocaleDateString('it-IT', { month: 'short', year: 'numeric' }), x: i * dayW, w: dayW }
-        arr.push(cur)
-      } else cur.w += dayW
-    }
-    return arr
-  }, [rangeStart, rangeDays, dayW])
-
-  const ROW_H = 36, LANE_W = 200, HEAD = 32
-
-  return (
-    <div ref={containerRef} style={{
-      background: '#fff', borderRadius: 20, overflow: 'hidden',
-      border: '1px solid #E8ECF1', boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
-    }}>
-      <div style={{ position: 'relative', height: HEAD + Math.max(lanes.length, 1) * ROW_H }}>
-        {/* Months row */}
-        <div style={{ position: 'absolute', top: 0, left: LANE_W, right: 0, height: HEAD, borderBottom: '1px solid #E8ECF1', background: '#FAFBFD' }}>
-          {months.map(m => (
-            <div key={m.key} style={{
-              position: 'absolute', left: m.x, width: m.w, top: 0, bottom: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 8,
-              fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em',
-              borderRight: '1px solid #F1F5F9',
-            }}>{m.label}</div>
-          ))}
-        </div>
-
-        {/* Lane rows */}
-        {lanes.map(([name, arr], li) => {
-          const rangeEnd = addDays(rangeStart, rangeDays - 1)
-          return (
-          <div key={name} style={{
-            position: 'absolute', top: HEAD + li * ROW_H, left: 0, right: 0, height: ROW_H,
-            background: li % 2 === 0 ? '#FAFBFD' : '#fff',
-            borderBottom: '1px solid #F1F5F9',
-            overflow: 'hidden',
-          }}>
-            {/* Bars area — confined to the timeline (after the lane label column) */}
-            <div style={{ position: 'absolute', left: LANE_W, top: 0, right: 0, height: '100%' }}>
-              {arr.map(it => {
-                const s = parseISO(it.start_date), e = parseISO(it.end_date)
-                // Clamp to visible range so out-of-range items truncate cleanly instead of bleeding
-                const sClamped = s < rangeStart ? rangeStart : s
-                const eClamped = e > rangeEnd ? rangeEnd : e
-                if (eClamped < sClamped) return null
-                const truncLeft = s < rangeStart
-                const truncRight = e > rangeEnd
-                const x = daysBetween(rangeStart, sClamped) * dayW + 2
-                const w = Math.max(4, (daysBetween(sClamped, eClamped) + 1) * dayW - 4)
-                return (
-                  <div key={it.id} title={`${it.title}  ·  ${it.start_date} → ${it.end_date}`}
-                    style={{
-                      position: 'absolute', left: x, top: 6, height: ROW_H - 12, width: w,
-                      background: `linear-gradient(135deg, ${it.color} 0%, ${shade(it.color, -10)} 100%)`,
-                      borderRadius: truncLeft && truncRight ? 0 : (truncLeft ? '0 6px 6px 0' : truncRight ? '6px 0 0 6px' : 6),
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
-                      color: '#fff', fontSize: 11, fontWeight: 600,
-                      display: 'flex', alignItems: 'center', padding: '0 8px',
-                      overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                    }}>{it.title}</div>
-                )
-              })}
-            </div>
-            {/* Lane label sits on top so out-of-range bars can't bleed under it */}
-            <div style={{
-              position: 'absolute', left: 0, top: 0, bottom: 0, width: LANE_W, zIndex: 1,
-              display: 'flex', alignItems: 'center', padding: '0 16px',
-              fontSize: 12, fontWeight: 600, color: '#1a1a1a',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              borderRight: '1px solid #E2E8F0', background: li % 2 === 0 ? '#FAFBFD' : '#fff',
-            }}>{name}</div>
-          </div>
-        )})}
-
-        {/* Today line */}
-        {todayX >= 0 && todayX <= rangeDays * dayW && (
-          <>
-            <div style={{
-              position: 'absolute', top: 0, left: LANE_W + todayX, width: 2,
-              height: HEAD + lanes.length * ROW_H,
-              background: ACCENT, opacity: 0.85, zIndex: 2, pointerEvents: 'none',
-            }} />
-            <div style={{
-              position: 'absolute', top: 4, left: LANE_W + todayX - 24, width: 48,
-              padding: '2px 0', borderRadius: 4, background: ACCENT, color: '#fff',
-              fontSize: 10, fontWeight: 700, textAlign: 'center', zIndex: 3, pointerEvents: 'none',
-            }}>OGGI</div>
-          </>
         )}
       </div>
     </div>
