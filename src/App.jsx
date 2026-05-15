@@ -91,6 +91,21 @@ export default function App() {
   // hard-reset escape hatch. Triggered by the slow-loading device case
   // (typically a stale SW + poisoned auth on a returning Chrome profile).
   const [slowLoadHint, setSlowLoadHint] = useState(false)
+  // Admin-only escape hatch — Ctrl+Shift+D reveals the hard-reset button
+  // inside the slow-load banner. Same combo as LoginPage.
+  const [showReset, setShowReset] = useState(false)
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault()
+        setShowReset(s => !s)
+      } else if (e.key === 'Escape' && showReset) {
+        setShowReset(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showReset])
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [matrixMode, setMatrixMode] = useState(false)
   const [pendingGameInvite, setPendingGameInvite] = useState(null) // { gameId, game, role }
@@ -1081,10 +1096,12 @@ export default function App() {
         {slowLoadHint && (
           <div style={{ marginTop: 20, fontSize: 12, color: '#64748B', maxWidth: 360 }}>
             Il caricamento è insolitamente lento.
-            <button onClick={() => window.bigrockHardReset?.()}
-              style={{ marginLeft: 6, background: 'transparent', border: 'none', color: '#F28C28', cursor: 'pointer', textDecoration: 'underline', fontSize: 12, padding: 0 }}>
-              Reset completo del sito
-            </button>
+            {showReset && (
+              <button onClick={() => window.bigrockHardReset?.()}
+                style={{ marginLeft: 6, background: 'transparent', border: 'none', color: '#F28C28', cursor: 'pointer', textDecoration: 'underline', fontSize: 12, padding: 0 }}>
+                Reset completo del sito
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1093,8 +1110,8 @@ export default function App() {
   if (!session || !user) return <LoginPage />
 
   // Floating banner when the watchdog tripped but the app rendered anyway.
-  // Surfaced in addition to the loading-screen banner so the user has a
-  // way out even if they manage to click around the empty app.
+  // The Reset button is only shown when the admin has summoned the escape
+  // hatch with Ctrl+Shift+D — otherwise it's just an informational chip.
   const slowLoadBanner = slowLoadHint ? (
     <div style={{
       position: 'fixed', bottom: 18, left: 18, zIndex: 9999,
@@ -1104,10 +1121,12 @@ export default function App() {
       display: 'flex', alignItems: 'center', gap: 10,
     }}>
       <span>Caricamento lento — i dati del progetto non arrivano.</span>
-      <button onClick={() => window.bigrockHardReset?.()}
-        style={{ background: '#F28C28', border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
-        Reset
-      </button>
+      {showReset && (
+        <button onClick={() => window.bigrockHardReset?.()}
+          style={{ background: '#F28C28', border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
+          Reset
+        </button>
+      )}
       <button onClick={() => setSlowLoadHint(false)} title="Chiudi"
         style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 14, padding: 2 }}>✕</button>
     </div>

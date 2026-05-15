@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signInWithGoogle } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
@@ -7,6 +7,21 @@ export default function LoginPage() {
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(false)
   const [resetting, setResetting] = useState(false)
+  // Hidden by default — Ctrl+Shift+D toggles it so only the admin who knows
+  // the combo can summon the nuclear-reset button. Esc also hides it.
+  const [showReset, setShowReset] = useState(false)
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault()
+        setShowReset(s => !s)
+      } else if (e.key === 'Escape') {
+        setShowReset(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const handleLogin = async () => {
     setLoading(true)
     await signInWithGoogle()
@@ -38,23 +53,26 @@ export default function LoginPage() {
           Sign in with Google
         </Btn>
         <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 20 }}>Use your @bigrock.it email</p>
-        {/* Safety valve for the "stuck on a poisoned device" scenario — wipes
+        {/* Hidden admin escape hatch — only revealed by Ctrl+Shift+D. Wipes
             every browser-side bit of state for this origin and reloads. */}
-        <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid #F1F5F9' }}>
-          <button
-            type="button"
-            onClick={handleHardReset}
-            disabled={resetting}
-            style={{
-              background: 'transparent', border: 'none', cursor: resetting ? 'wait' : 'pointer',
-              fontSize: 11, color: '#94A3B8', textDecoration: 'underline',
-              padding: 4, fontFamily: 'inherit',
-            }}
-            title="Cancella service worker, cache e dati locali, poi ricarica."
-          >
-            {resetting ? 'Reset in corso…' : 'Problemi a entrare? Reset completo del sito'}
-          </button>
-        </div>
+        {showReset && (
+          <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid #F1F5F9' }}>
+            <button
+              type="button"
+              onClick={handleHardReset}
+              disabled={resetting}
+              style={{
+                background: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: 8,
+                cursor: resetting ? 'wait' : 'pointer',
+                fontSize: 12, color: '#92400E', fontWeight: 600,
+                padding: '8px 14px', fontFamily: 'inherit',
+              }}
+              title="Cancella service worker, cache e dati locali, poi ricarica."
+            >
+              {resetting ? 'Reset in corso…' : '⚠ Reset completo del sito'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
