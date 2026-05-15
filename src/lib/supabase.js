@@ -19,7 +19,17 @@ export async function signInWithGoogle() {
   return { data, error }
 }
 
+// One-shot flag consumed by App.jsx's onAuthStateChange handler so it can
+// tell a user-initiated sign-out (which should just route to LoginPage)
+// apart from an involuntary one (which should trigger recovery).
+let _intentionalSignOut = false
+export function consumeIntentionalSignOut() {
+  const v = _intentionalSignOut
+  _intentionalSignOut = false
+  return v
+}
 export async function signOut() {
+  _intentionalSignOut = true
   return supabase.auth.signOut()
 }
 

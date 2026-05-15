@@ -5,7 +5,7 @@ import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import useIsMobile from './hooks/useIsMobile'
 import {
-  supabase, signOut,
+  supabase, signOut, consumeIntentionalSignOut,
   getProfile, getAllProfiles,
   getShots, createShot, updateShot, deleteShot,
   getAssets, createAsset, updateAsset, deleteAsset,
@@ -233,6 +233,13 @@ export default function App() {
         return
       }
       if (event === 'SIGNED_OUT') {
+        // User clicked Sign Out → just route them to LoginPage. The recovery
+        // path (wipe + reload) is reserved for SIGNED_OUT events that fire
+        // without an explicit user action (revoked tokens, silent death).
+        if (consumeIntentionalSignOut()) {
+          setSession(null); setUser(null); setLoading(false)
+          return
+        }
         if (hadUser) return recover('SIGNED_OUT-while-active')
         setSession(null); setUser(null); setLoading(false)
       }
