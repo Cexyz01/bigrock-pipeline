@@ -26,7 +26,7 @@ const statusRowHoverBg = {
 export default function TasksPage({
   tasks, shots, assets = [], profiles, projectMembers = [], user, currentProject,
   onCreateTask, onUpdateTask, onReorderTasks, onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
-  onCreateWipUpdate, onMarkWipViewed, onCommitForReview,
+  onCreateWipUpdate, onDeleteWipUpdate, onMarkWipViewed, onCommitForReview,
   wipViews,
   addToast, requestConfirm, deepLink, clearDeepLink,
 }) {
@@ -321,6 +321,7 @@ export default function TasksPage({
           onClose={() => setSelectedTask(null)}
           onUpdate={onUpdateTask} onSetAssignees={onSetAssignees} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}
           onCreateWipUpdate={onCreateWipUpdate}
+          onDeleteWipUpdate={onDeleteWipUpdate}
           onCommitForReview={onCommitForReview}
           onMarkWipViewed={onMarkWipViewed}
           addToast={addToast} requestConfirm={requestConfirm}

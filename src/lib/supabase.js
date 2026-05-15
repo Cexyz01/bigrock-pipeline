@@ -1294,6 +1294,36 @@ export async function createWipUpdate(taskId, userId, note, imageUrls) {
   return { data, error }
 }
 
+// Delete a WIP update (admin/producer only). Goes through the edge function
+// so we can purge the Cloudinary assets in the same transaction — students
+// occasionally post by accident and we don't want orphaned files burning
+// our Cloudinary quota.
+export async function deleteWipUpdate(wipUpdateId) {
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) return { data: null, error: { message: 'Not signed in' } }
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action: 'delete_wip_update', wip_update_id: wipUpdateId }),
+    })
+  } catch (e) {
+    return { data: null, error: { message: 'Network error: ' + (e.message || String(e)) } }
+  }
+  let json
+  try { json = await res.json() } catch (_) {
+    return { data: null, error: { message: `Edge function status ${res.status} — invalid JSON` } }
+  }
+  if (!res.ok) return { data: null, error: { message: json.error || `Status ${res.status}` } }
+  return { data: json, error: null }
+}
+
 // ── WIP Comments (per-WIP feedback from staff) ──
 
 export async function getWipComments(wipUpdateIds) {

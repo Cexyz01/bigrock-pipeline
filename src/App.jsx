@@ -24,7 +24,7 @@ import {
   subscribeToGameInvites, getGameById,
   subscribeToTradeInvites, getTradeById,
   updateLastSeen,
-  getWipUpdates, createWipUpdate, uploadWipImage, addWipComment,
+  getWipUpdates, createWipUpdate, deleteWipUpdate, uploadWipImage, addWipComment,
   getWipViews, markWipViewed, uploadWipFile,
   updateReviewMeta, subscribeToWipUpdates,
   getProjects, getUserProjects, getProjectMembers,
@@ -968,6 +968,16 @@ export default function App() {
     return result
   }
 
+  const handleDeleteWipUpdate = async (wipUpdateId) => {
+    const { data, error } = await deleteWipUpdate(wipUpdateId)
+    if (error) {
+      addToast('Errore eliminazione WIP: ' + error.message, 'danger')
+      return { ok: false }
+    }
+    addToast(`WIP eliminato${data?.cloudinary_deleted ? ` (${data.cloudinary_deleted} file rimossi da Cloudinary)` : ''}`, 'success')
+    return { ok: true }
+  }
+
   const handleAddWipComment = async (wipUpdateId, taskId, authorId, body) => {
     const result = await addWipComment(wipUpdateId, authorId, body)
     // Notify all assignees (except the author of the comment)
@@ -1253,6 +1263,7 @@ export default function App() {
                 onRejectTask={handleRejectTask}
                 onAddWipComment={handleAddWipComment}
                 onCreateWipUpdate={handleCreateWipUpdate}
+                onDeleteWipUpdate={handleDeleteWipUpdate}
                 onCommitForReview={handleCommitForReview}
                 onMarkWipViewed={handleMarkWipViewed}
                 wipViews={wipViews}
@@ -1271,7 +1282,7 @@ export default function App() {
           <div style={{ padding: contentPadding, ...(isMobile ? {} : { maxWidth: 1400 }), width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             {view === 'overview' && <OverviewPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'shots' && <ShotTrackerPage shots={shots} assets={assets} tasks={tasks} user={user} canEditShots={myPerms.can_manage_shots} onUpdateShot={handleUpdateShot} onReorderShots={handleReorderShots} onCreateShot={handleCreateShot} onDeleteShot={handleDeleteShot} onUploadReference={handleUploadReference} onUploadOutput={handleUploadOutput} onCreateAsset={handleCreateAsset} onUpdateAsset={handleUpdateAsset} onDeleteAsset={handleDeleteAsset} onReorderAssets={handleReorderAssets} onUploadAssetReference={handleUploadAssetReference} onUploadAssetOutput={handleUploadAssetOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} onGoToAssetTasks={(assetId) => { setDeepLink({ type: 'assetFilter', id: assetId }); setView('tasks') }} />}
-            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} projectMembers={projectMembers} user={user} currentProject={currentProject} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
+            {view === 'tasks' && <TasksPage tasks={tasks} shots={shots} assets={assets} profiles={profiles} projectMembers={projectMembers} user={user} currentProject={currentProject} onCreateTask={handleCreateTask} onUpdateTask={handleUpdateTask} onReorderTasks={handleReorderTasks} onSetAssignees={handleSetTaskAssignees} onDeleteTask={handleDeleteTask} onRejectTask={handleRejectTask} onAddWipComment={handleAddWipComment} onCreateWipUpdate={handleCreateWipUpdate} onDeleteWipUpdate={handleDeleteWipUpdate} onMarkWipViewed={handleMarkWipViewed} onCommitForReview={handleCommitForReview} wipViews={wipViews} addToast={addToast} requestConfirm={requestConfirm} deepLink={deepLink} clearDeepLink={clearDeepLink} />}
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} />}

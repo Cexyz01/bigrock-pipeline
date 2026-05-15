@@ -42,7 +42,7 @@ export default function GanttPage({
   pauses = [], onCreatePause, onDeletePause,
   onUpdateTask, onUpdateProjectDates, onGoToTask, addToast,
   onSetAssignees, onDeleteTask, onRejectTask, onAddWipComment,
-  onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
+  onCreateWipUpdate, onDeleteWipUpdate, onCommitForReview, onMarkWipViewed,
   wipViews, requestConfirm,
 }) {
   const [showPauseManager, setShowPauseManager] = useState(false)
@@ -1082,6 +1082,7 @@ export default function GanttPage({
             onReject={onRejectTask}
             onAddWipComment={onAddWipComment}
             onCreateWipUpdate={onCreateWipUpdate}
+            onDeleteWipUpdate={onDeleteWipUpdate}
             onCommitForReview={onCommitForReview}
             onMarkWipViewed={onMarkWipViewed}
             addToast={addToast}

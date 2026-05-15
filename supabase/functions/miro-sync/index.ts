@@ -1181,6 +1181,91 @@ async function handlePreregStudent(supabase: any, params: any, authHeader: strin
 }
 
 // ══════════════════════════════════════════════════════════════
+// DELETE WIP UPDATE — gated by delete_tasks permission, also
+// purges the Cloudinary assets to free space (the whole point —
+// students sometimes post by accident, this lets staff clean up).
+// ══════════════════════════════════════════════════════════════
+
+function parseCloudinaryUrl(url: string): { resourceType: string; publicId: string } | null {
+  if (!url) return null
+  const m = url.match(/\/(image|video|raw)\/upload\/(.+)$/)
+  if (!m) return null
+  const parts = m[2].split("/")
+  // Find version segment (vNNNN). Anything before it is transformations.
+  const vIdx = parts.findIndex(p => /^v\d+$/.test(p))
+  if (vIdx === -1) return null
+  const tail = parts.slice(vIdx + 1).join("/")
+  const dot = tail.lastIndexOf(".")
+  return { resourceType: m[1], publicId: dot === -1 ? tail : tail.slice(0, dot) }
+}
+
+async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: string | null) {
+  const { wip_update_id } = params
+  if (!wip_update_id) return err("Missing wip_update_id")
+  if (!authHeader) return err("Missing Authorization header", 401)
+
+  // Permission check — caller must have delete_tasks (super admins always pass via has_permission)
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY ?? SUPABASE_SERVICE_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  })
+  const { data: { user: caller }, error: callerErr } = await userClient.auth.getUser()
+  if (callerErr || !caller) return err("Invalid auth token", 401)
+  const { data: hasPerm, error: permErr } = await supabase.rpc("has_permission", {
+    user_id: caller.id, perm: "delete_tasks",
+  })
+  if (permErr) return err("Permission check failed: " + permErr.message, 500)
+  if (!hasPerm) return err("Forbidden: requires delete_tasks permission", 403)
+
+  // Read the WIP update to get its image/audio URLs
+  const { data: wipRow, error: fetchErr } = await supabase
+    .from("task_wip_updates")
+    .select("id, images")
+    .eq("id", wip_update_id)
+    .maybeSingle()
+  if (fetchErr) return err("DB read failed: " + fetchErr.message, 500)
+  if (!wipRow) return err("WIP update not found", 404)
+
+  // Group public_ids by Cloudinary resource type — image/video/raw each need
+  // their own DELETE call.
+  const byType: Record<string, string[]> = {}
+  for (const url of (wipRow.images || [])) {
+    const parsed = parseCloudinaryUrl(url)
+    if (!parsed) continue
+    ;(byType[parsed.resourceType] ||= []).push(parsed.publicId)
+  }
+
+  let cloudinaryDeleted = 0
+  if (CLD_CLOUD && CLD_KEY && CLD_SECRET) {
+    const auth = btoa(`${CLD_KEY}:${CLD_SECRET}`)
+    for (const [resourceType, ids] of Object.entries(byType)) {
+      try {
+        const qp = new URLSearchParams()
+        ids.forEach(id => qp.append("public_ids[]", id))
+        const res = await fetch(
+          `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/resources/${resourceType}/upload?${qp.toString()}`,
+          { method: "DELETE", headers: { "Authorization": `Basic ${auth}` } },
+        )
+        if (res.ok) {
+          const j = await res.json().catch(() => null)
+          if (j?.deleted) cloudinaryDeleted += Object.values(j.deleted).filter(v => v === "deleted").length
+        } else {
+          console.warn(`[delete_wip_update] Cloudinary ${resourceType} delete returned`, res.status, await res.text())
+        }
+      } catch (e) {
+        console.warn(`[delete_wip_update] Cloudinary ${resourceType} delete failed:`, e)
+      }
+    }
+  }
+
+  // Comments first (no ON DELETE CASCADE assumed), then the WIP row itself.
+  await supabase.from("wip_comments").delete().eq("wip_update_id", wip_update_id)
+  const { error: delErr } = await supabase.from("task_wip_updates").delete().eq("id", wip_update_id)
+  if (delErr) return err("DB delete failed: " + delErr.message, 500)
+
+  return ok({ success: true, cloudinary_deleted: cloudinaryDeleted, asset_count: Object.values(byType).reduce((a, b) => a + b.length, 0) })
+}
+
+// ══════════════════════════════════════════════════════════════
 // MAIN
 // ══════════════════════════════════════════════════════════════
 
@@ -1219,6 +1304,7 @@ serve(async (req) => {
       case "get_timeline_upload_sig": return await handleGetTimelineUploadSig(supabase, params)
       case "cloudinary_usage":  return await handleCloudinaryUsage()
       case "prereg_student":    return await handlePreregStudent(supabase, params, req.headers.get("Authorization"))
+      case "delete_wip_update": return await handleDeleteWipUpdate(supabase, params, req.headers.get("Authorization"))
       default:                  return err(`Unknown action: ${action}`)
     }
   } catch (e) {

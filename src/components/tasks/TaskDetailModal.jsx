@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl } from '../../lib/constants'
+import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl, hasPermission } from '../../lib/constants'
 import { getWipUpdates, getWipComments } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
@@ -8,7 +8,7 @@ import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 import ImageLightbox from '../ui/ImageLightbox'
-import { IconX, IconImage, IconSend, IconCheck } from '../ui/Icons'
+import { IconX, IconImage, IconSend, IconCheck, IconTrash } from '../ui/Icons'
 import AssigneePicker from './AssigneePicker'
 import { cld } from '../../lib/cld'
 
@@ -19,7 +19,7 @@ const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 export default function TaskDetailModal({
   task, user, staff, profiles, students: studentsProp = null, projectStartDate = null,
   onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
-  onCreateWipUpdate, onCommitForReview, onMarkWipViewed,
+  onCreateWipUpdate, onDeleteWipUpdate, onCommitForReview, onMarkWipViewed,
   addToast, requestConfirm,
 }) {
   const isMobile = useIsMobile()
@@ -244,6 +244,26 @@ export default function TaskDetailModal({
       }))
     }
     setWipCommentInputs(prev => ({ ...prev, [wipUpdateId]: '' }))
+  }
+
+  // Admin/producer-only: remove a single WIP update + purge its Cloudinary
+  // assets. Gated by delete_tasks permission server-side too.
+  const canDeleteWip = !!onDeleteWipUpdate && hasPermission(user, 'delete_tasks')
+  const handleDeleteWip = (wipUpdateId) => {
+    requestConfirm(
+      'Eliminare questo WIP? I file caricati su Cloudinary verranno cancellati definitivamente.',
+      async () => {
+        const result = await onDeleteWipUpdate(wipUpdateId)
+        if (result?.ok) {
+          setWipUpdates(prev => prev.filter(u => u.id !== wipUpdateId))
+          setWipComments(prev => {
+            const next = { ...prev }
+            delete next[wipUpdateId]
+            return next
+          })
+        }
+      },
+    )
   }
 
   // Prefer the explicit `students` prop (project-filtered + project_role enriched)
@@ -541,6 +561,22 @@ export default function TaskDetailModal({
                     {idx === 0 && <span style={{ fontSize: 10, fontWeight: 600, color: '#F28C28', background: 'rgba(242,140,40,0.08)', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>Latest</span>}
                   </div>
                   <span style={{ fontSize: 11, color: '#94A3B8' }}>{new Date(update.created_at).toLocaleDateString('en', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  {canDeleteWip && (
+                    <button
+                      onClick={() => handleDeleteWip(update.id)}
+                      title="Elimina WIP (rimuove anche i file da Cloudinary)"
+                      style={{
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        color: '#94A3B8', padding: 4, borderRadius: 6,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = '#DC2626'; e.currentTarget.style.background = '#FEE2E2' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent' }}
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  )}
                 </div>
                 {/* WIP note — displayed as "✅ Done:" */}
                 {update.note && (
