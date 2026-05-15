@@ -146,29 +146,65 @@ export default function App() {
     user?.email === banInfo.email
   )
 
-  // Auth
+  // Auth — with self-healing for the "stale refresh-token chain" failure mode.
+  // If a user gets signed out within a few seconds of signing in, supabase-js's
+  // anti-replay detection has likely revoked the whole refresh-token tree
+  // (e.g. after a ban → unban, a stale browser tab, or sleeping the device
+  // mid-token-rotation). Recover by aggressively wiping local auth storage so
+  // the next OAuth flow starts from a clean slate, and reload the page.
   useEffect(() => {
+    let lastSignInAt = 0
+    let recoveryAttempts = 0
+
+    const wipeLocalAuth = async () => {
+      try { await supabase.auth.signOut({ scope: 'local' }) } catch (_) {}
+      try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i)
+          if (k && (k.startsWith('sb-') || k.includes('supabase.auth'))) localStorage.removeItem(k)
+        }
+        for (let i = sessionStorage.length - 1; i >= 0; i--) {
+          const k = sessionStorage.key(i)
+          if (k && (k.startsWith('sb-') || k.includes('supabase.auth'))) sessionStorage.removeItem(k)
+        }
+      } catch (_) {}
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       if (session) loadUser(session.user)
       else setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Only react to explicit sign-in/sign-out events. INITIAL_SESSION already
-      // fired via getSession() above. TOKEN_REFRESHED occasionally arrives with
-      // a transient null session during refresh and was kicking users back to
-      // the login page mid-load — we now require an explicit SIGNED_OUT event.
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN') {
+        lastSignInAt = Date.now()
+        recoveryAttempts = 0
+        if (session) { setSession(session); loadUser(session.user) }
+        return
+      }
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        // Transient null-session pulses during refresh used to bounce users to
+        // login mid-load. Only act when we actually have a session.
+        if (session) { setSession(session); loadUser(session.user) }
+        return
+      }
       if (event === 'SIGNED_OUT') {
+        const sinceSignIn = Date.now() - lastSignInAt
+        const wasStuckLoop = lastSignInAt > 0 && sinceSignIn < 5000 && recoveryAttempts < 1
+        if (wasStuckLoop) {
+          // Stuck-loop signature: signed out within 5s of signing in. The
+          // refresh-token chain in localStorage is poisoned — wipe it and
+          // reload so the next manual sign-in starts clean.
+          recoveryAttempts++
+          console.warn('[auth] Detected sign-out within', sinceSignIn, 'ms of sign-in — recovering')
+          await wipeLocalAuth()
+          window.location.reload()
+          return
+        }
         setSession(null)
         setUser(null)
         setLoading(false)
-        return
-      }
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (session) {
-          setSession(session)
-          loadUser(session.user)
-        }
       }
     })
     return () => subscription.unsubscribe()
