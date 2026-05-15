@@ -322,21 +322,32 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelet
           disabled={!isDeptEnabled(shot, dept.id)}
         />
       ))}
-      {/* Tasks link — last grid column */}
-      {!isMobile && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {onGoToTasks && (
-            <button onClick={() => onGoToTasks(shot.id)} style={{
-              background: 'none', border: 'none', fontSize: 10, cursor: 'pointer',
-              padding: '2px 4px', borderRadius: 4, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap',
-              transition: 'all 0.15s ease',
-            }}
-              onMouseEnter={e => { e.currentTarget.style.color = '#2563EB' }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
-            >Tasks →</button>
-          )}
-        </div>
-      )}
+      {/* Tasks link — last grid column. When every enabled dept is Done,
+          show the celebratory ✓🤩 next to the link (same column). */}
+      {!isMobile && (() => {
+        const enabledDepts = DEPTS.filter(d => isDeptEnabled(shot, d.id))
+        const allDone = enabledDepts.length > 0 && enabledDepts.every(d => (deptStatuses?.[d.id] || 'not_started') === 'approved')
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            {onGoToTasks && (
+              <button onClick={() => onGoToTasks(shot.id)} style={{
+                background: 'none', border: 'none', fontSize: 10, cursor: 'pointer',
+                padding: '2px 4px', borderRadius: 4, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+              }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#2563EB' }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
+              >Tasks →</button>
+            )}
+            {allDone && (
+              <span title="Tutti i dept completati!" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 13, lineHeight: 1 }}>
+                <span style={{ color: '#059669', fontWeight: 700 }}>✓</span>
+                <span>🤩</span>
+              </span>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }, (prev, next) => {

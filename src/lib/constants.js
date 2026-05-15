@@ -15,10 +15,12 @@ export const DEPTS = [
 ]
 
 // Department assignment per entity type — depts can belong to both (e.g. concept).
-export const SHOT_DEPT_IDS = ['concept', 'animation', 'compositing', 'lighting', 'test_ai', 'sound']
+export const SHOT_DEPT_IDS = ['concept', 'animation', 'lighting', 'test_ai', 'sound', 'compositing']
 export const ASSET_DEPT_IDS = ['concept', 'modeling', 'texturing', 'rigging']
-export const SHOT_DEPTS = DEPTS.filter(d => SHOT_DEPT_IDS.includes(d.id))
-export const ASSET_DEPTS = DEPTS.filter(d => ASSET_DEPT_IDS.includes(d.id))
+// Preserve the order declared in *_DEPT_IDS instead of inheriting DEPTS' order
+// (which would leave Comp in the middle).
+export const SHOT_DEPTS = SHOT_DEPT_IDS.map(id => DEPTS.find(d => d.id === id)).filter(Boolean)
+export const ASSET_DEPTS = ASSET_DEPT_IDS.map(id => DEPTS.find(d => d.id === id)).filter(Boolean)
 
 export const isDeptEnabled = (shot, deptId) => !shot.disabled_depts?.[deptId]
 export const AUDIO_EXTS = ['mp3','wav','ogg','aac','m4a','flac']
