@@ -153,10 +153,23 @@ export default function App() {
       if (session) loadUser(session.user)
       else setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session) loadUser(session.user)
-      else { setUser(null); setLoading(false) }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Only react to explicit sign-in/sign-out events. INITIAL_SESSION already
+      // fired via getSession() above. TOKEN_REFRESHED occasionally arrives with
+      // a transient null session during refresh and was kicking users back to
+      // the login page mid-load — we now require an explicit SIGNED_OUT event.
+      if (event === 'SIGNED_OUT') {
+        setSession(null)
+        setUser(null)
+        setLoading(false)
+        return
+      }
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (session) {
+          setSession(session)
+          loadUser(session.user)
+        }
+      }
     })
     return () => subscription.unsubscribe()
   }, [])
