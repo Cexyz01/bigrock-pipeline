@@ -38,9 +38,27 @@ export const isVideoUrl = (url) => {
 export const SHOT_STATUSES = [
   { id: 'not_started', label: 'To Do', color: '#94A3B8', bg: '#E2E8F0' },
   { id: 'in_progress', label: 'WIP', color: '#2563EB', bg: '#BFDBFE' },
-  { id: 'review', label: 'Complete', color: '#2563EB', bg: '#A7F3D0' },
   { id: 'approved', label: 'Done', color: '#059669', bg: '#A7F3D0' },
 ]
+
+// Derive a single per-(entity, dept) cell status from the task list.
+// Task statuses: 'todo' | 'wip' | 'review' | 'approved'.
+// Cells are now read-only and computed:
+//   - any wip OR review task  → 'in_progress' (blue dot, work happening)
+//   - >=1 task and all approved → 'approved' (green check)
+//   - otherwise (no tasks, only todo, or partial done) → 'not_started' (empty)
+export const deriveDeptStatus = (tasks) => {
+  if (!tasks || tasks.length === 0) return 'not_started'
+  let hasActive = false
+  let allApproved = true
+  for (const t of tasks) {
+    if (t.status === 'wip' || t.status === 'review') hasActive = true
+    if (t.status !== 'approved') allApproved = false
+  }
+  if (hasActive) return 'in_progress'
+  if (allApproved) return 'approved'
+  return 'not_started'
+}
 
 export const TASK_STATUSES = [
   { id: 'todo', label: 'To Do', color: '#94A3B8', bg: '#E2E8F0' },

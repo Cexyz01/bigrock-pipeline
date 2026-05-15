@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useLayoutEffect } from 'react'
-import { SHOT_DEPTS as DEPTS, ASSET_DEPTS, SHOT_STATUSES, hasPermission, ACCENT } from '../../lib/constants'
+import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react'
+import { SHOT_DEPTS as DEPTS, ASSET_DEPTS, SHOT_STATUSES, hasPermission, ACCENT, deriveDeptStatus } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
@@ -12,7 +12,7 @@ import AssetRow from '../assets/AssetRow'
 import { IconCamera, IconX } from '../ui/Icons'
 
 export default function ShotTrackerPage({
-  shots, assets = [], user, canEditShots = true,
+  shots, assets = [], tasks = [], user, canEditShots = true,
   onUpdateShot, onReorderShots, onCreateShot, onDeleteShot, onUploadReference, onUploadOutput,
   onCreateAsset, onUpdateAsset, onDeleteAsset, onReorderAssets, onUploadAssetReference, onUploadAssetOutput,
   addToast, requestConfirm, onGoToShotTasks, onGoToAssetTasks,
@@ -31,6 +31,46 @@ export default function ShotTrackerPage({
   const assetRefInputRef = useRef(null)
   const staff = hasPermission(user, 'create_edit_shots')
   const isMobile = useIsMobile()
+
+  // Derive cell status per (entity, dept) from the task list — replaces the
+  // old click-to-cycle shots.status_<dept> / assets.status_<dept> columns.
+  // Empty cell = only todo (or no tasks); blue = at least one wip/review;
+  // green check = >=1 task and all approved.
+  const shotDeptStatuses = useMemo(() => {
+    const idx = {}
+    for (const t of tasks) {
+      if (!t.shot_id || !t.department) continue
+      const e = (idx[t.shot_id] ||= {})
+      const bucket = (e[t.department] ||= [])
+      bucket.push(t)
+    }
+    const out = {}
+    for (const [shotId, byDept] of Object.entries(idx)) {
+      out[shotId] = {}
+      for (const [deptId, ts] of Object.entries(byDept)) {
+        out[shotId][deptId] = deriveDeptStatus(ts)
+      }
+    }
+    return out
+  }, [tasks])
+
+  const assetDeptStatuses = useMemo(() => {
+    const idx = {}
+    for (const t of tasks) {
+      if (!t.asset_id || !t.department) continue
+      const e = (idx[t.asset_id] ||= {})
+      const bucket = (e[t.department] ||= [])
+      bucket.push(t)
+    }
+    const out = {}
+    for (const [assetId, byDept] of Object.entries(idx)) {
+      out[assetId] = {}
+      for (const [deptId, ts] of Object.entries(byDept)) {
+        out[assetId][deptId] = deriveDeptStatus(ts)
+      }
+    }
+    return out
+  }, [tasks])
   const headerRef = useRef(null)
   const [headerH, setHeaderH] = useState(0)
   useLayoutEffect(() => {
@@ -44,15 +84,6 @@ export default function ShotTrackerPage({
   }, [activeTab, isMobile])
 
   // ── Asset handlers ────────────────────────────────────
-  const cycleAssetStatus = useCallback(async (asset, deptId) => {
-    if (!staff || !canEditShots) return
-    const key = `status_${deptId}`
-    const order = ['not_started', 'in_progress', 'review', 'approved']
-    const curr = order.indexOf(asset[key])
-    const next = order[(curr + 1) % order.length]
-    await onUpdateAsset(asset.id, { [key]: next })
-  }, [staff, canEditShots, onUpdateAsset])
-
   const handleAssetDrop = useCallback((draggedId, targetId) => {
     if (!staff || draggedId === targetId) return
     const dragged = assets.find(a => a.id === draggedId)
@@ -96,15 +127,6 @@ export default function ShotTrackerPage({
     setAssetRefPreview(null)
     if (assetRefInputRef.current) assetRefInputRef.current.value = ''
   }
-
-  const cycleShotStatus = useCallback(async (shot, deptId) => {
-    if (!staff || !canEditShots) return
-    const key = `status_${deptId}`
-    const order = ['not_started', 'in_progress', 'review', 'approved']
-    const curr = order.indexOf(shot[key])
-    const next = order[(curr + 1) % order.length]
-    await onUpdateShot(shot.id, { [key]: next })
-  }, [staff, onUpdateShot])
 
   // Drag-drop reorder: move draggedId before targetId within same sequence.
   // Uses onReorderShots for a single batched optimistic update — instant feel.
@@ -201,7 +223,7 @@ export default function ShotTrackerPage({
           }}>
             <div>
               <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Shot Tracker</h1>
-              <p style={{ fontSize: isMobile ? 12 : 14, color: '#64748B' }}>{staff ? 'Click cells to change status' : 'Read-only view'}</p>
+              <p style={{ fontSize: isMobile ? 12 : 14, color: '#64748B' }}>Lo stato delle caselle si aggiorna automaticamente dai task</p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {staff && activeTab === 'assets' && <Btn variant="primary" onClick={() => setShowCreateAsset(true)} style={isMobile ? { fontSize: 12, padding: '6px 12px' } : {}}>+ Add Asset</Btn>}
@@ -233,7 +255,7 @@ export default function ShotTrackerPage({
                     asset={asset}
                     staff={staff}
                     canEdit={canEditShots}
-                    onCycle={cycleAssetStatus}
+                    deptStatuses={assetDeptStatuses[asset.id]}
                     onDelete={onDeleteAsset}
                     onUploadReference={onUploadAssetReference}
                     onUploadOutput={onUploadAssetOutput}
@@ -266,7 +288,7 @@ export default function ShotTrackerPage({
                         shot={shot}
                         staff={staff}
                         canEditShots={canEditShots}
-                        onCycle={cycleShotStatus}
+                        deptStatuses={shotDeptStatuses[shot.id]}
                         onDelete={onDeleteShot}
                         onUploadReference={onUploadReference}
                         onUploadOutput={onUploadOutput}
@@ -287,7 +309,7 @@ export default function ShotTrackerPage({
           <div style={{ display: 'flex', gap: isMobile ? 8 : 16, marginTop: 24, padding: '14px 0', borderTop: '1px solid #E8ECF1', flexWrap: 'wrap' }}>
             {SHOT_STATUSES.map(st => (
               <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `${st.id === 'review' ? '2.5px' : '1.5px'} solid ${st.id === 'review' ? '#2563EB' : `${st.color}50`}` }} />
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1.5px solid ${st.color}50` }} />
                 <span style={{ fontSize: 11, color: '#64748B' }}>{st.label}</span>
               </div>
             ))}

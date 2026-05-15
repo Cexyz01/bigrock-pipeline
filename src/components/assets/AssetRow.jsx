@@ -26,7 +26,7 @@ const previewUrl = (url) => {
 }
 
 const AssetRow = React.memo(function AssetRow({
-  asset, staff, canEdit, onCycle, onDelete, onUploadReference, onUploadOutput, onUpdate,
+  asset, staff, canEdit, deptStatuses, onDelete, onUploadReference, onUploadOutput, onUpdate,
   onDragStart, onDragOver, onDrop, requestConfirm, onGoToTasks,
 }) {
   const isMobile = useIsMobile()
@@ -259,9 +259,7 @@ const AssetRow = React.memo(function AssetRow({
       {ASSET_DEPTS.map(dept => (
         <ShotCell
           key={dept.id}
-          status={asset[`status_${dept.id}`]}
-          onClick={() => onCycle(asset, dept.id)}
-          clickable={staff}
+          status={deptStatuses?.[dept.id] || 'not_started'}
           disabled={false}
         />
       ))}
@@ -291,7 +289,7 @@ const AssetRow = React.memo(function AssetRow({
   if (prev.asset.ref_cloud_url !== next.asset.ref_cloud_url) return false
   if (prev.asset.output_cloud_url !== next.asset.output_cloud_url) return false
   for (const d of ASSET_DEPTS) {
-    if (prev.asset[`status_${d.id}`] !== next.asset[`status_${d.id}`]) return false
+    if ((prev.deptStatuses?.[d.id] || 'not_started') !== (next.deptStatuses?.[d.id] || 'not_started')) return false
   }
   return true
 })

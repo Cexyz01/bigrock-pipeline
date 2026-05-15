@@ -27,7 +27,7 @@ const previewUrl = (url) => {
   return url.slice(0, idx + 8) + 'c_fit,w_400,h_260,q_auto,f_auto/' + url.slice(idx + 8)
 }
 
-const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, onUploadReference, onUploadOutput, onUpdateShot, onDragStart, onDragOver, onDrop, requestConfirm, canEditShots, onGoToTasks, sequences = [] }) {
+const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelete, onUploadReference, onUploadOutput, onUpdateShot, onDragStart, onDragOver, onDrop, requestConfirm, canEditShots, onGoToTasks, sequences = [] }) {
   const isMobile = useIsMobile()
   const [h, setH] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -318,9 +318,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
       {DEPTS.map(dept => (
         <ShotCell
           key={dept.id}
-          status={shot[`status_${dept.id}`]}
-          onClick={() => onCycle(shot, dept.id)}
-          clickable={staff && isDeptEnabled(shot, dept.id)}
+          status={deptStatuses?.[dept.id] || 'not_started'}
           disabled={!isDeptEnabled(shot, dept.id)}
         />
       ))}
@@ -354,7 +352,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, onCycle, onDelete, on
   if (prev.shot.output_cloud_url !== next.shot.output_cloud_url) return false
   if (JSON.stringify(prev.shot.disabled_depts) !== JSON.stringify(next.shot.disabled_depts)) return false
   for (const d of DEPTS) {
-    if (prev.shot[`status_${d.id}`] !== next.shot[`status_${d.id}`]) return false
+    if ((prev.deptStatuses?.[d.id] || 'not_started') !== (next.deptStatuses?.[d.id] || 'not_started')) return false
   }
   return true
 })
