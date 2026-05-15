@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, isAudioUrl, isVideoUrl, isDeptEnabled, ACCENT } from '../../lib/constants'
+import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, isAudioUrl, isVideoUrl, isDeptEnabled, ACCENT, deriveDeptStatus } from '../../lib/constants'
 import { getWipUpdates } from '../../lib/supabase'
 import Av from '../ui/Av'
 import EmptyState from '../ui/EmptyState'
@@ -82,30 +82,45 @@ export default function ReviewPage({
   }, [reviewTasks.map(t => t.id).join(',')])
 
   // ── Project progress (mirrors OverviewPage) ──
+  // Cell status per (entity, dept) is derived from tasks now — the old
+  // status_<dept> DB columns are no longer the source of truth.
   const progress = useMemo(() => {
-    const isDone = st => st === 'approved' || st === 'review'
+    const shotIdx = {}, assetIdx = {}
+    for (const t of tasks) {
+      if (!t.department) continue
+      const target = t.shot_id ? shotIdx : t.asset_id ? assetIdx : null
+      const key = t.shot_id || t.asset_id
+      if (!target || !key) continue
+      const e = (target[key] ||= {})
+      ;(e[t.department] ||= []).push(t)
+    }
+    const cellStatus = (idx, eid, dId) => {
+      const ts = idx[eid]?.[dId]
+      return ts ? deriveDeptStatus(ts) : 'not_started'
+    }
+    const isDone = st => st === 'approved'
     let total = 0, done = 0
     for (const sh of shots) for (const id of SHOT_DEPT_IDS) {
       if (!isDeptEnabled(sh, id)) continue
-      total++; if (isDone(sh[`status_${id}`])) done++
+      total++; if (isDone(cellStatus(shotIdx, sh.id, id))) done++
     }
     for (const a of assets) for (const id of ASSET_DEPT_IDS) {
       if (!isDeptEnabled(a, id)) continue
-      total++; if (isDone(a[`status_${id}`])) done++
+      total++; if (isDone(cellStatus(assetIdx, a.id, id))) done++
     }
     const pct = total > 0 ? Math.round((done / total) * 100) : 0
     const statusCounts = SHOT_STATUSES.map(st => {
       let c = 0
       for (const sh of shots) for (const id of SHOT_DEPT_IDS) {
-        if (isDeptEnabled(sh, id) && sh[`status_${id}`] === st.id) c++
+        if (isDeptEnabled(sh, id) && cellStatus(shotIdx, sh.id, id) === st.id) c++
       }
       for (const a of assets) for (const id of ASSET_DEPT_IDS) {
-        if (isDeptEnabled(a, id) && a[`status_${id}`] === st.id) c++
+        if (isDeptEnabled(a, id) && cellStatus(assetIdx, a.id, id) === st.id) c++
       }
       return { ...st, count: c }
     })
     return { total, done, pct, statusCounts }
-  }, [shots, assets])
+  }, [shots, assets, tasks])
 
   return (
     <div style={{ background: '#1a1a1a', height: '100%', overflowY: 'auto' }}>

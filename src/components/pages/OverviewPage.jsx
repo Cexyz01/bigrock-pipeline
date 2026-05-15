@@ -1,4 +1,5 @@
-import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, hasPermission, isDeptEnabled } from '../../lib/constants'
+import { useMemo } from 'react'
+import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, hasPermission, isDeptEnabled, deriveDeptStatus } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
@@ -7,17 +8,42 @@ import Bar from '../ui/Bar'
 export default function OverviewPage({ shots, assets = [], tasks, profiles, user, currentProject }) {
   const isMobile = useIsMobile()
 
+  // Per-(entity, dept) cell status derived from tasks — same pattern as ShotTrackerPage.
+  // status_<dept> DB columns are no longer the source of truth.
+  const { shotDeptStatus, assetDeptStatus } = useMemo(() => {
+    const shotIdx = {}, assetIdx = {}
+    for (const t of tasks) {
+      if (!t.department) continue
+      const target = t.shot_id ? shotIdx : t.asset_id ? assetIdx : null
+      const key = t.shot_id || t.asset_id
+      if (!target || !key) continue
+      const e = (target[key] ||= {})
+      ;(e[t.department] ||= []).push(t)
+    }
+    const reduce = (idx) => {
+      const out = {}
+      for (const [eid, byDept] of Object.entries(idx)) {
+        out[eid] = {}
+        for (const [d, ts] of Object.entries(byDept)) out[eid][d] = deriveDeptStatus(ts)
+      }
+      return out
+    }
+    return { shotDeptStatus: reduce(shotIdx), assetDeptStatus: reduce(assetIdx) }
+  }, [tasks])
+
+  const cellStatus = (entity, deptId, idx) => idx[entity.id]?.[deptId] || 'not_started'
+
   // Count cells across both shots and assets, respecting which depts apply to each entity
-  const countCells = (entities, deptIds, predicate) => entities.reduce(
-    (sum, e) => sum + deptIds.filter(id => isDeptEnabled(e, id) && predicate(e[`status_${id}`])).length,
+  const countCells = (entities, deptIds, idx, predicate) => entities.reduce(
+    (sum, e) => sum + deptIds.filter(id => isDeptEnabled(e, id) && predicate(cellStatus(e, id, idx))).length,
     0,
   )
   const anyStatus = () => true
-  const total = countCells(shots, SHOT_DEPT_IDS, anyStatus) + countCells(assets, ASSET_DEPT_IDS, anyStatus)
-  const done = countCells(shots, SHOT_DEPT_IDS, st => st === 'approved' || st === 'review')
-            + countCells(assets, ASSET_DEPT_IDS, st => st === 'approved' || st === 'review')
-  const wip  = countCells(shots, SHOT_DEPT_IDS, st => st === 'in_progress')
-            + countCells(assets, ASSET_DEPT_IDS, st => st === 'in_progress')
+  const total = countCells(shots, SHOT_DEPT_IDS, shotDeptStatus, anyStatus) + countCells(assets, ASSET_DEPT_IDS, assetDeptStatus, anyStatus)
+  const done = countCells(shots, SHOT_DEPT_IDS, shotDeptStatus, st => st === 'approved')
+            + countCells(assets, ASSET_DEPT_IDS, assetDeptStatus, st => st === 'approved')
+  const wip  = countCells(shots, SHOT_DEPT_IDS, shotDeptStatus, st => st === 'in_progress')
+            + countCells(assets, ASSET_DEPT_IDS, assetDeptStatus, st => st === 'in_progress')
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   const myTasks = tasks.filter(t => (t.assignees || []).some(a => a.user.id === user.id))
   const reviewTasks = tasks.filter(t => t.status === 'review')
@@ -69,8 +95,8 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
           <Bar value={pct} h={8} />
           <div style={{ display: 'flex', gap: 20, marginTop: 20, flexWrap: 'wrap' }}>
             {SHOT_STATUSES.map(st => {
-              const c = countCells(shots, SHOT_DEPT_IDS, s => s === st.id)
-                      + countCells(assets, ASSET_DEPT_IDS, s => s === st.id)
+              const c = countCells(shots, SHOT_DEPT_IDS, shotDeptStatus, s => s === st.id)
+                      + countCells(assets, ASSET_DEPT_IDS, assetDeptStatus, s => s === st.id)
               return (
                 <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.color }} />
@@ -90,11 +116,11 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
             {DEPTS.map(dept => {
               const onShots = SHOT_DEPT_IDS.includes(dept.id)
               const onAssets = ASSET_DEPT_IDS.includes(dept.id)
-              const isDone = st => st === 'approved' || st === 'review'
+              const isDone = st => st === 'approved'
               const shotsT = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id)).length : 0
-              const shotsD = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id) && isDone(sh[`status_${dept.id}`])).length : 0
+              const shotsD = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id) && isDone(cellStatus(sh, dept.id, shotDeptStatus))).length : 0
               const assetsT = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id)).length : 0
-              const assetsD = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id) && isDone(a[`status_${dept.id}`])).length : 0
+              const assetsD = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id) && isDone(cellStatus(a, dept.id, assetDeptStatus))).length : 0
               const t = shotsT + assetsT
               const d = shotsD + assetsD
               // Tasks count only for THIS department
