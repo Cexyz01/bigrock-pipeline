@@ -3,7 +3,7 @@
 // SW on a returning device drops its cached bundles instead of replaying
 // the previous app version (which kept Alessandra stuck on broken code
 // even after the fix was deployed).
-const CACHE_NAME = 'bigrock-v4-2026-05-15b'
+const CACHE_NAME = 'bigrock-v5-no-auto-reload'
 
 // Install: take over immediately, don't wait for tabs to close
 self.addEventListener('install', () => {

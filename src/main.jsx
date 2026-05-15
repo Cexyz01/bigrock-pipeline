@@ -20,33 +20,25 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false })
 
 // ── PWA: Register Service Worker ──
-// On every page load: register, then force a fresh update check (Chrome
-// otherwise relies on a once-per-day lazy check). If a waiting worker is
-// found, promote it immediately. Reload the moment a new SW claims the
-// page so the in-memory old bundle is replaced.
+// Register and quietly check for updates. We DO NOT auto-reload on
+// controllerchange — that was kicking devices into a refresh loop where
+// every new SW activation reloaded the page mid-load, the queries got
+// cut, and the user saw empty data after ~2s. Users now pick up new
+// bundles on their next manual refresh, which is fine.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
+      // Promote a waiting worker (if any) so it's ready for the user's
+      // next navigation. No reload triggered here.
       const promoteWaiting = () => { if (reg.waiting) reg.waiting.postMessage('skip-waiting') }
       promoteWaiting()
-      // Force an update check now rather than waiting for the browser's lazy
-      // cadence — this is what made Alessandra's Mac stick on the buggy
-      // bundle for days.
       try { reg.update() } catch (_) {}
-      // And again every 5 minutes while the tab is open.
-      setInterval(() => { try { reg.update() } catch (_) {} }, 5 * 60 * 1000)
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing
         if (!nw) return
         nw.addEventListener('statechange', () => { if (nw.state === 'installed') promoteWaiting() })
       })
     }).catch(() => {})
-    let alreadyReloaded = false
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (alreadyReloaded) return
-      alreadyReloaded = true
-      window.location.reload()
-    })
   })
 }
 
