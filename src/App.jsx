@@ -136,6 +136,9 @@ export default function App() {
   const adminChRef = useRef(null)
   const dmToastedRef = useRef(new Set())
   const chatOpenRef = useRef(false)
+  // Last loadData timing report — surfaced in the admin slow-load banner so
+  // we can see exactly which query is dragging on a particular device.
+  const slowQueriesRef = useRef(null)
   const { toasts, addToast, removeToast } = useToast()
   const { pending, requestConfirm, confirm, cancel } = useConfirm()
 
@@ -304,27 +307,51 @@ export default function App() {
 
   const loadData = async (userId, projectId) => {
     // Slow-load watchdog — if the batch hasn't resolved in 12s, light up the
-    // banner so the user can reach for the hard-reset escape hatch.
+    // banner so the admin can reach for the hard-reset escape hatch.
     const slowTimer = setTimeout(() => setSlowLoadHint(true), 12000)
+    const tStart = performance.now()
+    // Per-query timing so the console (and slowQueriesRef) tells us exactly
+    // which call is dragging on a particular device. Console output is
+    // intentional: ask the user to open DevTools and copy the logs.
+    const timed = (name, p) => {
+      const t0 = performance.now()
+      return p.then(
+        v => { const ms = Math.round(performance.now() - t0); console.log(`[load] ${name}: ${ms}ms`); return { ok: true, v, name, ms } },
+        e => { const ms = Math.round(performance.now() - t0); console.warn(`[load] ${name} FAILED (${ms}ms):`, e?.message || e); return { ok: false, v: null, name, ms, err: e?.message || String(e) } },
+      )
+    }
     try {
-      const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl, pp] = await Promise.all([
-        getAllProfiles(),
-        getShots(projectId),
-        getAssets(projectId),
-        getTasks({ project_id: projectId }),
-        getCalendarEvents(projectId),
-        getNotifications(userId),
-        getDMUnreadCount(userId),
-        getTcgGameActive(),
-        getWipViews(userId),
-        getGanttItems(projectId),
-        getGanttLanes(projectId),
-        getProjectPauses(projectId),
+      const results = await Promise.all([
+        timed('profiles', getAllProfiles()),
+        timed('shots', getShots(projectId)),
+        timed('assets', getAssets(projectId)),
+        timed('tasks', getTasks({ project_id: projectId })),
+        timed('calendar', getCalendarEvents(projectId)),
+        timed('notifications', getNotifications(userId)),
+        timed('dm_unread', getDMUnreadCount(userId)),
+        timed('tcg_active', getTcgGameActive()),
+        timed('wip_views', getWipViews(userId)),
+        timed('gantt_items', getGanttItems(projectId)),
+        timed('gantt_lanes', getGanttLanes(projectId)),
+        timed('project_pauses', getProjectPauses(projectId)),
       ])
-      setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi); setGanttLanes(gl); setProjectPauses(pp)
-      setSlowLoadHint(false)
-      // Derive permissions from global role only
-      const myProfile = p.find(pr => pr.id === userId)
+      const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl, pp] = results.map(r => r.v)
+      // Apply whatever resolved — failed queries fall back to safe empty
+      // values so a single dead endpoint can't keep the UI on a blank screen.
+      setProfiles(p || []); setShots(sh || []); setAssets(as || []); setTasks(t || [])
+      setEvents(ev || []); setNotifications(n || []); setDmUnreadCount(dmUn || 0)
+      setTcgGameActive(!!gameActive); setWipViews(wv || []); setGanttItems(gi || [])
+      setGanttLanes(gl || []); setProjectPauses(pp || [])
+      const totalMs = Math.round(performance.now() - tStart)
+      console.log(`[load] total: ${totalMs}ms`)
+      // Track slowest query for admin diagnostic banner
+      const slow = results.slice().sort((a, b) => b.ms - a.ms)[0]
+      const failed = results.filter(r => !r.ok)
+      slowQueriesRef.current = { total: totalMs, slowest: slow, failed }
+      // Only clear the slow-load hint if everything actually finished quickly.
+      if (totalMs < 8000) setSlowLoadHint(false)
+      // Derive permissions from global role only — graceful when profiles failed
+      const myProfile = (p || []).find(pr => pr.id === userId)
       setMyPerms({
         can_manage_project: hasPermission(myProfile, 'manage_project_settings'),
         can_manage_shots: hasPermission(myProfile, 'create_edit_shots'),
@@ -1124,18 +1151,28 @@ export default function App() {
       position: 'fixed', bottom: 18, left: 18, zIndex: 9999,
       background: '#fff', border: '1px solid #F59E0B', borderRadius: 12,
       padding: '10px 14px', boxShadow: '0 6px 24px rgba(0,0,0,0.12)',
-      fontSize: 12, color: '#92400E', maxWidth: 360,
-      display: 'flex', alignItems: 'center', gap: 10,
+      fontSize: 12, color: '#92400E', maxWidth: 420,
+      display: 'flex', flexDirection: 'column', gap: 6,
     }}>
-      <span>Caricamento lento — i dati del progetto non arrivano.</span>
-      {showReset && (
-        <button onClick={() => window.bigrockHardReset?.()}
-          style={{ background: '#F28C28', border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
-          Reset
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ flex: 1 }}>Caricamento lento — i dati del progetto non arrivano.</span>
+        {showReset && (
+          <button onClick={() => window.bigrockHardReset?.()}
+            style={{ background: '#F28C28', border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
+            Reset
+          </button>
+        )}
+        <button onClick={() => setSlowLoadHint(false)} title="Chiudi"
+          style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 14, padding: 2 }}>✕</button>
+      </div>
+      {showReset && slowQueriesRef.current && (
+        <div style={{ fontSize: 11, color: '#78350F', fontFamily: 'monospace', borderTop: '1px dashed #FCD34D', paddingTop: 6 }}>
+          total {slowQueriesRef.current.total}ms · slowest {slowQueriesRef.current.slowest?.name} ({slowQueriesRef.current.slowest?.ms}ms)
+          {slowQueriesRef.current.failed.length > 0 && (
+            <div>failed: {slowQueriesRef.current.failed.map(f => `${f.name} (${f.err})`).join(' · ')}</div>
+          )}
+        </div>
       )}
-      <button onClick={() => setSlowLoadHint(false)} title="Chiudi"
-        style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 14, padding: 2 }}>✕</button>
     </div>
   ) : null
 
