@@ -20,9 +20,30 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false })
 
 // ── PWA: Register Service Worker ──
+// Force a one-time reload the moment a new SW takes control of the page,
+// otherwise a returning device keeps serving the previous bundle from cache
+// and never picks up shipped fixes.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      // Whenever the registration finds an update, ask the waiting worker
+      // to take over immediately rather than waiting for all tabs to close.
+      const promoteWaiting = () => { if (reg.waiting) reg.waiting.postMessage('skip-waiting') }
+      promoteWaiting()
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing
+        if (!nw) return
+        nw.addEventListener('statechange', () => { if (nw.state === 'installed') promoteWaiting() })
+      })
+    }).catch(() => {})
+    // When a new SW activates (claim() succeeds), reload to drop the old
+    // JS bundle still in memory and run the freshly-cached one.
+    let alreadyReloaded = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (alreadyReloaded) return
+      alreadyReloaded = true
+      window.location.reload()
+    })
   })
 }
 
