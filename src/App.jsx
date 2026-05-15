@@ -147,14 +147,19 @@ export default function App() {
   )
 
   // Auth — with self-healing for the "stale refresh-token chain" failure mode.
-  // If a user gets signed out within a few seconds of signing in, supabase-js's
-  // anti-replay detection has likely revoked the whole refresh-token tree
-  // (e.g. after a ban → unban, a stale browser tab, or sleeping the device
-  // mid-token-rotation). Recover by aggressively wiping local auth storage so
-  // the next OAuth flow starts from a clean slate, and reload the page.
+  //
+  // When supabase-js's anti-replay detection revokes the refresh-token tree
+  // (typical after ban → unban, a sleeping device mid-rotation, or a stale
+  // browser tab racing token refresh), the session can go invalid silently:
+  // the UI still shows the app but every authenticated query fails. We watch
+  // for this in three places and force a clean reload when it happens:
+  //   1. onAuthStateChange — any non-INITIAL event arriving with null session
+  //      while we had a user is an involuntary sign-out → recover.
+  //   2. A heartbeat that re-checks getSession() every 25s and on tab focus —
+  //      catches the silent-death case where no event ever fires.
+  //   3. The explicit SIGNED_OUT event.
   useEffect(() => {
-    let lastSignInAt = 0
-    let recoveryAttempts = 0
+    let recovered = false // bound recovery to once per page lifetime
 
     const wipeLocalAuth = async () => {
       try { await supabase.auth.signOut({ scope: 'local' }) } catch (_) {}
@@ -170,44 +175,67 @@ export default function App() {
       } catch (_) {}
     }
 
+    const recover = async (reason) => {
+      if (recovered) return
+      recovered = true
+      console.warn('[auth] recovering — reason:', reason)
+      await wipeLocalAuth()
+      window.location.reload()
+    }
+
+    let hadUser = false
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) loadUser(session.user)
-      else setLoading(false)
+      if (session) {
+        hadUser = true
+        loadUser(session.user)
+      } else {
+        setLoading(false)
+      }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') return // already handled via getSession()
       if (event === 'SIGNED_IN') {
-        lastSignInAt = Date.now()
-        recoveryAttempts = 0
+        hadUser = true
         if (session) { setSession(session); loadUser(session.user) }
         return
       }
       if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        // Transient null-session pulses during refresh used to bounce users to
-        // login mid-load. Only act when we actually have a session.
-        if (session) { setSession(session); loadUser(session.user) }
+        if (session) {
+          setSession(session)
+          loadUser(session.user)
+        } else if (hadUser) {
+          // Refresh emitted with null session = the chain is dead. Recover.
+          return recover(`${event}-null-session`)
+        }
         return
       }
       if (event === 'SIGNED_OUT') {
-        const sinceSignIn = Date.now() - lastSignInAt
-        const wasStuckLoop = lastSignInAt > 0 && sinceSignIn < 5000 && recoveryAttempts < 1
-        if (wasStuckLoop) {
-          // Stuck-loop signature: signed out within 5s of signing in. The
-          // refresh-token chain in localStorage is poisoned — wipe it and
-          // reload so the next manual sign-in starts clean.
-          recoveryAttempts++
-          console.warn('[auth] Detected sign-out within', sinceSignIn, 'ms of sign-in — recovering')
-          await wipeLocalAuth()
-          window.location.reload()
-          return
-        }
-        setSession(null)
-        setUser(null)
-        setLoading(false)
+        if (hadUser) return recover('SIGNED_OUT-while-active')
+        setSession(null); setUser(null); setLoading(false)
       }
     })
-    return () => subscription.unsubscribe()
+
+    // Heartbeat: periodically verify the local session is still valid. If
+    // supabase-js silently dropped it but we still think we're logged in,
+    // recover. Runs every 25s and on visibility change so a returning tab
+    // catches the failure within seconds instead of on the next user action.
+    const verifySession = async () => {
+      if (!hadUser || recovered) return
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return recover('heartbeat-session-vanished')
+    }
+    const heartbeat = setInterval(verifySession, 25000)
+    const onVisibility = () => { if (!document.hidden) verifySession() }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      subscription.unsubscribe()
+      clearInterval(heartbeat)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   const loadUser = async (authUser) => {
