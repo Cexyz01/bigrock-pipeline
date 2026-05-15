@@ -243,10 +243,18 @@ export default function App() {
     // banner would have no info to show before the whole batch completes.
     const pending = new Set()
     slowQueriesRef.current = { total: 0, slowest: null, failed: [], pending }
+    // Per-query 10s hard timeout — without this, a network that silently
+    // drops connections (no RST, no DNS error) leaves the promise hanging
+    // forever and the page just spins. Now a stuck query fails with a
+    // visible "TIMEOUT" so we can see exactly what's wrong.
+    const withTimeout = (p, name) => new Promise((resolve, reject) => {
+      const tid = setTimeout(() => reject(new Error('TIMEOUT 10s')), 10000)
+      p.then(v => { clearTimeout(tid); resolve(v) }, e => { clearTimeout(tid); reject(e) })
+    })
     const timed = (name, p) => {
       pending.add(name)
       const t0 = performance.now()
-      return p.then(
+      return withTimeout(p, name).then(
         v => { const ms = Math.round(performance.now() - t0); console.log(`[load] ${name}: ${ms}ms`); pending.delete(name); return { ok: true, v, name, ms } },
         e => { const ms = Math.round(performance.now() - t0); console.warn(`[load] ${name} FAILED (${ms}ms):`, e?.message || e); pending.delete(name); return { ok: false, v: null, name, ms, err: e?.message || String(e) } },
       )
