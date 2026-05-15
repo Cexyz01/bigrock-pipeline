@@ -657,12 +657,20 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   }
 
   const loadImages = useCallback(async () => {
-    if (!currentProject?.id) return
-    const data = await getStoryboardImages(currentProject.id)
-    const shotIds = new Set((shots || []).map(s => s.id))
-    const assetIds = new Set((assets || []).map(a => a.id))
-    setWipImages(data.filter(img => (img.shot_id && shotIds.has(img.shot_id)) || (img.asset_id && assetIds.has(img.asset_id))))
-    setLoading(false)
+    // Always release the loading state, otherwise a missing project or a
+    // failed query (RLS, network) leaves the page on its spinner forever.
+    if (!currentProject?.id) { setLoading(false); return }
+    try {
+      const data = await getStoryboardImages(currentProject.id)
+      const shotIds = new Set((shots || []).map(s => s.id))
+      const assetIds = new Set((assets || []).map(a => a.id))
+      setWipImages((data || []).filter(img => (img.shot_id && shotIds.has(img.shot_id)) || (img.asset_id && assetIds.has(img.asset_id))))
+    } catch (e) {
+      console.warn('[storyboard] loadImages failed:', e?.message || e)
+      setWipImages([])
+    } finally {
+      setLoading(false)
+    }
   }, [currentProject?.id, shots, assets])
 
   const busyStickerIds = useRef(new Set()) // IDs currently being manipulated locally

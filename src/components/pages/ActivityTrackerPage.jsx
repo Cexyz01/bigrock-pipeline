@@ -23,9 +23,13 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
   const [datesLoaded, setDatesLoaded] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
-  // Load WIP updates on mount
+  // Load WIP updates on mount. Always flip datesLoaded so a single failed
+  // query never leaves the page on its loading spinner forever.
   useEffect(() => {
-    getAllWipUpdates().then(setAllWips).then(() => setDatesLoaded(true))
+    getAllWipUpdates()
+      .then(d => setAllWips(d || []))
+      .catch(e => { console.warn('[activity] getAllWipUpdates failed:', e?.message || e); setAllWips([]) })
+      .finally(() => setDatesLoaded(true))
   }, [])
 
   // Sync dates from currentProject prop

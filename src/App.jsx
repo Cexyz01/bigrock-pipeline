@@ -5,7 +5,7 @@ import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import useIsMobile from './hooks/useIsMobile'
 import {
-  supabase, signOut, consumeIntentionalSignOut,
+  supabase, signOut,
   getProfile, getAllProfiles,
   getShots, createShot, updateShot, deleteShot,
   getAssets, createAsset, updateAsset, deleteAsset,
@@ -169,103 +169,31 @@ export default function App() {
     user?.email === banInfo.email
   )
 
-  // Auth — with self-healing for the "stale refresh-token chain" failure mode.
-  //
-  // When supabase-js's anti-replay detection revokes the refresh-token tree
-  // (typical after ban → unban, a sleeping device mid-rotation, or a stale
-  // browser tab racing token refresh), the session can go invalid silently:
-  // the UI still shows the app but every authenticated query fails. We watch
-  // for this in three places and force a clean reload when it happens:
-  //   1. onAuthStateChange — any non-INITIAL event arriving with null session
-  //      while we had a user is an involuntary sign-out → recover.
-  //   2. A heartbeat that re-checks getSession() every 25s and on tab focus —
-  //      catches the silent-death case where no event ever fires.
-  //   3. The explicit SIGNED_OUT event.
+  // Auth. Plain pattern — no auto-recovery (the previous wipe-and-reload
+  // heuristics were triggering false positives on every Cmd+R because of a
+  // race between the SW's controllerchange-reload and supabase-js's initial
+  // token refresh emitting a transient null session). The poisoned-token
+  // case is still recoverable via Ctrl+Shift+D → Reset.
   useEffect(() => {
-    let recovered = false // bound recovery to once per page lifetime
-
-    const wipeLocalAuth = async () => {
-      try { await supabase.auth.signOut({ scope: 'local' }) } catch (_) {}
-      try {
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const k = localStorage.key(i)
-          if (k && (k.startsWith('sb-') || k.includes('supabase.auth'))) localStorage.removeItem(k)
-        }
-        for (let i = sessionStorage.length - 1; i >= 0; i--) {
-          const k = sessionStorage.key(i)
-          if (k && (k.startsWith('sb-') || k.includes('supabase.auth'))) sessionStorage.removeItem(k)
-        }
-      } catch (_) {}
-    }
-
-    const recover = async (reason) => {
-      if (recovered) return
-      recovered = true
-      console.warn('[auth] recovering — reason:', reason)
-      await wipeLocalAuth()
-      window.location.reload()
-    }
-
-    let hadUser = false
-
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) {
-        hadUser = true
-        loadUser(session.user)
-      } else {
-        setLoading(false)
-      }
+      if (session) loadUser(session.user)
+      else setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') return // already handled via getSession()
-      if (event === 'SIGNED_IN') {
-        hadUser = true
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
         if (session) { setSession(session); loadUser(session.user) }
-        return
-      }
-      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (session) {
-          setSession(session)
-          loadUser(session.user)
-        } else if (hadUser) {
-          // Refresh emitted with null session = the chain is dead. Recover.
-          return recover(`${event}-null-session`)
-        }
+        // Don't act on null-session pulses during refresh — they're transient.
         return
       }
       if (event === 'SIGNED_OUT') {
-        // User clicked Sign Out → just route them to LoginPage. The recovery
-        // path (wipe + reload) is reserved for SIGNED_OUT events that fire
-        // without an explicit user action (revoked tokens, silent death).
-        if (consumeIntentionalSignOut()) {
-          setSession(null); setUser(null); setLoading(false)
-          return
-        }
-        if (hadUser) return recover('SIGNED_OUT-while-active')
         setSession(null); setUser(null); setLoading(false)
       }
     })
 
-    // Heartbeat: periodically verify the local session is still valid. If
-    // supabase-js silently dropped it but we still think we're logged in,
-    // recover. Runs every 25s and on visibility change so a returning tab
-    // catches the failure within seconds instead of on the next user action.
-    const verifySession = async () => {
-      if (!hadUser || recovered) return
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return recover('heartbeat-session-vanished')
-    }
-    const heartbeat = setInterval(verifySession, 25000)
-    const onVisibility = () => { if (!document.hidden) verifySession() }
-    document.addEventListener('visibilitychange', onVisibility)
-
-    return () => {
-      subscription.unsubscribe()
-      clearInterval(heartbeat)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
+    return () => subscription.unsubscribe()
   }, [])
 
   const loadUser = async (authUser) => {
@@ -310,14 +238,17 @@ export default function App() {
     // banner so the admin can reach for the hard-reset escape hatch.
     const slowTimer = setTimeout(() => setSlowLoadHint(true), 12000)
     const tStart = performance.now()
-    // Per-query timing so the console (and slowQueriesRef) tells us exactly
-    // which call is dragging on a particular device. Console output is
-    // intentional: ask the user to open DevTools and copy the logs.
+    // Track in-flight query names so the diagnostic banner can show which
+    // ones are STILL waiting when the watchdog fires — without this the
+    // banner would have no info to show before the whole batch completes.
+    const pending = new Set()
+    slowQueriesRef.current = { total: 0, slowest: null, failed: [], pending }
     const timed = (name, p) => {
+      pending.add(name)
       const t0 = performance.now()
       return p.then(
-        v => { const ms = Math.round(performance.now() - t0); console.log(`[load] ${name}: ${ms}ms`); return { ok: true, v, name, ms } },
-        e => { const ms = Math.round(performance.now() - t0); console.warn(`[load] ${name} FAILED (${ms}ms):`, e?.message || e); return { ok: false, v: null, name, ms, err: e?.message || String(e) } },
+        v => { const ms = Math.round(performance.now() - t0); console.log(`[load] ${name}: ${ms}ms`); pending.delete(name); return { ok: true, v, name, ms } },
+        e => { const ms = Math.round(performance.now() - t0); console.warn(`[load] ${name} FAILED (${ms}ms):`, e?.message || e); pending.delete(name); return { ok: false, v: null, name, ms, err: e?.message || String(e) } },
       )
     }
     try {
@@ -1165,14 +1096,23 @@ export default function App() {
         <button onClick={() => setSlowLoadHint(false)} title="Chiudi"
           style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 14, padding: 2 }}>✕</button>
       </div>
-      {showReset && slowQueriesRef.current && (
-        <div style={{ fontSize: 11, color: '#78350F', fontFamily: 'monospace', borderTop: '1px dashed #FCD34D', paddingTop: 6 }}>
-          total {slowQueriesRef.current.total}ms · slowest {slowQueriesRef.current.slowest?.name} ({slowQueriesRef.current.slowest?.ms}ms)
-          {slowQueriesRef.current.failed.length > 0 && (
-            <div>failed: {slowQueriesRef.current.failed.map(f => `${f.name} (${f.err})`).join(' · ')}</div>
-          )}
-        </div>
-      )}
+      {showReset && slowQueriesRef.current && (() => {
+        const r = slowQueriesRef.current
+        const pendingList = r.pending ? Array.from(r.pending) : []
+        return (
+          <div style={{ fontSize: 11, color: '#78350F', fontFamily: 'monospace', borderTop: '1px dashed #FCD34D', paddingTop: 6 }}>
+            {pendingList.length > 0 && (
+              <div>ancora in caricamento: {pendingList.join(', ')}</div>
+            )}
+            {r.total > 0 && (
+              <div>total {r.total}ms · slowest {r.slowest?.name} ({r.slowest?.ms}ms)</div>
+            )}
+            {r.failed && r.failed.length > 0 && (
+              <div>failed: {r.failed.map(f => `${f.name} (${f.err})`).join(' · ')}</div>
+            )}
+          </div>
+        )
+      })()}
     </div>
   ) : null
 
