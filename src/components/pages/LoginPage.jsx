@@ -7,8 +7,11 @@ export default function LoginPage() {
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(false)
   const [resetting, setResetting] = useState(false)
-  // Hidden by default — Ctrl+Shift+D toggles it so only the admin who knows
-  // the combo can summon the nuclear-reset button. Esc also hides it.
+  // Hidden by default — Ctrl+Shift+D (Cmd+Shift+D on Mac) toggles it. There
+  // is no role gate here on purpose: the LoginPage runs before any user has
+  // signed in, so we can't check admin status. Security through obscurity
+  // is enough for this escape hatch since it only wipes the local browser's
+  // state for this origin (no server-side effects). Esc hides it.
   const [showReset, setShowReset] = useState(false)
   useEffect(() => {
     const onKey = (e) => {
