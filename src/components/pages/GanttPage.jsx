@@ -58,6 +58,12 @@ export default function GanttPage({
   const [drag, setDrag] = useState(null)
   const [localTasks, setLocalTasks] = useState(tasks)
   const [collapsed, setCollapsed] = useState(new Set()) // group ids that are collapsed
+  // Multi-select: clicked bars, marquee box, and a quick helper to clear.
+  // selectedIds = task IDs currently selected. marquee = { x0,y0,x1,y1,add }
+  // in scroll-content coordinates while a box is being dragged on the body.
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [marquee, setMarquee] = useState(null)
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
   useEffect(() => { setLocalTasks(tasks) }, [tasks])
 
   // Tasks visible after the Asset/Shot toggles. Orphans (no shot or asset)
@@ -361,6 +367,28 @@ export default function GanttPage({
 
   const totalH = rows.length * ROW_H
 
+  // Bar geometries in scroll-content coordinates — used by the marquee
+  // selection to figure out which bars the user is brushing over without
+  // touching the DOM. Mirrors the render math below; keep them in sync.
+  const taskBoxes = useMemo(() => {
+    const out = []
+    for (let ri = 0; ri < rows.length; ri++) {
+      const row = rows[ri]
+      if (row.kind !== 'task') continue
+      const t = row.task
+      if (!t.start_date || !t.duration_days) continue
+      const s = parseDate(t.start_date)
+      const e = addDays(s, (t.duration_days || 1) - 1)
+      const barLeftX = dateToX(s)
+      const barRightX = dateToEndX(e)
+      const x = LANE_W + barLeftX + 4
+      const w = Math.max(6, barRightX - barLeftX - 8)
+      const top = HEADER_H + ri * ROW_H + 6
+      out.push({ id: t.id, left: x, right: x + w, top, bottom: top + ROW_H - 12 })
+    }
+    return out
+  }, [rows, dateToX, dateToEndX])
+
   // ── Drag/resize ──
   const scrollRef = useRef(null)
   const dragMovedRef = useRef(false)
@@ -390,13 +418,20 @@ export default function GanttPage({
     e.target.setPointerCapture?.(e.pointerId)
     dragMovedRef.current = false
     lastDeltaRef.current = 0
-    setDrag({
-      id: task.id, mode,
-      startX: e.clientX,
-      origStart: task.start_date,
-      origDuration: task.duration_days,
-    })
-  }, [canEdit])
+    // If the bar the user grabbed is part of the current selection (and there
+    // is more than one selected), drag every selected task together. Otherwise
+    // drag only this bar — selection is unaffected until the click handler
+    // resolves below (so a simple drag on an unselected bar doesn't reset
+    // an existing multi-selection until the user lets go).
+    const dragMulti = selectedIds.has(task.id) && selectedIds.size > 1
+    const itemTasks = dragMulti
+      ? localTasks.filter(t => selectedIds.has(t.id) && t.start_date && t.duration_days)
+      : [task]
+    const items = itemTasks.map(t => ({
+      id: t.id, origStart: t.start_date, origDuration: t.duration_days,
+    }))
+    setDrag({ leadId: task.id, mode, startX: e.clientX, items })
+  }, [canEdit, selectedIds, localTasks])
 
   const handlePointerMove = useCallback((e) => {
     if (!drag) return
@@ -404,22 +439,23 @@ export default function GanttPage({
     if (Math.abs(e.clientX - drag.startX) > 3) dragMovedRef.current = true
     if (deltaDays === lastDeltaRef.current) return
     lastDeltaRef.current = deltaDays
+    const byId = new Map(drag.items.map(it => [it.id, it]))
     setLocalTasks(prev => prev.map(t => {
-      if (t.id !== drag.id) return t
-      const origS = parseDate(drag.origStart)
-      let newStart = drag.origStart
-      let newDuration = drag.origDuration
+      const it = byId.get(t.id)
+      if (!it) return t
+      const origS = parseDate(it.origStart)
+      let newStart = it.origStart
+      let newDuration = it.origDuration
       if (drag.mode === 'move') {
         newStart = toISO(addDays(origS, deltaDays))
       } else if (drag.mode === 'resize-start') {
         const shifted = addDays(origS, deltaDays)
-        // start can't pass the original end
-        const end = addDays(origS, drag.origDuration - 1)
+        const end = addDays(origS, it.origDuration - 1)
         if (shifted > end) newStart = toISO(end)
         else newStart = toISO(shifted)
-        newDuration = Math.max(1, drag.origDuration - deltaDays)
+        newDuration = Math.max(1, it.origDuration - deltaDays)
       } else if (drag.mode === 'resize-end') {
-        newDuration = Math.max(1, drag.origDuration + deltaDays)
+        newDuration = Math.max(1, it.origDuration + deltaDays)
       }
       return { ...t, start_date: newStart, duration_days: newDuration }
     }))
@@ -427,15 +463,19 @@ export default function GanttPage({
 
   const handlePointerUp = useCallback(async () => {
     if (!drag) return
-    const moved = localTasks.find(t => t.id === drag.id)
+    const items = drag.items
     setDrag(null)
-    if (!moved) return
-    const updates = {}
-    if (moved.start_date !== drag.origStart) updates.start_date = moved.start_date
-    if (moved.duration_days !== drag.origDuration) updates.duration_days = moved.duration_days
-    if (Object.keys(updates).length > 0) {
-      await onUpdateTask(drag.id, updates)
+    const fresh = new Map(localTasks.map(t => [t.id, t]))
+    const writes = []
+    for (const it of items) {
+      const t = fresh.get(it.id)
+      if (!t) continue
+      const updates = {}
+      if (t.start_date !== it.origStart) updates.start_date = t.start_date
+      if (t.duration_days !== it.origDuration) updates.duration_days = t.duration_days
+      if (Object.keys(updates).length > 0) writes.push(onUpdateTask(it.id, updates))
     }
+    if (writes.length > 0) await Promise.all(writes)
   }, [drag, localTasks, onUpdateTask])
 
   useEffect(() => {
@@ -446,6 +486,57 @@ export default function GanttPage({
     window.addEventListener('pointerup', onUp)
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
   }, [drag, handlePointerMove, handlePointerUp])
+
+  // ── Marquee box selection ──
+  // Mousedown on the gantt body (but NOT on a bar/lane header) starts a
+  // drag-box. While dragging, selectedIds is recomputed from taskBoxes that
+  // intersect the box. A plain (no-shift) click in empty space simply clears
+  // the selection — same as clicking somewhere harmless.
+  const startMarquee = useCallback((e) => {
+    if (!canEdit) return
+    if (e.button !== 0) return
+    if (e.target.closest && e.target.closest('[data-task-bar], [data-lane-header]')) return
+    if (drag) return
+    e.preventDefault()
+    const sc = scrollRef.current
+    if (!sc) return
+    const rect = sc.getBoundingClientRect()
+    const cx = e.clientX - rect.left + sc.scrollLeft
+    const cy = e.clientY - rect.top + sc.scrollTop
+    setMarquee({ x0: cx, y0: cy, x1: cx, y1: cy, add: e.shiftKey, baseSelection: e.shiftKey ? new Set(selectedIds) : new Set() })
+    if (!e.shiftKey) setSelectedIds(new Set())
+  }, [canEdit, drag, selectedIds])
+
+  useEffect(() => {
+    if (!marquee) return
+    const sc = scrollRef.current
+    const onMove = (e) => {
+      const rect = sc.getBoundingClientRect()
+      const cx = e.clientX - rect.left + sc.scrollLeft
+      const cy = e.clientY - rect.top + sc.scrollTop
+      // Compute the box and hit-test bar geometries on every move so the
+      // selection feels live.
+      const minX = Math.min(marquee.x0, cx), maxX = Math.max(marquee.x0, cx)
+      const minY = Math.min(marquee.y0, cy), maxY = Math.max(marquee.y0, cy)
+      const hits = new Set(marquee.baseSelection)
+      for (const b of taskBoxes) {
+        if (b.left < maxX && b.right > minX && b.top < maxY && b.bottom > minY) hits.add(b.id)
+      }
+      setMarquee(m => m ? { ...m, x1: cx, y1: cy } : null)
+      setSelectedIds(hits)
+    }
+    const onUp = () => setMarquee(null)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
+  }, [marquee, taskBoxes])
+
+  // Esc clears the current selection. Doesn't intercept anything else.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && selectedIds.size > 0) setSelectedIds(new Set()) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedIds.size])
 
   // ── Header months/days/weeks ──
   // Uses dayLayout so pause days collapse along with the rest of the timeline.
@@ -587,6 +678,16 @@ export default function GanttPage({
             <Btn variant="info" onClick={collapsed.size >= groups.length ? expandAll : collapseAll}>
               {collapsed.size >= groups.length ? 'Espandi tutto' : 'Comprimi tutto'}
             </Btn>
+            {selectedIds.size > 0 && (
+              <button onClick={clearSelection} title="Deseleziona (Esc)"
+                style={{
+                  padding: '5px 12px', borderRadius: 999, border: `1.5px solid ${ACCENT}`,
+                  background: `${ACCENT}18`, color: ACCENT, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}>
+                {selectedIds.size} selezionati <span style={{ opacity: 0.6 }}>· ✕</span>
+              </button>
+            )}
           </div>
         </div>
       </Fade>
@@ -597,7 +698,7 @@ export default function GanttPage({
         background: '#fff', border: '1px solid #E8ECF1', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         position: 'relative',
       }}>
-        <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
+        <div onMouseDown={startMarquee} style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
           {/* Lane column corner */}
           <div style={{
             position: 'sticky', top: 0, left: 0, zIndex: 4,
@@ -718,7 +819,7 @@ export default function GanttPage({
                       )
                     })()}
                     {/* Sticky lane header */}
-                    <div style={{
+                    <div data-lane-header="1" style={{
                       position: 'sticky', left: 0, zIndex: 3,
                       display: 'inline-flex', width: LANE_W, height: '100%',
                       alignItems: 'center', padding: '0 12px', gap: 10,
@@ -769,7 +870,7 @@ export default function GanttPage({
                   borderBottom: '1px solid #F1F5F9', background: rowBg,
                 }}>
                   {/* Sticky task name */}
-                  <div style={{
+                  <div data-lane-header="1" style={{
                     position: 'sticky', left: 0, zIndex: 2,
                     display: 'inline-flex', width: LANE_W, height: '100%',
                     alignItems: 'center', padding: '0 12px 0 36px', gap: 8,
@@ -789,9 +890,24 @@ export default function GanttPage({
                   </div>
                   {/* Bar */}
                   <div
+                    data-task-bar={t.id}
                     onPointerDown={canEdit ? (ev) => handlePointerDown(ev, t, 'move') : undefined}
                     onClick={(ev) => {
                       if (dragMovedRef.current) { ev.stopPropagation(); dragMovedRef.current = false; return }
+                      // Click without drag = (de)select. Shift toggles, plain
+                      // click selects only this bar (but keeps the existing
+                      // selection if the bar was already part of it — letting
+                      // the user grab a multi-selection without losing it).
+                      ev.stopPropagation()
+                      if (ev.shiftKey) {
+                        setSelectedIds(prev => {
+                          const next = new Set(prev)
+                          if (next.has(t.id)) next.delete(t.id); else next.add(t.id)
+                          return next
+                        })
+                      } else if (!selectedIds.has(t.id)) {
+                        setSelectedIds(new Set([t.id]))
+                      }
                     }}
                     onDoubleClick={(ev) => { ev.stopPropagation(); setSelectedTaskId(t.id) }}
                     style={{
@@ -801,7 +917,10 @@ export default function GanttPage({
                         : `linear-gradient(135deg, ${taskDept.color} 0%, ${shade(taskDept.color, -10)} 100%)`,
                       opacity: isUnassigned ? 0.55 : 1,
                       borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
-                      boxShadow: isDragging ? `0 8px 24px ${taskDept.color}66` : '0 1px 3px rgba(0,0,0,0.12)',
+                      boxShadow: selectedIds.has(t.id)
+                        ? `0 0 0 2px ${ACCENT}, 0 4px 14px ${ACCENT}55`
+                        : (isDragging ? `0 8px 24px ${taskDept.color}66` : '0 1px 3px rgba(0,0,0,0.12)'),
+                      outline: selectedIds.has(t.id) ? `1px solid ${ACCENT}` : 'none',
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: w < 50 ? '0 4px' : '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
                       transition: isDragging ? 'none' : 'box-shadow 0.15s ease, transform 0.15s ease',
@@ -911,6 +1030,20 @@ export default function GanttPage({
               }} />
             )}
           </div>
+          {/* Marquee selection box overlay (above everything inside the scroll body) */}
+          {marquee && (() => {
+            const left = Math.min(marquee.x0, marquee.x1)
+            const top = Math.min(marquee.y0, marquee.y1)
+            const width = Math.abs(marquee.x1 - marquee.x0)
+            const height = Math.abs(marquee.y1 - marquee.y0)
+            return (
+              <div style={{
+                position: 'absolute', left, top, width, height,
+                background: `${ACCENT}1a`, border: `1.5px solid ${ACCENT}`,
+                pointerEvents: 'none', zIndex: 5,
+              }} />
+            )
+          })()}
         </div>
       </div>
 
