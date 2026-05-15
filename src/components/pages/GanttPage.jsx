@@ -391,6 +391,10 @@ export default function GanttPage({
 
   // ── Drag/resize ──
   const scrollRef = useRef(null)
+  // bodyRef points to the inner "body rows" wrapper. Marquee coordinates are
+  // computed relative to this element so they line up with the bar positions
+  // (which use the body-wrapper's own coordinate system, not the outer one).
+  const bodyRef = useRef(null)
   const dragMovedRef = useRef(false)
   const lastDeltaRef = useRef(0)
 
@@ -498,24 +502,26 @@ export default function GanttPage({
     if (e.target.closest && e.target.closest('[data-task-bar], [data-lane-header]')) return
     if (drag) return
     e.preventDefault()
-    const sc = scrollRef.current
-    if (!sc) return
-    const rect = sc.getBoundingClientRect()
-    const cx = e.clientX - rect.left + sc.scrollLeft
-    const cy = e.clientY - rect.top + sc.scrollTop
+    const bw = bodyRef.current
+    if (!bw) return
+    // bodyRef's getBoundingClientRect().top already factors in scroll AND any
+    // header rows above it, so coordinates here line up 1:1 with the
+    // body-wrapper-relative coords used by taskBoxes and bar rendering.
+    const rect = bw.getBoundingClientRect()
+    const cx = e.clientX - rect.left
+    const cy = e.clientY - rect.top
     setMarquee({ x0: cx, y0: cy, x1: cx, y1: cy, add: e.shiftKey, baseSelection: e.shiftKey ? new Set(selectedIds) : new Set() })
     if (!e.shiftKey) setSelectedIds(new Set())
   }, [canEdit, drag, selectedIds])
 
   useEffect(() => {
     if (!marquee) return
-    const sc = scrollRef.current
+    const bw = bodyRef.current
+    if (!bw) return
     const onMove = (e) => {
-      const rect = sc.getBoundingClientRect()
-      const cx = e.clientX - rect.left + sc.scrollLeft
-      const cy = e.clientY - rect.top + sc.scrollTop
-      // Compute the box and hit-test bar geometries on every move so the
-      // selection feels live.
+      const rect = bw.getBoundingClientRect()
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
       const minX = Math.min(marquee.x0, cx), maxX = Math.max(marquee.x0, cx)
       const minY = Math.min(marquee.y0, cy), maxY = Math.max(marquee.y0, cy)
       const hits = new Set(marquee.baseSelection)
@@ -698,7 +704,7 @@ export default function GanttPage({
         background: '#fff', border: '1px solid #E8ECF1', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         position: 'relative',
       }}>
-        <div onMouseDown={startMarquee} style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
+        <div style={{ position: 'relative', minWidth: LANE_W + totalW, minHeight: HEADER_H + Math.max(totalH, 240) }}>
           {/* Lane column corner */}
           <div style={{
             position: 'sticky', top: 0, left: 0, zIndex: 4,
@@ -768,7 +774,7 @@ export default function GanttPage({
           </div>
 
           {/* Body rows */}
-          <div style={{ position: 'relative' }}>
+          <div ref={bodyRef} onMouseDown={startMarquee} style={{ position: 'relative' }}>
             {rows.map((row, ri) => {
               const top = HEADER_H + ri * ROW_H
               if (row.kind === 'lane') {
@@ -1029,21 +1035,23 @@ export default function GanttPage({
                 pointerEvents: 'none', zIndex: 1,
               }} />
             )}
+            {/* Marquee selection box overlay — rendered inside the body wrapper
+                so the same body-wrapper-relative coords used by taskBoxes line
+                up 1:1 with where the box is drawn. */}
+            {marquee && (() => {
+              const left = Math.min(marquee.x0, marquee.x1)
+              const top = Math.min(marquee.y0, marquee.y1)
+              const width = Math.abs(marquee.x1 - marquee.x0)
+              const height = Math.abs(marquee.y1 - marquee.y0)
+              return (
+                <div style={{
+                  position: 'absolute', left, top, width, height,
+                  background: `${ACCENT}1a`, border: `1.5px solid ${ACCENT}`,
+                  pointerEvents: 'none', zIndex: 5,
+                }} />
+              )
+            })()}
           </div>
-          {/* Marquee selection box overlay (above everything inside the scroll body) */}
-          {marquee && (() => {
-            const left = Math.min(marquee.x0, marquee.x1)
-            const top = Math.min(marquee.y0, marquee.y1)
-            const width = Math.abs(marquee.x1 - marquee.x0)
-            const height = Math.abs(marquee.y1 - marquee.y0)
-            return (
-              <div style={{
-                position: 'absolute', left, top, width, height,
-                background: `${ACCENT}1a`, border: `1.5px solid ${ACCENT}`,
-                pointerEvents: 'none', zIndex: 5,
-              }} />
-            )
-          })()}
         </div>
       </div>
 
