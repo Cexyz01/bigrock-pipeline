@@ -6,10 +6,20 @@ import Btn from '../ui/Btn'
 export default function LoginPage() {
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const handleLogin = async () => {
     setLoading(true)
     await signInWithGoogle()
     setLoading(false)
+  }
+  const handleHardReset = async () => {
+    setResetting(true)
+    // Defined in main.jsx — wipes SW, caches, storage, IndexedDB, then reloads.
+    if (typeof window.bigrockHardReset === 'function') {
+      await window.bigrockHardReset()
+    } else {
+      window.location.reload()
+    }
   }
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F0F2F5', padding: isMobile ? 16 : 0 }}>
@@ -28,6 +38,23 @@ export default function LoginPage() {
           Sign in with Google
         </Btn>
         <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 20 }}>Use your @bigrock.it email</p>
+        {/* Safety valve for the "stuck on a poisoned device" scenario — wipes
+            every browser-side bit of state for this origin and reloads. */}
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid #F1F5F9' }}>
+          <button
+            type="button"
+            onClick={handleHardReset}
+            disabled={resetting}
+            style={{
+              background: 'transparent', border: 'none', cursor: resetting ? 'wait' : 'pointer',
+              fontSize: 11, color: '#94A3B8', textDecoration: 'underline',
+              padding: 4, fontFamily: 'inherit',
+            }}
+            title="Cancella service worker, cache e dati locali, poi ricarica."
+          >
+            {resetting ? 'Reset in corso…' : 'Problemi a entrare? Reset completo del sito'}
+          </button>
+        </div>
       </div>
     </div>
   )

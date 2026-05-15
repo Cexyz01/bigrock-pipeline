@@ -20,24 +20,27 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false })
 
 // ── PWA: Register Service Worker ──
-// Force a one-time reload the moment a new SW takes control of the page,
-// otherwise a returning device keeps serving the previous bundle from cache
-// and never picks up shipped fixes.
+// On every page load: register, then force a fresh update check (Chrome
+// otherwise relies on a once-per-day lazy check). If a waiting worker is
+// found, promote it immediately. Reload the moment a new SW claims the
+// page so the in-memory old bundle is replaced.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
-      // Whenever the registration finds an update, ask the waiting worker
-      // to take over immediately rather than waiting for all tabs to close.
       const promoteWaiting = () => { if (reg.waiting) reg.waiting.postMessage('skip-waiting') }
       promoteWaiting()
+      // Force an update check now rather than waiting for the browser's lazy
+      // cadence — this is what made Alessandra's Mac stick on the buggy
+      // bundle for days.
+      try { reg.update() } catch (_) {}
+      // And again every 5 minutes while the tab is open.
+      setInterval(() => { try { reg.update() } catch (_) {} }, 5 * 60 * 1000)
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing
         if (!nw) return
         nw.addEventListener('statechange', () => { if (nw.state === 'installed') promoteWaiting() })
       })
     }).catch(() => {})
-    // When a new SW activates (claim() succeeds), reload to drop the old
-    // JS bundle still in memory and run the freshly-cached one.
     let alreadyReloaded = false
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (alreadyReloaded) return
@@ -45,6 +48,44 @@ if ('serviceWorker' in navigator) {
       window.location.reload()
     })
   })
+}
+
+// ── Nuclear reset: wipes every browser-side bit of state for this origin
+// (service workers, caches, localStorage, sessionStorage, IndexedDB), then
+// hard-reloads. Exposed globally so the LoginPage button and a `#reset`
+// URL hash can both trigger it. This is the user's safety valve for the
+// "stuck on a poisoned device" scenario.
+window.bigrockHardReset = async function bigrockHardReset() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(regs.map(r => r.unregister()))
+    }
+  } catch (_) {}
+  try {
+    if (typeof caches !== 'undefined') {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(k => caches.delete(k)))
+    }
+  } catch (_) {}
+  try { localStorage.clear() } catch (_) {}
+  try { sessionStorage.clear() } catch (_) {}
+  try {
+    if (indexedDB.databases) {
+      const dbs = await indexedDB.databases()
+      await Promise.all(dbs.map(db => db?.name && new Promise(res => {
+        const req = indexedDB.deleteDatabase(db.name)
+        req.onsuccess = req.onerror = req.onblocked = () => res()
+      })))
+    }
+  } catch (_) {}
+  window.location.href = window.location.pathname + '?reset=' + Date.now()
+}
+
+// Trigger reset automatically when navigating to #reset (handy if the
+// LoginPage button is also somehow broken).
+if (typeof window !== 'undefined' && window.location.hash === '#reset') {
+  window.bigrockHardReset()
 }
 
 // ── PWA: Lock portrait orientation on mobile only ──

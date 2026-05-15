@@ -86,6 +86,11 @@ export default function App() {
   const [dmUnreadCount, setDmUnreadCount] = useState(0)
   const [tcgGameActive, setTcgGameActive] = useState(false)
   const [wipViews, setWipViews] = useState([])
+  // Watchdog: if loadData hasn't finished within 12 seconds of becoming
+  // authenticated, surface a non-blocking banner so the user can hit the
+  // hard-reset escape hatch. Triggered by the slow-loading device case
+  // (typically a stale SW + poisoned auth on a returning Chrome profile).
+  const [slowLoadHint, setSlowLoadHint] = useState(false)
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [matrixMode, setMatrixMode] = useState(false)
   const [pendingGameInvite, setPendingGameInvite] = useState(null) // { gameId, game, role }
@@ -276,28 +281,36 @@ export default function App() {
   }
 
   const loadData = async (userId, projectId) => {
-    const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl, pp] = await Promise.all([
-      getAllProfiles(),
-      getShots(projectId),
-      getAssets(projectId),
-      getTasks({ project_id: projectId }),
-      getCalendarEvents(projectId),
-      getNotifications(userId),
-      getDMUnreadCount(userId),
-      getTcgGameActive(),
-      getWipViews(userId),
-      getGanttItems(projectId),
-      getGanttLanes(projectId),
-      getProjectPauses(projectId),
-    ])
-    setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi); setGanttLanes(gl); setProjectPauses(pp)
-    // Derive permissions from global role only
-    const myProfile = p.find(pr => pr.id === userId)
-    setMyPerms({
-      can_manage_project: hasPermission(myProfile, 'manage_project_settings'),
-      can_manage_shots: hasPermission(myProfile, 'create_edit_shots'),
-      can_review: hasPermission(myProfile, 'access_review'),
-    })
+    // Slow-load watchdog — if the batch hasn't resolved in 12s, light up the
+    // banner so the user can reach for the hard-reset escape hatch.
+    const slowTimer = setTimeout(() => setSlowLoadHint(true), 12000)
+    try {
+      const [p, sh, as, t, ev, n, dmUn, gameActive, wv, gi, gl, pp] = await Promise.all([
+        getAllProfiles(),
+        getShots(projectId),
+        getAssets(projectId),
+        getTasks({ project_id: projectId }),
+        getCalendarEvents(projectId),
+        getNotifications(userId),
+        getDMUnreadCount(userId),
+        getTcgGameActive(),
+        getWipViews(userId),
+        getGanttItems(projectId),
+        getGanttLanes(projectId),
+        getProjectPauses(projectId),
+      ])
+      setProfiles(p); setShots(sh); setAssets(as); setTasks(t); setEvents(ev); setNotifications(n); setDmUnreadCount(dmUn); setTcgGameActive(gameActive); setWipViews(wv); setGanttItems(gi); setGanttLanes(gl); setProjectPauses(pp)
+      setSlowLoadHint(false)
+      // Derive permissions from global role only
+      const myProfile = p.find(pr => pr.id === userId)
+      setMyPerms({
+        can_manage_project: hasPermission(myProfile, 'manage_project_settings'),
+        can_manage_shots: hasPermission(myProfile, 'create_edit_shots'),
+        can_review: hasPermission(myProfile, 'access_review'),
+      })
+    } finally {
+      clearTimeout(slowTimer)
+    }
   }
 
   const handleSelectProject = useCallback((project) => {
@@ -1065,10 +1078,40 @@ export default function App() {
           animation: 'pulse 1.5s ease infinite',
         }} />
         <div style={{ color: '#94A3B8', fontSize: 13 }}>Loading...</div>
+        {slowLoadHint && (
+          <div style={{ marginTop: 20, fontSize: 12, color: '#64748B', maxWidth: 360 }}>
+            Il caricamento è insolitamente lento.
+            <button onClick={() => window.bigrockHardReset?.()}
+              style={{ marginLeft: 6, background: 'transparent', border: 'none', color: '#F28C28', cursor: 'pointer', textDecoration: 'underline', fontSize: 12, padding: 0 }}>
+              Reset completo del sito
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
   if (!session || !user) return <LoginPage />
+
+  // Floating banner when the watchdog tripped but the app rendered anyway.
+  // Surfaced in addition to the loading-screen banner so the user has a
+  // way out even if they manage to click around the empty app.
+  const slowLoadBanner = slowLoadHint ? (
+    <div style={{
+      position: 'fixed', bottom: 18, left: 18, zIndex: 9999,
+      background: '#fff', border: '1px solid #F59E0B', borderRadius: 12,
+      padding: '10px 14px', boxShadow: '0 6px 24px rgba(0,0,0,0.12)',
+      fontSize: 12, color: '#92400E', maxWidth: 360,
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <span>Caricamento lento — i dati del progetto non arrivano.</span>
+      <button onClick={() => window.bigrockHardReset?.()}
+        style={{ background: '#F28C28', border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
+        Reset
+      </button>
+      <button onClick={() => setSlowLoadHint(false)} title="Chiudi"
+        style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 14, padding: 2 }}>✕</button>
+    </div>
+  ) : null
 
   // Students with no projects see waiting screen
   if (user.role === 'studente' && projects.length === 0) {
@@ -1149,6 +1192,7 @@ export default function App() {
     <div className={isMobile ? 'mobile-safe-top app-shell-mobile' : ''} style={{ display: 'flex', height: isMobile ? '100%' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
+      {slowLoadBanner}
       {currentSuperNotif && (
         <SuperNotifOverlay notification={currentSuperNotif} onDismiss={async () => {
           await markSuperNotificationSeen(currentSuperNotif.id)
