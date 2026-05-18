@@ -1150,10 +1150,19 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
         position: 'absolute', left: cx, top: cy, width: cw, height: ch,
         transform: `rotate(${sticker.rotation || 0}deg)`,
         cursor: editing ? 'text' : action === 'drag' ? 'grabbing' : 'grab',
-        zIndex: 1000 + (sticker.z_index || 0),
+        // Selected stickers hop to a very high z-index so their action toolbar /
+        // handles are never occluded by another sticker that happens to sit above
+        // them in the normal stacking order. They drop back to their persistent
+        // z_index as soon as they're deselected.
+        zIndex: selected ? 9999 : 1000 + (sticker.z_index || 0),
         outline: show && !isArrow ? '2px solid #F28C28' : 'none',
         outlineOffset: isArrow ? 0 : 0,
         borderRadius: 4,
+        // For arrows: don't let the rectangular bounding box catch clicks. Only the
+        // SVG line + endpoint handles + action toolbar should be interactive, so the
+        // user can't accidentally select a diagonal arrow by clicking empty space
+        // inside its bounding rectangle.
+        pointerEvents: isArrow ? 'none' : undefined,
       }}>
       {isImage && (
         <img
@@ -1289,9 +1298,10 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           const handleStyle = (xPos, yPos) => ({
             position: 'absolute', left: xPos - 9, top: yPos - 9, width: 18, height: 18,
             background: '#fff', border: '2.5px solid #F28C28', borderRadius: '50%',
-            // 'move' shows the 4-arrow cross — clearly distinct from the line body's
-            // 'grab' cursor so the user knows the endpoint is a separate drag target.
             cursor: 'move', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', zIndex: 20,
+            // Re-enable hit-testing — the container has pointer-events:none for arrows
+            // so the empty bounding box isn't clickable.
+            pointerEvents: 'auto',
           })
           return <>
             <div onMouseDown={(e) => beginEndpoint(e, 'start')} style={handleStyle(sx, sy)} />
@@ -1310,6 +1320,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           display: 'flex', gap: 4, alignItems: 'center', zIndex: 30,
           transform: sticker.rotation ? `rotate(${-sticker.rotation}deg)` : undefined,
           transformOrigin: 'center center',
+          pointerEvents: 'auto', // override container's pointer-events:none on arrows
         }}>
           <button onClick={() => onSendBack?.()} title="Manda dietro (Ctrl+[)"
             style={actionChipStyle('#fff', '#475569')}>
@@ -1350,8 +1361,9 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             transform: `${isArrow ? '' : 'translateX(-50%) '}rotate(${-(sticker.rotation || 0)}deg)`.trim(),
             transformOrigin: 'center center',
             background: '#fff', borderRadius: 10, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', zIndex: 12,
+            boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', zIndex: 30,
             whiteSpace: 'nowrap',
+            pointerEvents: 'auto', // override container's pointer-events:none on arrows
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button onClick={() => onUpdate({ font_size: Math.max(isArrow ? 1 : 10, (sticker.font_size || (isArrow ? 3 : 18)) - (isArrow ? 1 : 2)) })}
