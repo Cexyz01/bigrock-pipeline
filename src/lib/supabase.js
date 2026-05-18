@@ -1924,17 +1924,32 @@ export async function uploadStickerImage(projectId, file) {
     if (!file || !file.size) return { url: null, error: { message: 'No file' } }
     if (file.size > 5 * 1024 * 1024) return { url: null, error: { message: 'Max 5MB' } }
 
-    // Get signature from edge function using concept upload action (reuses existing signing)
+    // Get signature from the same edge function the rest of the uploaders use. The
+    // function requires BOTH `apikey` and `Authorization: Bearer` headers — missing
+    // the Authorization header returns 401 "Missing authorization header".
     const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    const sigRes = await fetch(sigUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
-      body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: 'sticker' }),
-    })
-    const sigJson = await sigRes.json()
-    if (!sigRes.ok || !sigJson.cloud_name) return { url: null, error: { message: 'Signature error' } }
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY
+    let sigRes
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: 'sticker' }),
+      })
+    } catch (networkErr) {
+      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
+    }
+    let sigJson = null
+    try { sigJson = await sigRes.json() } catch {}
+    if (!sigRes.ok || !sigJson?.cloud_name) {
+      return { url: null, error: { message: sigJson?.error || sigJson?.message || `Signature error (HTTP ${sigRes.status})` } }
+    }
 
-    // Upload using the SAME folder the signature was created for
     const fd = new FormData()
     fd.append('file', file)
     fd.append('folder', sigJson.folder)
@@ -1943,8 +1958,8 @@ export async function uploadStickerImage(projectId, file) {
     fd.append('signature', String(sigJson.signature))
 
     const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, { method: 'POST', body: fd })
-    const cloudJson = await cloudRes.json()
-    if (!cloudRes.ok) return { url: null, error: { message: cloudJson.error?.message || 'Upload failed' } }
+    const cloudJson = await cloudRes.json().catch(() => ({}))
+    if (!cloudRes.ok) return { url: null, error: { message: cloudJson.error?.message || `Upload failed (HTTP ${cloudRes.status})` } }
     return { url: cloudJson.secure_url, error: null }
   } catch (err) {
     return { url: null, error: { message: err.message } }
