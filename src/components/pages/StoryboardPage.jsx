@@ -1260,7 +1260,8 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             padding: isShape ? '10px 14px' : '8px 12px',
             boxSizing: 'border-box',
             borderRadius: isEllipse ? '50%' : (isShape ? 10 : 8),
-            border: isShape ? `2px solid ${sticker.text_color || '#1a1a1a'}` : 'none',
+            border: isShape ? `${sticker.border_width ?? 2}px solid ${sticker.text_color || '#1a1a1a'}` : 'none',
+            opacity: isShape ? (typeof sticker.opacity === 'number' ? sticker.opacity : 1) : 1,
             outline: editing && !isShape ? '2px solid #F28C28' : 'none',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             overflow: 'hidden',
@@ -1470,6 +1471,32 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
                 ))}
               </div>
             </>}
+            {isShape && <>
+              <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+              {/* Border thickness */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} title="Spessore bordo (px)">
+                <button onClick={() => onUpdate({ border_width: Math.max(0, (sticker.border_width ?? 2) - 1) })} style={miniBtn}>−</button>
+                <span style={{ fontSize: 11, color: '#64748B', minWidth: 14, textAlign: 'center' }}>
+                  {sticker.border_width ?? 2}
+                </span>
+                <button onClick={() => onUpdate({ border_width: Math.min(20, (sticker.border_width ?? 2) + 1) })} style={miniBtn}>+</button>
+              </div>
+              <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+              {/* Opacity slider */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }} title="Opacità">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 3 a 9 9 0 0 0 0 18 Z" fill="#64748B" stroke="none" />
+                </svg>
+                <input type="range" min={0} max={100} step={5}
+                  value={Math.round(((typeof sticker.opacity === 'number' ? sticker.opacity : 1)) * 100)}
+                  onChange={(e) => onUpdate({ opacity: Number(e.target.value) / 100 })}
+                  style={{ width: 84, accentColor: '#F28C28' }} />
+                <span style={{ fontSize: 11, color: '#64748B', minWidth: 26, textAlign: 'right' }}>
+                  {Math.round(((typeof sticker.opacity === 'number' ? sticker.opacity : 1)) * 100)}%
+                </span>
+              </label>
+            </>}
           </div>
         )}
     </div>}
@@ -1657,11 +1684,18 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     }
 
     if (kind === 'rect' || kind === 'ellipse') {
+      // Frames go BEHIND everything else in the current board by default — they're
+      // typically used as section markers / background highlights. Soft opacity and
+      // a thin 1px border keep them from competing with foreground content.
+      const minZ = stickersRef.current
+        .filter(s => (s.board || 'shots') === board)
+        .reduce((m, s) => Math.min(m, s.z_index || 0), 0)
       const { data } = await createSticker({
         project_id: currentProject.id, user_id: user.id, board,
         kind, text_content: text || '',
         text_color: '#1a1a1a', bg_color: '#FFFFFF', font_size: 14,
-        x: baseX, y: baseY, w: w || 200, h: h || 140, rotation: 0, z_index: z,
+        opacity: 0.5, border_width: 1,
+        x: baseX, y: baseY, w: w || 200, h: h || 140, rotation: 0, z_index: minZ - 1,
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
