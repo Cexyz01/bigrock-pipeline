@@ -27,19 +27,22 @@ function thumbUrl(url, w = 300, h = 260) {
   return url
 }
 
-// DOM-based wrap measurement (canvas measureText underestimates because of font fallback
-// differences vs. real layout). Uses a hidden div with the exact same styles as the rendered
-// span so wrapping matches the browser pixel-for-pixel.
+// DOM-based wrap measurement. Uses a hidden div with the exact same font/lineHeight/wrap
+// styles as the rendered description so offsetHeight matches the browser pixel-for-pixel.
+// The app uses Poppins (Google Fonts, deferred load) on the body — using a different
+// cascade here would silently mis-measure because Poppins is wider than the fallback.
+const DESC_FONT_FAMILY = "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 let _measureEl = null
 function getMeasureEl() {
-  if (_measureEl) return _measureEl
+  if (_measureEl && _measureEl.isConnected) return _measureEl
   if (typeof document === 'undefined' || !document.body) return null
   const el = document.createElement('div')
   Object.assign(el.style, {
     position: 'absolute', visibility: 'hidden', pointerEvents: 'none',
     left: '-99999px', top: '-99999px',
     margin: '0', border: '0', padding: '0',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontFamily: DESC_FONT_FAMILY,
     fontWeight: '400',
     whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word',
     boxSizing: 'content-box',
@@ -54,8 +57,7 @@ function measureDescH(text, maxW, fontSize = 12, lineHeight = 1.5, padV = 24) {
   if (!text) return padV + Math.ceil(fontSize * lineHeight)
   const el = getMeasureEl()
   if (!el) {
-    // SSR / pre-body fallback — coarse char-based estimate
-    return padV + Math.ceil(String(text).length / 36) * Math.ceil(fontSize * lineHeight)
+    return padV + Math.ceil(String(text).length / 32) * Math.ceil(fontSize * lineHeight)
   }
   el.style.width = maxW + 'px'
   el.style.fontSize = fontSize + 'px'
@@ -246,21 +248,26 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
 })
 
 // Row height: base 240px, grows to fit multi-image grids AND the full description text.
-function computeRowH(item, imageMap, depts, description) {
+// `descHeights[item.id]` is the *measured* natural height of the rendered description block
+// from a ResizeObserver — this is the source of truth once the description has rendered.
+// Until then we fall back to a synthetic measurement so the first paint is approximately right.
+const DESC_PAD_V = 24 // 12px top + 12px bottom on the description box
+function computeRowH(item, imageMap, depts, description, descHeights) {
   const BASE = 240
   let maxGridH = 0
 
   for (const d of depts) {
     const imgs = imageMap[`${item.id}__${d.id}`] || []
     if (imgs.length <= 1) continue
-    // Multiple images in 2-col grid — each row ~160px
     const rows = Math.ceil(imgs.length / 2)
     const gridH = rows * 160 + (rows - 1) * 4 + 8
     maxGridH = Math.max(maxGridH, gridH)
   }
 
-  // Description text must always be fully visible — width is B_DESC_W minus 28px horizontal padding.
-  const descH = measureDescH(description, B_DESC_W - 28) + 8
+  const observed = descHeights?.[item.id]
+  const descH = observed != null
+    ? Math.ceil(observed) + DESC_PAD_V + 8
+    : measureDescH(description, B_DESC_W - 28) + 8
 
   return Math.max(BASE, maxGridH, descH)
 }
@@ -279,6 +286,37 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   const [dragging, setDragging] = useState(false)
   const [dropHighlight, setDropHighlight] = useState(false)
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
+
+  // Per-shot measured description height. Updated by a ResizeObserver attached to the
+  // inner description block (which has no height constraint, so its scrollHeight = the
+  // natural wrapped-text height under the real loaded fonts). This is the authoritative
+  // height used by computeRowH after first paint.
+  const [descHeights, setDescHeights] = useState({})
+  const descObservers = useRef({}) // shotId -> { observer }
+  const descRefCache = useRef({})  // shotId -> stable ref callback
+  const descRef = useCallback((shotId) => {
+    if (descRefCache.current[shotId]) return descRefCache.current[shotId]
+    const fn = (el) => {
+      const prev = descObservers.current[shotId]
+      if (prev) prev.observer.disconnect()
+      if (!el) { delete descObservers.current[shotId]; return }
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const h = Math.ceil(entry.contentRect.height)
+          setDescHeights(prevMap => prevMap[shotId] === h ? prevMap : { ...prevMap, [shotId]: h })
+        }
+      })
+      observer.observe(el)
+      descObservers.current[shotId] = { observer }
+    }
+    descRefCache.current[shotId] = fn
+    return fn
+  }, [])
+  useEffect(() => () => {
+    for (const k in descObservers.current) descObservers.current[k].observer.disconnect()
+    descObservers.current = {}
+    descRefCache.current = {}
+  }, [])
 
   // Convert screen coordinates to board coordinates (inverse of the pan+scale transform)
   const screenToBoard = useCallback((clientX, clientY) => {
@@ -452,7 +490,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     rowPositions.push({ type: 'seq', seq, y: currentY, count: seqItems.length })
     currentY += B_SEQ_H + B_GAP
     for (const item of seqItems) {
-      const cellH = computeRowH(item, imageMap, depts, getDescription(item))
+      const cellH = computeRowH(item, imageMap, depts, getDescription(item), descHeights)
       rowPositions.push({ type: 'shot', shot: item, y: currentY, cellH })
       currentY += cellH + B_GAP
     }
@@ -615,21 +653,25 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
                 <RefCell url={getRefUrl(item)} onClick={() => openRef(item)} cellH={cellH} />
               </div>
 
-              {/* Description */}
+              {/* Description — inner div has no height constraint so its natural height
+                  drives the row sizing via ResizeObserver (descRef). */}
               <div style={{
                 position: 'absolute', left: colX(2), top: 0,
                 width: B_DESC_W, height: cellH,
                 background: '#fff', borderRadius: 10, border: '1px solid #E8ECF1',
                 padding: '12px 14px',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 boxSizing: 'border-box',
+                overflow: 'hidden',
               }}>
-                {description ? (
-                  <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>{description}</span>
-                ) : (
-                  <span style={{ fontSize: 12, color: '#C8CDD4', fontStyle: 'italic' }}>Nessuna descrizione</span>
-                )}
+                <div ref={descRef(item.id)} style={{
+                  fontSize: 12, color: description ? '#475569' : '#C8CDD4',
+                  fontStyle: description ? 'normal' : 'italic',
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word',
+                }}>
+                  {description || 'Nessuna descrizione'}
+                </div>
               </div>
 
               {/* Dept cells */}
@@ -936,6 +978,25 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   const [uploadingSticker, setUploadingSticker] = useState(false)
   const [activeTab, setActiveTab] = useState('shots')
   const [autoEditId, setAutoEditId] = useState(null)
+  // Poppins is loaded async via @import (Google Fonts, display=swap). The first
+  // paint may use the fallback font, which is narrower → measureDescH would compute
+  // a too-small cellH and the description gets clipped by the row's overflow:hidden.
+  // We bump `measureNonce` once fonts finish loading so CanvasBoard re-runs computeRowH
+  // with the real font metrics.
+  const [measureNonce, setMeasureNonce] = useState(0)
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.fonts) return
+    let cancelled = false
+    const bump = () => { if (!cancelled) setMeasureNonce(n => n + 1) }
+    document.fonts.ready.then(bump)
+    // Also bump on each font load event (in case more weights stream in later)
+    const onLoadingDone = () => bump()
+    document.fonts.addEventListener?.('loadingdone', onLoadingDone)
+    return () => {
+      cancelled = true
+      document.fonts.removeEventListener?.('loadingdone', onLoadingDone)
+    }
+  }, [])
 
   const toggleCreative = () => {
     const next = !creativeMode
