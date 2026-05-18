@@ -899,18 +899,19 @@ const RESIZE_HANDLES = [
   { c: 'l',  cursor: 'ew-resize',   pos: { top: 'calc(50% - 7px)', left: -7 } },
 ]
 
-// Inline SVG cursor for rotation (Figma/Photoshop style). The 12,12 hotspot is the SVG
-// center so the cursor's curl sits naturally where the user clicks.
-const ROTATE_CURSOR = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='white' stroke='black' stroke-width='1.4' stroke-linejoin='round' d='M12 2.5 L8 6.5 L10.5 6.5 A5 5 0 1 0 16.5 12 L19.5 12 A8 8 0 1 1 10.5 3.5 L10.5 1 Z'/></svg>\") 12 12, grab"
+// Clean rotation cursor — Material "rotate" icon, white halo for contrast on any bg,
+// dark fill on top. 12,12 hotspot is the visual centre.
+const ROTATE_CURSOR_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path stroke='white' stroke-width='2.5' stroke-linejoin='round' fill='white' d='M12 5V2L7 7l5 5V8c4.4 0 8 3.6 8 8s-3.6 8-8 8c-3.7 0-6.8-2.5-7.7-6H2.4c.9 4.6 5 8 9.6 8 5.5 0 10-4.5 10-10S17.5 5 12 5z'/><path fill='%230f172a' d='M12 5V2L7 7l5 5V8c4.4 0 8 3.6 8 8s-3.6 8-8 8c-3.7 0-6.8-2.5-7.7-6H2.4c.9 4.6 5 8 9.6 8 5.5 0 10-4.5 10-10S17.5 5 12 5z'/></svg>"
+const ROTATE_CURSOR = `url("data:image/svg+xml;utf8,${ROTATE_CURSOR_SVG}") 12 12, crosshair`
 
-// Rotation zones — each sits in the outer quadrant of a corner, just past the resize
-// handle. The 36×36 footprint extends ~20px outward from the sticker corner; where it
-// overlaps the resize handle, the handle wins via z-index so resizing stays accessible.
+// Rotation zones — strictly OUTSIDE the bounding box (no overlap with the sticker
+// interior). Each zone sits in the outer L-shape around a corner. The resize handle
+// occupies the corner pixel itself (higher z-index wins where they touch).
 const ROTATE_ZONES = [
-  { c: 'tl', pos: { top: -22, left: -22, width: 36, height: 36 } },
-  { c: 'tr', pos: { top: -22, right: -22, width: 36, height: 36 } },
-  { c: 'bl', pos: { bottom: -22, left: -22, width: 36, height: 36 } },
-  { c: 'br', pos: { bottom: -22, right: -22, width: 36, height: 36 } },
+  { c: 'tl', pos: { top: -30, left: -30, width: 30, height: 30 } },
+  { c: 'tr', pos: { top: -30, right: -30, width: 30, height: 30 } },
+  { c: 'bl', pos: { bottom: -30, left: -30, width: 30, height: 30 } },
+  { c: 'br', pos: { bottom: -30, right: -30, width: 30, height: 30 } },
 ]
 
 function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelectionChange }) {
@@ -953,7 +954,12 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
     e.stopPropagation(); e.preventDefault()
     if (!elRef.current) return
     const rect = elRef.current.getBoundingClientRect()
-    startRef.current = { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 }
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    // Capture the angle the mouse currently makes with the centre AND the sticker's
+    // current rotation. New rotation = startRotation + (cursor angle delta) — no snap.
+    const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI)
+    startRef.current = { cx, cy, startAngle, startRotation: latestRef.current.rotation || 0 }
     setAction('rotate')
   }
 
@@ -978,25 +984,26 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
         const dx = (e.clientX - st.mx) / scale, dy = (e.clientY - st.my) / scale
         const h = st.handle
         let nx = st.x, ny = st.y, nw = st.w, nh = st.h
-        // Horizontal: right-side handles grow with +dx, left-side handles grow with -dx
-        // (and shift x so the opposite edge stays anchored).
+        // Round nw FIRST and derive nx from the rounded value so the anchored edge
+        // stays pixel-exact (st.x + st.w == nx + nw always, no sub-pixel wobble).
         if (h === 'br' || h === 'tr' || h === 'r') {
-          nw = Math.max(MIN_W, st.w + dx)
+          nw = Math.round(Math.max(MIN_W, st.w + dx))
         } else if (h === 'bl' || h === 'tl' || h === 'l') {
-          nw = Math.max(MIN_W, st.w - dx)
+          nw = Math.round(Math.max(MIN_W, st.w - dx))
           nx = st.x + st.w - nw
         }
-        // Vertical: bottom-side handles grow with +dy, top-side handles grow with -dy.
         if (h === 'br' || h === 'bl' || h === 'b') {
-          nh = Math.max(MIN_H, st.h + dy)
+          nh = Math.round(Math.max(MIN_H, st.h + dy))
         } else if (h === 'tr' || h === 'tl' || h === 't') {
-          nh = Math.max(MIN_H, st.h - dy)
+          nh = Math.round(Math.max(MIN_H, st.h - dy))
           ny = st.y + st.h - nh
         }
-        onUpdate({ x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) })
+        onUpdate({ x: nx, y: ny, w: nw, h: nh })
       } else if (action === 'rotate') {
-        const deg = Math.round(Math.atan2(e.clientY - st.cy, e.clientX - st.cx) * (180 / Math.PI) + 90)
-        onUpdate({ rotation: deg })
+        const cur = Math.atan2(e.clientY - st.cy, e.clientX - st.cx) * (180 / Math.PI)
+        let deg = st.startRotation + (cur - st.startAngle)
+        if (e.shiftKey) deg = Math.round(deg / 15) * 15 // hold Shift to snap to 15°
+        onUpdate({ rotation: Math.round(deg) })
       } else if (action === 'endpoint') {
         const dx = (e.clientX - st.mx) / scale, dy = (e.clientY - st.my) / scale
         if (st.which === 'start') {
@@ -1232,7 +1239,8 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
         })()}
 
         {/* Delete chip. For images/text/shapes it sits INSIDE the box top-right. For
-            arrows it floats next to the end-point so it's always reachable. */}
+            arrows it floats next to the end-point so it's always reachable. The
+            counter-rotation keeps the trash icon upright when the sticker is rotated. */}
         <button onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onDelete() }}
           title="Elimina (Canc)"
           style={{
@@ -1244,6 +1252,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
             background: '#EF4444', border: '2px solid #fff', color: '#fff',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 3px 10px rgba(0,0,0,0.35)', zIndex: 30, padding: 0,
+            transform: sticker.rotation ? `rotate(${-sticker.rotation}deg)` : undefined,
           }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1256,12 +1265,14 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
         </button>
 
         {/* Formatting toolbar: text/shape get font-size + text colour + fill colour.
-            Arrows get stroke-width + stroke colour. */}
+            Arrows get stroke-width + stroke colour. Counter-rotated so the toolbar
+            content stays upright when the sticker itself is rotated. */}
         {(isText || isShape || isArrow) && (
           <div onMouseDown={(e) => e.stopPropagation()} style={{
             position: 'absolute', bottom: -56,
             left: isArrow ? Math.min((sticker.w < 0 ? 0 : cw), (sticker.w < 0 ? cw : 0)) : '50%',
-            transform: isArrow ? 'none' : 'translateX(-50%)',
+            transform: `${isArrow ? '' : 'translateX(-50%) '}rotate(${-(sticker.rotation || 0)}deg)`.trim(),
+            transformOrigin: 'center center',
             background: '#fff', borderRadius: 10, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center',
             boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', zIndex: 12,
             whiteSpace: 'nowrap',
