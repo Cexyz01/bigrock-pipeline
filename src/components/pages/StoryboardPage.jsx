@@ -316,7 +316,9 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   // Tool palette state. Available tools: select | hand | text | rect | ellipse | arrow.
   // While a drawing tool is active, mousedown on the background canvas starts a "draft"
   // that the user drags out — on mouseup the draft becomes a real sticker.
-  const [activeTool, setActiveTool] = useState('select')
+  // Default to Hand: panning is safe, Select can move things by accident. Press V or
+  // click the Select tool to switch into manipulation mode.
+  const [activeTool, setActiveTool] = useState('hand')
   const [spaceHeld, setSpaceHeld] = useState(false) // Space-to-pan (Figma/Miro style)
   const effectiveTool = spaceHeld ? 'hand' : activeTool
   const [draft, setDraft] = useState(null) // { kind, sx, sy, ex, ey } in board coords during drag
@@ -539,7 +541,9 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         onCreateSticker({ kind: 'text', text: '', x, y, w, h })
       }
       setDraft(null)
-      setActiveTool('select') // auto-return to select after drawing (Figma behaviour)
+      // Return to the safe Hand tool after drawing so the user can't move the
+      // freshly-created object by accident. Press V to switch to Select.
+      setActiveTool('hand')
       return
     }
     setDragging(false)
@@ -565,7 +569,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       const k = e.key
       if (k === 'Escape') {
         if (draft) setDraft(null)
-        setActiveTool('select')
+        setActiveTool('hand') // back to the safe default
         return
       }
       // Space → temporary hand tool while held
