@@ -27,38 +27,41 @@ function thumbUrl(url, w = 300, h = 260) {
   return url
 }
 
-// Canvas-based text wrap measurement so we can grow rows to fit the description.
-let _measureCtx = null
-function getMeasureCtx() {
-  if (_measureCtx) return _measureCtx
-  if (typeof document === 'undefined') return null
-  const c = document.createElement('canvas')
-  _measureCtx = c.getContext('2d')
-  return _measureCtx
+// DOM-based wrap measurement (canvas measureText underestimates because of font fallback
+// differences vs. real layout). Uses a hidden div with the exact same styles as the rendered
+// span so wrapping matches the browser pixel-for-pixel.
+let _measureEl = null
+function getMeasureEl() {
+  if (_measureEl) return _measureEl
+  if (typeof document === 'undefined' || !document.body) return null
+  const el = document.createElement('div')
+  Object.assign(el.style, {
+    position: 'absolute', visibility: 'hidden', pointerEvents: 'none',
+    left: '-99999px', top: '-99999px',
+    margin: '0', border: '0', padding: '0',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontWeight: '400',
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word',
+    boxSizing: 'content-box',
+  })
+  document.body.appendChild(el)
+  _measureEl = el
+  return el
 }
 
-function measureDescH(text, maxW, fontSize = 12, lineH = 18, padV = 24) {
-  if (!text) return padV + lineH
-  const ctx = getMeasureCtx()
-  if (!ctx) return padV + Math.ceil(String(text).length / 38) * lineH
-  ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
-  let lines = 0
-  for (const paragraph of String(text).split('\n')) {
-    if (!paragraph) { lines += 1; continue }
-    const words = paragraph.split(/\s+/)
-    let line = ''
-    for (const w of words) {
-      const test = line ? line + ' ' + w : w
-      if (ctx.measureText(test).width > maxW && line) {
-        lines += 1
-        line = w
-      } else {
-        line = test
-      }
-    }
-    if (line) lines += 1
+// padV = vertical padding of the description box (12 top + 12 bottom = 24)
+function measureDescH(text, maxW, fontSize = 12, lineHeight = 1.5, padV = 24) {
+  if (!text) return padV + Math.ceil(fontSize * lineHeight)
+  const el = getMeasureEl()
+  if (!el) {
+    // SSR / pre-body fallback — coarse char-based estimate
+    return padV + Math.ceil(String(text).length / 36) * Math.ceil(fontSize * lineHeight)
   }
-  return Math.max(1, lines) * lineH + padV
+  el.style.width = maxW + 'px'
+  el.style.fontSize = fontSize + 'px'
+  el.style.lineHeight = String(lineHeight)
+  el.textContent = String(text)
+  return el.offsetHeight + padV
 }
 
 // ══════════════════════════════════════════════════
