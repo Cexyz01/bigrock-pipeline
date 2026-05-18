@@ -1518,13 +1518,18 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   stickersRef.current = stickers
   const creativeModeRef = useRef(creativeMode)
   creativeModeRef.current = creativeMode
+  const activeTabRef = useRef(activeTab)
+  activeTabRef.current = activeTab
 
   // Unified item creator — handles image files (upload to Cloudinary) and plain text.
   // Declared BEFORE the effects that depend on it to avoid TDZ during render.
   const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h }) => {
     if (!currentProject?.id || !creativeModeRef.current) return
     const baseX = Math.round(x ?? 300), baseY = Math.round(y ?? 300)
-    const z = stickersRef.current.length
+    const board = activeTabRef.current // 'shots' | 'assets'
+    // z_index is computed per board so a new sticker stacks on top of the current
+    // board's existing stickers (not all stickers across both boards).
+    const z = stickersRef.current.filter(s => (s.board || 'shots') === board).length
 
     if (kind === 'image') {
       if (!file) return
@@ -1542,7 +1547,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
         else { sh = MAX; sw = Math.round(MAX * ratio) }
       }
       const { data } = await createSticker({
-        project_id: currentProject.id, user_id: user.id,
+        project_id: currentProject.id, user_id: user.id, board,
         kind: 'image', image_url: url,
         x: baseX, y: baseY, w: sw, h: sh, rotation: 0, z_index: z,
       })
@@ -1554,7 +1559,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
 
     if (kind === 'text') {
       const { data } = await createSticker({
-        project_id: currentProject.id, user_id: user.id,
+        project_id: currentProject.id, user_id: user.id, board,
         kind: 'text', text_content: text || '',
         text_color: '#1a1a1a', bg_color: '#FEF3C7', font_size: 18,
         x: baseX, y: baseY, w: w || 240, h: h || 80, rotation: 0, z_index: z,
@@ -1569,7 +1574,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
 
     if (kind === 'rect' || kind === 'ellipse') {
       const { data } = await createSticker({
-        project_id: currentProject.id, user_id: user.id,
+        project_id: currentProject.id, user_id: user.id, board,
         kind, text_content: text || '',
         text_color: '#1a1a1a', bg_color: '#FFFFFF', font_size: 14,
         x: baseX, y: baseY, w: w || 200, h: h || 140, rotation: 0, z_index: z,
@@ -1586,7 +1591,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       const ww = (typeof w === 'number') ? Math.round(w) : 120
       const hh = (typeof h === 'number') ? Math.round(h) : 0
       const { data } = await createSticker({
-        project_id: currentProject.id, user_id: user.id,
+        project_id: currentProject.id, user_id: user.id, board,
         kind: 'arrow', text_content: null,
         text_color: '#1a1a1a', bg_color: null, font_size: 3,
         x: baseX, y: baseY, w: ww, h: hh, rotation: 0, z_index: z,
@@ -1977,7 +1982,9 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getDeptDisabled={(s, dId) => !isDeptEnabled(s, dId)}
           getTasks={(s) => tasksByShot[s.id] || []}
           openCellImage={openShotCellImage} openRef={openShotRef}
-          creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
+          creativeMode={creativeMode}
+          stickers={stickers.filter(s => (s.board || 'shots') === 'shots')}
+          autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
           onBringForward={handleBringForward} onSendBack={handleSendBack}
           onCreateSticker={handleCreateSticker} />
@@ -1990,7 +1997,9 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getDeptStatus={(a, dId) => a[STATUS_KEY(dId)]}
           getTasks={(a) => tasksByAsset[a.id] || []}
           openCellImage={openAssetCellImage} openRef={openAssetRef}
-          creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
+          creativeMode={creativeMode}
+          stickers={stickers.filter(s => (s.board || 'shots') === 'assets')}
+          autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
           onBringForward={handleBringForward} onSendBack={handleSendBack}
           onCreateSticker={handleCreateSticker} />
