@@ -1737,9 +1737,9 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       const { data } = await createSticker({
         project_id: currentProject.id, user_id: user.id, board,
         kind, text_content: text || '',
-        // Soft mid-grey border + light yellow fill by default — reads as a friendly
-        // sticky-note style frame against the dotted board background.
-        text_color: '#475569', bg_color: '#FEF3C7', font_size: 14,
+        // Soft mid-grey border + very light slate fill by default — neutral, calm
+        // frame that doesn't compete with the content placed on top.
+        text_color: '#475569', bg_color: '#F1F5F9', font_size: 14,
         opacity: 0.5, border_width: 1,
         x: baseX, y: baseY, w: w || 200, h: h || 140, rotation: 0, z_index: minZ - 1,
       })
