@@ -182,10 +182,11 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     return d ? d.label : ch
   }
 
-  // People available for DM: staff sees students, students see staff
+  // People available for DM: staff sees everyone (students + other staff),
+  // students see only staff. RLS allows DMs whenever at least one side is staff.
   const dmContacts = (profiles || []).filter(p => {
     if (p.id === user.id) return false
-    if (staff) return !isStaff(p)
+    if (staff) return true
     return isStaff(p)
   })
 
