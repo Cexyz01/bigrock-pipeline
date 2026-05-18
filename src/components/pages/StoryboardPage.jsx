@@ -302,7 +302,7 @@ function ToolIcon({ id, active }) {
   }
 }
 
-function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onCreateSticker }) {
+function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onBringForward, onSendBack, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
   const containerRef = useRef(null)
@@ -570,11 +570,23 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       }
       // Space → temporary hand tool while held
       if (k === ' ' && !e.repeat) { e.preventDefault(); setSpaceHeld(true); return }
+      // Z-order shortcuts (Figma defaults)
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && (k === ']' || k === '}')) {
+        e.preventDefault()
+        if (selectedIdRef.current) onBringForward?.(selectedIdRef.current)
+        return
+      }
+      if (mod && (k === '[' || k === '{')) {
+        e.preventDefault()
+        if (selectedIdRef.current) onSendBack?.(selectedIdRef.current)
+        return
+      }
       // Tool shortcuts
       const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
         t: 'text', T: 'text', r: 'rect', R: 'rect', e: 'ellipse', E: 'ellipse',
         a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow' }
-      if (toolKeys[k] && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
+      if (toolKeys[k] && !mod) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
     }
     const onKeyUp = (e) => { if (e.key === ' ') setSpaceHeld(false) }
     window.addEventListener('keydown', onKey)
@@ -583,7 +595,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [creativeMode, draft])
+  }, [creativeMode, draft, onBringForward, onSendBack])
 
   // Calculate board layout positions
   const totalCols = 3 + depts.length
@@ -871,6 +883,8 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
             interactive={effectiveTool === 'select'}
             onSelectionChange={(id) => setSelectedId(prev => id ?? (prev === sticker.id ? null : prev))}
             onUpdate={(u) => onStickerUpdate(sticker.id, u)}
+            onBringForward={() => onBringForward?.(sticker.id)}
+            onSendBack={() => onSendBack?.(sticker.id)}
             onDelete={() => onStickerDelete(sticker.id)} />
         ))}
 
@@ -933,22 +947,22 @@ const RESIZE_HANDLES = [
   { c: 'l',  cursor: 'ew-resize',   pos: { top: 'calc(50% - 7px)', left: -7 } },
 ]
 
-// Clean rotation cursor — Material "rotate" icon, white halo for contrast on any bg,
-// dark fill on top. 12,12 hotspot is the visual centre.
-const ROTATE_CURSOR_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path stroke='white' stroke-width='2.5' stroke-linejoin='round' fill='white' d='M12 5V2L7 7l5 5V8c4.4 0 8 3.6 8 8s-3.6 8-8 8c-3.7 0-6.8-2.5-7.7-6H2.4c.9 4.6 5 8 9.6 8 5.5 0 10-4.5 10-10S17.5 5 12 5z'/><path fill='%230f172a' d='M12 5V2L7 7l5 5V8c4.4 0 8 3.6 8 8s-3.6 8-8 8c-3.7 0-6.8-2.5-7.7-6H2.4c.9 4.6 5 8 9.6 8 5.5 0 10-4.5 10-10S17.5 5 12 5z'/></svg>"
-const ROTATE_CURSOR = `url("data:image/svg+xml;utf8,${ROTATE_CURSOR_SVG}") 12 12, crosshair`
+// Compact rotation cursor — small curved arrow with arrowhead, white halo for contrast
+// on any background. 16×16 footprint with hotspot at the visual centre.
+const ROTATE_CURSOR_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><path stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round' d='M12.5 8 A 4.5 4.5 0 1 1 8 3.5 L 8 1 L 5.5 3.5 L 8 6'/><path stroke='%230f172a' stroke-width='1.2' fill='none' stroke-linecap='round' stroke-linejoin='round' d='M12.5 8 A 4.5 4.5 0 1 1 8 3.5 L 8 1 L 5.5 3.5 L 8 6'/></svg>"
+const ROTATE_CURSOR = `url("data:image/svg+xml;utf8,${ROTATE_CURSOR_SVG}") 8 8, crosshair`
 
-// Rotation zones — strictly OUTSIDE the bounding box (no overlap with the sticker
-// interior). Each zone sits in the outer L-shape around a corner. The resize handle
-// occupies the corner pixel itself (higher z-index wins where they touch).
+// Rotation zones — pushed clearly OUTSIDE the corner so there's a generous dead-zone
+// between the resize handle and the rotation area. The rotate cursor appears only when
+// the cursor is noticeably past the corner.
 const ROTATE_ZONES = [
-  { c: 'tl', pos: { top: -30, left: -30, width: 30, height: 30 } },
-  { c: 'tr', pos: { top: -30, right: -30, width: 30, height: 30 } },
-  { c: 'bl', pos: { bottom: -30, left: -30, width: 30, height: 30 } },
-  { c: 'br', pos: { bottom: -30, right: -30, width: 30, height: 30 } },
+  { c: 'tl', pos: { top: -44, left: -44, width: 32, height: 32 } },
+  { c: 'tr', pos: { top: -44, right: -44, width: 32, height: 32 } },
+  { c: 'bl', pos: { bottom: -44, left: -44, width: 32, height: 32 } },
+  { c: 'br', pos: { bottom: -44, right: -44, width: 32, height: 32 } },
 ]
 
-function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelectionChange, interactive = true }) {
+function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSendBack, autoEdit, onSelectionChange, interactive = true }) {
   const isImage = sticker.kind === 'image' || !sticker.kind
   const isText = sticker.kind === 'text'
   const isRect = sticker.kind === 'rect'
@@ -1283,31 +1297,46 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
           </>
         })()}
 
-        {/* Delete chip. For images/text/shapes it sits INSIDE the box top-right. For
-            arrows it floats next to the end-point so it's always reachable. The
-            counter-rotation keeps the trash icon upright when the sticker is rotated. */}
-        <button onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onDelete() }}
-          title="Elimina (Canc)"
-          style={{
-            position: 'absolute',
-            ...(isArrow
-              ? { left: (sticker.w < 0 ? 0 : cw) + 12, top: (sticker.h < 0 ? 0 : ch) + 12 }
-              : { top: 6, right: 6 }),
-            width: 28, height: 28, borderRadius: '50%',
-            background: '#EF4444', border: '2px solid #fff', color: '#fff',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 3px 10px rgba(0,0,0,0.35)', zIndex: 30, padding: 0,
-            transform: sticker.rotation ? `rotate(${-sticker.rotation}deg)` : undefined,
-          }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 6h18" />
-            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            <path d="M10 11v6" />
-            <path d="M14 11v6" />
-          </svg>
-        </button>
+        {/* Actions toolbar — Bring forward / Send back / Delete. Sits inside the box
+            top-right for images/text/shapes, near the arrowhead for arrows. The whole
+            toolbar counter-rotates so icons stay upright when the sticker is rotated. */}
+        <div onMouseDown={(e) => e.stopPropagation()} style={{
+          position: 'absolute',
+          ...(isArrow
+            ? { left: (sticker.w < 0 ? 0 : cw) + 12, top: (sticker.h < 0 ? 0 : ch) + 12 }
+            : { top: 6, right: 6 }),
+          display: 'flex', gap: 4, alignItems: 'center', zIndex: 30,
+          transform: sticker.rotation ? `rotate(${-sticker.rotation}deg)` : undefined,
+          transformOrigin: 'center center',
+        }}>
+          <button onClick={() => onSendBack?.()} title="Manda dietro (Ctrl+[)"
+            style={actionChipStyle('#fff', '#475569')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="4" y="4" width="11" height="11" rx="1.5" fill="currentColor" opacity="0.25" />
+              <rect x="9" y="9" width="11" height="11" rx="1.5" />
+            </svg>
+          </button>
+          <button onClick={() => onBringForward?.()} title="Porta avanti (Ctrl+])"
+            style={actionChipStyle('#fff', '#475569')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="4" y="4" width="11" height="11" rx="1.5" />
+              <rect x="9" y="9" width="11" height="11" rx="1.5" fill="currentColor" opacity="0.25" />
+            </svg>
+          </button>
+          <button onClick={() => onDelete()} title="Elimina (Canc)"
+            style={actionChipStyle('#EF4444', '#fff')}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 6h18" />
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+          </button>
+        </div>
 
         {/* Formatting toolbar: text/shape get font-size + text colour + fill colour.
             Arrows get stroke-width + stroke colour. Counter-rotated so the toolbar
@@ -1364,6 +1393,13 @@ const miniBtn = {
   border: '1px solid #E2E8F0', background: '#F8FAFC', borderRadius: 6,
   padding: '2px 6px', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer',
 }
+
+const actionChipStyle = (bg, fg) => ({
+  width: 26, height: 26, borderRadius: '50%',
+  background: bg, border: '2px solid #fff', color: fg,
+  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.25)', padding: 0,
+})
 
 const zoomBtnStyle = {
   width: 36, height: 36, borderRadius: 8, border: '1px solid #D5DAE1',
@@ -1691,6 +1727,19 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     }
   }, [flushAllStickerSaves])
 
+  // Z-order: bring to front / send to back. Uses the existing optimistic update path
+  // (handleStickerUpdate) so the new ordering is rendered immediately and saved with
+  // the usual 800ms debounce / unmount flush.
+  const handleBringForward = useCallback((id) => {
+    const maxZ = stickersRef.current.reduce((m, s) => Math.max(m, s.z_index || 0), 0)
+    handleStickerUpdate(id, { z_index: maxZ + 1 })
+  }, [handleStickerUpdate])
+
+  const handleSendBack = useCallback((id) => {
+    const minZ = stickersRef.current.reduce((m, s) => Math.min(m, s.z_index || 0), 0)
+    handleStickerUpdate(id, { z_index: minZ - 1 })
+  }, [handleStickerUpdate])
+
   const handleStickerDelete = async (id) => {
     // Cancel any pending update for this sticker (we're about to remove it).
     if (stickerSaveTimers.current[id]) { clearTimeout(stickerSaveTimers.current[id]); delete stickerSaveTimers.current[id] }
@@ -1915,7 +1964,9 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getTasks={(s) => tasksByShot[s.id] || []}
           openCellImage={openShotCellImage} openRef={openShotRef}
           creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
-          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onCreateSticker={handleCreateSticker} />
+          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
+          onBringForward={handleBringForward} onSendBack={handleSendBack}
+          onCreateSticker={handleCreateSticker} />
       ) : (
         <CanvasBoard
           sequences={assetSequences} imageMap={assetImageMap} depts={ASSET_DEPTS}
@@ -1926,7 +1977,9 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getTasks={(a) => tasksByAsset[a.id] || []}
           openCellImage={openAssetCellImage} openRef={openAssetRef}
           creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
-          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onCreateSticker={handleCreateSticker} />
+          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
+          onBringForward={handleBringForward} onSendBack={handleSendBack}
+          onCreateSticker={handleCreateSticker} />
       )}
 
       {lightbox && <GalleryLightbox images={lightbox.images} index={lightbox.index} shotCode={lightbox.shotCode} deptLabel={lightbox.deptLabel} statusObj={lightbox.statusObj} onClose={() => setLightbox(null)} onNav={handleNav} />}
