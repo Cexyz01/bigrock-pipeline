@@ -1216,10 +1216,13 @@ async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: str
   if (permErr) return err("Permission check failed: " + permErr.message, 500)
   if (!hasPerm) return err("Forbidden: requires delete_tasks permission", 403)
 
-  // Read the WIP update to get its image/audio URLs
+  // Read the WIP update to get its image/audio URLs + the task/user it belongs to.
+  // We need task_id + user_id later to scope the miro_wip_images cleanup correctly
+  // (the same Cloudinary URL might in theory exist for a different task/user — match
+  // on the whole triple to be safe).
   const { data: wipRow, error: fetchErr } = await supabase
     .from("task_wip_updates")
-    .select("id, images")
+    .select("id, images, task_id, user_id")
     .eq("id", wip_update_id)
     .maybeSingle()
   if (fetchErr) return err("DB read failed: " + fetchErr.message, 500)
@@ -1262,7 +1265,37 @@ async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: str
   const { error: delErr } = await supabase.from("task_wip_updates").delete().eq("id", wip_update_id)
   if (delErr) return err("DB delete failed: " + delErr.message, 500)
 
-  return ok({ success: true, cloudinary_deleted: cloudinaryDeleted, asset_count: Object.values(byType).reduce((a, b) => a + b.length, 0) })
+  // Cleanup orphaned storyboard rows. `miro_wip_images` mirrors the WIP image URLs
+  // for the storyboard grid — if we don't remove the matching rows here, the grid
+  // keeps rendering broken "?" tiles pointing to the (now-deleted) Cloudinary URLs.
+  // Match on task_id + uploaded_by + image_url IN (list) so we only ever remove the
+  // exact images that belonged to this WIP update, never another user's contributions
+  // to the same task.
+  let storyboardRowsDeleted = 0
+  if (wipRow.task_id && wipRow.user_id && (wipRow.images || []).length > 0) {
+    try {
+      const { error: cleanErr, count } = await supabase
+        .from("miro_wip_images")
+        .delete({ count: "exact" })
+        .eq("task_id", wipRow.task_id)
+        .eq("uploaded_by", wipRow.user_id)
+        .in("image_url", wipRow.images)
+      if (cleanErr) {
+        console.warn("[delete_wip_update] miro_wip_images cleanup failed:", cleanErr.message)
+      } else {
+        storyboardRowsDeleted = count || 0
+      }
+    } catch (e) {
+      console.warn("[delete_wip_update] miro_wip_images cleanup threw:", e)
+    }
+  }
+
+  return ok({
+    success: true,
+    cloudinary_deleted: cloudinaryDeleted,
+    asset_count: Object.values(byType).reduce((a, b) => a + b.length, 0),
+    storyboard_rows_deleted: storyboardRowsDeleted,
+  })
 }
 
 // ══════════════════════════════════════════════════════════════
