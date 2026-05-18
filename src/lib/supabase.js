@@ -1960,7 +1960,12 @@ export async function uploadStickerImage(projectId, file) {
     const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, { method: 'POST', body: fd })
     const cloudJson = await cloudRes.json().catch(() => ({}))
     if (!cloudRes.ok) return { url: null, error: { message: cloudJson.error?.message || `Upload failed (HTTP ${cloudRes.status})` } }
-    return { url: cloudJson.secure_url, error: null }
+    return {
+      url: cloudJson.secure_url,
+      width: cloudJson.width || null,
+      height: cloudJson.height || null,
+      error: null,
+    }
   } catch (err) {
     return { url: null, error: { message: err.message } }
   }

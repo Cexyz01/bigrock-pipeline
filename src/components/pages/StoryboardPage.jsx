@@ -858,29 +858,60 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
           {sticker.text_content || ''}
         </div>
       ) : (
-        <img src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })} alt="" draggable={false}
-          style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none', userSelect: 'none' }} />
+        <img
+          src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })}
+          alt=""
+          draggable={false}
+          onLoad={(e) => {
+            // Snap the bounding box to the image's natural aspect ratio so the selection
+            // outline always hugs the picture (no empty bars when a portrait image was
+            // stored in a square w/h slot from a previous build).
+            const nw = e.currentTarget.naturalWidth
+            const nh = e.currentTarget.naturalHeight
+            if (!nw || !nh) return
+            const cur = sticker.w / Math.max(sticker.h, 1)
+            const nat = nw / nh
+            if (Math.abs(cur - nat) < 0.02) return
+            // Preserve the longer side; recompute the shorter from the natural ratio.
+            const next = sticker.w >= sticker.h
+              ? { w: sticker.w, h: Math.round(sticker.w / nat) }
+              : { h: sticker.h, w: Math.round(sticker.h * nat) }
+            onUpdate(next)
+          }}
+          style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none', userSelect: 'none', display: 'block', borderRadius: 4 }} />
       )}
 
       {show && <>
-        {/* Delete */}
-        <button onMouseDown={e => { e.stopPropagation(); onDelete() }} style={{
-          position: 'absolute', top: -14, right: -14, width: 28, height: 28, borderRadius: '50%',
-          background: '#EF4444', border: '2px solid #fff', color: '#fff', fontSize: 14,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)', zIndex: 10,
-        }}>✕</button>
-
-        {/* Resize corners */}
-        {['tl','tr','bl','br'].map(c => (
+        {/* Resize corners — only 3 (TL/BL/BR). TR is reserved for the Delete button so
+            the X is never blocked by a resize handle. */}
+        {['tl','bl','br'].map(c => (
           <div key={c} onMouseDown={e => beginResize(e, c)} style={{
-            position: 'absolute', width: 16, height: 16,
+            position: 'absolute', width: 14, height: 14,
             background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
             cursor: (c === 'tl' || c === 'br') ? 'nwse-resize' : 'nesw-resize',
             boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
-            ...(c === 'tl' ? { top: -8, left: -8 } : c === 'tr' ? { top: -8, right: -8 } : c === 'bl' ? { bottom: -8, left: -8 } : { bottom: -8, right: -8 }),
+            ...(c === 'tl' ? { top: -7, left: -7 } : c === 'bl' ? { bottom: -7, left: -7 } : { bottom: -7, right: -7 }),
           }} />
         ))}
+
+        {/* Delete — top-right corner, always above resize handles, with a real trash icon */}
+        <button onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onDelete() }}
+          title="Elimina"
+          style={{
+            position: 'absolute', top: -16, right: -16, width: 32, height: 32, borderRadius: '50%',
+            background: '#EF4444', border: '2px solid #fff', color: '#fff',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 3px 10px rgba(0,0,0,0.35)', zIndex: 30, padding: 0,
+          }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6" />
+            <path d="M14 11v6" />
+          </svg>
+        </button>
 
         {/* Rotate handle */}
         <div onMouseDown={beginRotate} style={{
@@ -1053,13 +1084,22 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     if (kind === 'image') {
       if (!file) return
       setUploadingSticker(true)
-      const { url, error } = await uploadStickerImage(currentProject.id, file)
+      const { url, width: natW, height: natH, error } = await uploadStickerImage(currentProject.id, file)
       setUploadingSticker(false)
       if (error) { addToast?.('Upload error: ' + error.message, 'danger'); return }
+      // Fit the natural image dimensions into a sensible default box (longest side = 300px)
+      // so the selection bounds match the image aspect ratio (no empty bars on portraits).
+      let sw = w || 220, sh = h || 220
+      if (natW && natH) {
+        const MAX = 300
+        const ratio = natW / natH
+        if (natW >= natH) { sw = MAX; sh = Math.round(MAX / ratio) }
+        else { sh = MAX; sw = Math.round(MAX * ratio) }
+      }
       const { data } = await createSticker({
         project_id: currentProject.id, user_id: user.id,
         kind: 'image', image_url: url,
-        x: baseX, y: baseY, w: w || 220, h: h || 220, rotation: 0, z_index: z,
+        x: baseX, y: baseY, w: sw, h: sh, rotation: 0, z_index: z,
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
