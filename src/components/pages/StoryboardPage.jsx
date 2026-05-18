@@ -1192,7 +1192,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           onMouseDown={editing ? (e) => e.stopPropagation() : undefined}
           style={{
             width: '100%', height: '100%',
-            background: isShape ? (sticker.bg_color && sticker.bg_color !== 'transparent' ? sticker.bg_color : '#FFFFFF') : (sticker.bg_color || 'transparent'),
+            background: isShape ? (sticker.bg_color ?? '#FFFFFF') : (sticker.bg_color || 'transparent'),
             color: sticker.text_color || '#1a1a1a',
             fontSize: sticker.font_size || (isShape ? 14 : 18), lineHeight: 1.35,
             fontWeight: isShape ? 500 : 600,
@@ -1287,9 +1287,11 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           const ex = sticker.w < 0 ? 0 : cw
           const ey = sticker.h < 0 ? 0 : ch
           const handleStyle = (xPos, yPos) => ({
-            position: 'absolute', left: xPos - 8, top: yPos - 8, width: 16, height: 16,
-            background: '#fff', border: '2px solid #F28C28', borderRadius: '50%',
-            cursor: 'grab', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', zIndex: 12,
+            position: 'absolute', left: xPos - 9, top: yPos - 9, width: 18, height: 18,
+            background: '#fff', border: '2.5px solid #F28C28', borderRadius: '50%',
+            // 'move' shows the 4-arrow cross — clearly distinct from the line body's
+            // 'grab' cursor so the user knows the endpoint is a separate drag target.
+            cursor: 'move', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', zIndex: 20,
           })
           return <>
             <div onMouseDown={(e) => beginEndpoint(e, 'start')} style={handleStyle(sx, sy)} />
