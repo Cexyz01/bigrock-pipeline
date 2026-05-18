@@ -724,6 +724,20 @@ const RESIZE_HANDLES = [
   { c: 'l',  cursor: 'ew-resize',   pos: { top: 'calc(50% - 7px)', left: -7 } },
 ]
 
+// Inline SVG cursor for rotation (Figma/Photoshop style). The 12,12 hotspot is the SVG
+// center so the cursor's curl sits naturally where the user clicks.
+const ROTATE_CURSOR = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='white' stroke='black' stroke-width='1.4' stroke-linejoin='round' d='M12 2.5 L8 6.5 L10.5 6.5 A5 5 0 1 0 16.5 12 L19.5 12 A8 8 0 1 1 10.5 3.5 L10.5 1 Z'/></svg>\") 12 12, grab"
+
+// Rotation zones — each sits in the outer quadrant of a corner, just past the resize
+// handle. The 36×36 footprint extends ~20px outward from the sticker corner; where it
+// overlaps the resize handle, the handle wins via z-index so resizing stays accessible.
+const ROTATE_ZONES = [
+  { c: 'tl', pos: { top: -22, left: -22, width: 36, height: 36 } },
+  { c: 'tr', pos: { top: -22, right: -22, width: 36, height: 36 } },
+  { c: 'bl', pos: { bottom: -22, left: -22, width: 36, height: 36 } },
+  { c: 'br', pos: { bottom: -22, right: -22, width: 36, height: 36 } },
+]
+
 function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
   const isText = sticker.kind === 'text'
   const [selected, setSelected] = useState(!!autoEdit)
@@ -913,6 +927,17 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
       )}
 
       {show && <>
+        {/* Rotation zones — invisible squares in the outer quadrant of each corner.
+            Hovering them shows a rotation cursor; mousedown starts rotating. Lower
+            z-index than the resize handles so the handles still grab the corner clicks. */}
+        {ROTATE_ZONES.map(r => (
+          <div key={'rot-' + r.c} onMouseDown={beginRotate} style={{
+            position: 'absolute', cursor: ROTATE_CURSOR,
+            background: 'transparent', zIndex: 5,
+            ...r.pos,
+          }} />
+        ))}
+
         {/* 8 resize handles (corners + sides) — free resize, no aspect lock */}
         {RESIZE_HANDLES.map(h => (
           <div key={h.c} onMouseDown={e => beginResize(e, h.c)} style={{
@@ -944,16 +969,6 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
             <path d="M14 11v6" />
           </svg>
         </button>
-
-        {/* Rotate handle */}
-        <div onMouseDown={beginRotate} style={{
-          position: 'absolute', top: -32, left: '50%', transform: 'translateX(-50%)',
-          width: 24, height: 24, borderRadius: '50%',
-          background: '#fff', border: '2px solid #10B981',
-          cursor: 'crosshair', boxShadow: '0 2px 6px rgba(0,0,0,0.2)', zIndex: 10,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12,
-        }}>↻</div>
-        <div style={{ position: 'absolute', top: -20, left: '50%', width: 1, height: 20, background: '#10B981', pointerEvents: 'none' }} />
 
         {/* Text formatting toolbar */}
         {isText && (
