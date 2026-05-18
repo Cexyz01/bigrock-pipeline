@@ -7,20 +7,19 @@ import Bar from '../ui/Bar'
 export default function OverviewPage({ shots, assets = [], tasks, profiles, user, currentProject }) {
   const isMobile = useIsMobile()
 
-  // Count cells across both shots and assets, respecting which depts apply to each entity
-  const countCells = (entities, deptIds, predicate) => entities.reduce(
-    (sum, e) => sum + deptIds.filter(id => isDeptEnabled(e, id) && predicate(e[`status_${id}`])).length,
-    0,
-  )
-  const anyStatus = () => true
-  const total = countCells(shots, SHOT_DEPT_IDS, anyStatus) + countCells(assets, ASSET_DEPT_IDS, anyStatus)
-  const done = countCells(shots, SHOT_DEPT_IDS, st => st === 'approved' || st === 'review')
-            + countCells(assets, ASSET_DEPT_IDS, st => st === 'approved' || st === 'review')
-  const wip  = countCells(shots, SHOT_DEPT_IDS, st => st === 'in_progress')
-            + countCells(assets, ASSET_DEPT_IDS, st => st === 'in_progress')
+  // All progress metrics are task-based for consistency with the Departments section.
+  const total = tasks.length
+  const todoTasks = tasks.filter(t => t.status === 'todo').length
+  const wip = tasks.filter(t => t.status === 'wip').length
+  const reviewTasks = tasks.filter(t => t.status === 'review')
+  const done = tasks.filter(t => t.status === 'approved').length
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   const myTasks = tasks.filter(t => (t.assignees || []).some(a => a.user.id === user.id))
-  const reviewTasks = tasks.filter(t => t.status === 'review')
+  const statusCounts = {
+    not_started: todoTasks,
+    in_progress: wip + reviewTasks.length,
+    approved: done,
+  }
 
   // Dept color map for stat cards
   const statCards = [
@@ -69,8 +68,7 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
           <Bar value={pct} h={8} />
           <div style={{ display: 'flex', gap: 20, marginTop: 20, flexWrap: 'wrap' }}>
             {SHOT_STATUSES.map(st => {
-              const c = countCells(shots, SHOT_DEPT_IDS, s => s === st.id)
-                      + countCells(assets, ASSET_DEPT_IDS, s => s === st.id)
+              const c = statusCounts[st.id] || 0
               return (
                 <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.color }} />
