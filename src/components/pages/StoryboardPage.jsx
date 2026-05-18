@@ -939,7 +939,13 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 // ══════════════════════════════════════════════════
 
 const TEXT_COLOR_SWATCHES = ['#1a1a1a', '#ffffff', '#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899']
-const TEXT_BG_SWATCHES = ['transparent', '#FEF3C7', '#FECACA', '#BBF7D0', '#BFDBFE', '#DDD6FE', '#FBCFE8', '#1F2937']
+// Broader palette: transparent, neutrals, soft pastels and saturated accents.
+// Arranged so the swatch grid in the toolbar reads top-to-bottom by tone.
+const TEXT_BG_SWATCHES = [
+  'transparent', '#FFFFFF', '#F1F5F9', '#CBD5E1', '#64748B', '#1F2937',
+  '#FEF3C7', '#FED7AA', '#FECACA', '#FBCFE8', '#DDD6FE', '#BFDBFE', '#BBF7D0', '#A7F3D0',
+  '#F59E0B', '#EF4444', '#EC4899', '#8B5CF6', '#3B82F6', '#10B981',
+]
 
 // Convert a hex colour string to rgba with a user-supplied alpha. Used to apply the
 // shape opacity slider to the fill ONLY — leaves border and label at full opacity,
@@ -993,7 +999,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   const isArrow = sticker.kind === 'arrow'
 
   const [selected, setSelected] = useState(!!autoEdit)
-  const [editing, setEditing] = useState(!!autoEdit && (isText || isShape))
+  const [editing, setEditing] = useState(!!autoEdit && isText)
   const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate' | 'endpoint'
   const startRef = useRef(null)
   const elRef = useRef(null)
@@ -1217,7 +1223,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   return (<>
     <div ref={elRef}
       onMouseDown={beginDrag}
-      onDoubleClick={(isText || isShape) ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
+      onDoubleClick={isText ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
       style={{
         position: 'absolute', left: cx, top: cy, width: cw, height: ch,
         transform: `rotate(${sticker.rotation || 0}deg)`,
@@ -1250,7 +1256,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none', userSelect: 'none', display: 'block', borderRadius: 4 }} />
       )}
 
-      {(isText || isShape) && (
+      {isText && (
         <div
           ref={textRef}
           contentEditable={editing}
@@ -1267,32 +1273,33 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           onMouseDown={editing ? (e) => e.stopPropagation() : undefined}
           style={{
             width: '100%', height: '100%',
-            // Opacity is applied to the FILL only (via rgba) so the border and the
-            // label text stay crisp regardless of the slider value — matches Figma /
-            // Sketch behaviour.
-            background: isShape
-              ? hexToRgba(sticker.bg_color ?? '#FFFFFF', typeof sticker.opacity === 'number' ? sticker.opacity : 1)
-              : (sticker.bg_color || 'transparent'),
+            background: sticker.bg_color || 'transparent',
             color: sticker.text_color || '#1a1a1a',
-            fontSize: sticker.font_size || (isShape ? 14 : 18), lineHeight: 1.35,
-            fontWeight: isShape ? 500 : 600,
-            padding: isShape ? '10px 14px' : '8px 12px',
-            boxSizing: 'border-box',
-            borderRadius: isEllipse ? '50%' : (isShape ? 10 : 8),
-            border: isShape ? `${sticker.border_width ?? 2}px solid ${sticker.text_color || '#1a1a1a'}` : 'none',
-            outline: editing && !isShape ? '2px solid #F28C28' : 'none',
+            fontSize: sticker.font_size || 18, lineHeight: 1.35,
+            fontWeight: 600, padding: '8px 12px', boxSizing: 'border-box',
+            borderRadius: 8, outline: editing ? '2px solid #F28C28' : 'none',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             overflow: 'hidden',
             userSelect: editing ? 'text' : 'none',
             WebkitUserSelect: editing ? 'text' : 'none',
             cursor: editing ? 'text' : 'inherit',
-            display: isShape ? 'flex' : 'block',
-            alignItems: isShape ? 'center' : undefined,
-            justifyContent: isShape ? 'center' : undefined,
-            textAlign: isShape ? 'center' : 'left',
-            boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent' && !isShape) ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
+            boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent') ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
           }}
         />
+      )}
+
+      {isShape && (
+        // Pure visual frame: fill + border + soft outer shadow. No text — the user
+        // adds text with the dedicated Text tool. Fill alpha comes from sticker.opacity
+        // via rgba so the border stays crisp.
+        <div style={{
+          width: '100%', height: '100%',
+          background: hexToRgba(sticker.bg_color ?? '#FFFFFF', typeof sticker.opacity === 'number' ? sticker.opacity : 1),
+          border: `${sticker.border_width ?? 2}px solid ${sticker.text_color || '#1a1a1a'}`,
+          borderRadius: isEllipse ? '50%' : 10,
+          boxSizing: 'border-box',
+          boxShadow: '0 2px 10px rgba(15,23,42,0.10)',
+        }} />
       )}
 
       {isArrow && (() => {
@@ -1444,8 +1451,9 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           </button>
         </div>
 
-        {/* Formatting toolbar: text/shape get font-size + text colour + fill colour.
-            Arrows get stroke-width + stroke colour. Counter-rotated so the toolbar
+        {/* Formatting toolbar: text gets font-size + text + fill colour; arrows get
+            stroke-width + stroke colour; shapes get border + opacity + fill (no font
+            size since shapes are now pure visual frames). Counter-rotated so its
             content stays upright when the sticker itself is rotated. */}
         {(isText || isShape || isArrow) && (
           <div onMouseDown={(e) => e.stopPropagation()} style={{
@@ -1455,19 +1463,20 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             transformOrigin: 'center center',
             background: '#fff', borderRadius: 10, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center',
             boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', zIndex: 30,
-            whiteSpace: 'nowrap',
-            pointerEvents: 'auto', // override container's pointer-events:none on arrows
+            pointerEvents: 'auto',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button onClick={() => onUpdate({ font_size: Math.max(isArrow ? 1 : 10, (sticker.font_size || (isArrow ? 3 : 18)) - (isArrow ? 1 : 2)) })}
-                style={miniBtn}>{isArrow ? '−' : 'A−'}</button>
-              <span style={{ fontSize: 11, color: '#64748B', minWidth: 18, textAlign: 'center' }}>
-                {sticker.font_size || (isArrow ? 3 : 18)}
-              </span>
-              <button onClick={() => onUpdate({ font_size: Math.min(isArrow ? 24 : 96, (sticker.font_size || (isArrow ? 3 : 18)) + (isArrow ? 1 : 2)) })}
-                style={miniBtn}>{isArrow ? '+' : 'A+'}</button>
-            </div>
-            <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+            {!isShape && <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={() => onUpdate({ font_size: Math.max(isArrow ? 1 : 10, (sticker.font_size || (isArrow ? 3 : 18)) - (isArrow ? 1 : 2)) })}
+                  style={miniBtn}>{isArrow ? '−' : 'A−'}</button>
+                <span style={{ fontSize: 11, color: '#64748B', minWidth: 18, textAlign: 'center' }}>
+                  {sticker.font_size || (isArrow ? 3 : 18)}
+                </span>
+                <button onClick={() => onUpdate({ font_size: Math.min(isArrow ? 24 : 96, (sticker.font_size || (isArrow ? 3 : 18)) + (isArrow ? 1 : 2)) })}
+                  style={miniBtn}>{isArrow ? '+' : 'A+'}</button>
+              </div>
+              <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+            </>}
             <div style={{ display: 'flex', gap: 3 }} title={isArrow ? 'Colore freccia' : isShape ? 'Bordo / testo' : 'Colore testo'}>
               {TEXT_COLOR_SWATCHES.map(c => (
                 <button key={c} onClick={() => onUpdate({ text_color: c })} style={{
@@ -1478,10 +1487,15 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             </div>
             {!isArrow && <>
               <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
-              <div style={{ display: 'flex', gap: 3 }} title={isShape ? 'Riempimento' : 'Sfondo'}>
+              <div title={isShape ? 'Riempimento' : 'Sfondo'} style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(10, 14px)',
+                gridAutoRows: '14px',
+                gap: 3,
+              }}>
                 {TEXT_BG_SWATCHES.map(c => (
                   <button key={c} onClick={() => onUpdate({ bg_color: c })} style={{
-                    width: 14, height: 14, borderRadius: 4,
+                    width: 14, height: 14, borderRadius: 4, padding: 0,
                     background: c === 'transparent' ? 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 8px 8px' : c,
                     cursor: 'pointer',
                     border: (sticker.bg_color || 'transparent') === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
