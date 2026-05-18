@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { SHOT_DEPTS, ASSET_DEPTS, SHOT_STATUSES, getShotStatus, ACCENT, isDeptEnabled, isAudioUrl } from '../../lib/constants'
+import { SHOT_DEPTS, ASSET_DEPTS, SHOT_STATUSES, TASK_STATUSES, getShotStatus, getTaskStatus, ACCENT, isDeptEnabled, isAudioUrl } from '../../lib/constants'
 import { supabase, getStoryboardImages, getStickers, createSticker, updateSticker, deleteSticker, uploadStickerImage } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import { IconX, IconSearch, IconLayout, IconTarget } from '../ui/Icons'
@@ -302,7 +302,7 @@ function ToolIcon({ id, active }) {
   }
 }
 
-function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onCreateSticker }) {
+function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
   const containerRef = useRef(null)
@@ -780,12 +780,45 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
                 padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
               }}>
                 <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', textAlign: 'center' }}>{code}</span>
-                <div style={{ display: 'flex', gap: 4, marginTop: 10 }}>
-                  {depts.map(d => {
-                    const st = getShotStatus(getDeptStatus(item, d.id))
-                    return <div key={d.id} style={{ width: 16, height: 5, borderRadius: 3, background: st.color, opacity: 0.7 }} title={`${d.label}: ${st.label}`} />
-                  })}
-                </div>
+                {(() => {
+                  // Per-task status bars, ordered by task status (todo → wip → review → done)
+                  // so the visual flow reads left-to-right as work progresses.
+                  const itemTasks = (getTasks ? getTasks(item) : []) || []
+                  if (itemTasks.length === 0) {
+                    return (
+                      <div style={{ marginTop: 10, fontSize: 10, color: '#94A3B8', fontWeight: 500 }}>
+                        Nessun task
+                      </div>
+                    )
+                  }
+                  const order = { todo: 0, wip: 1, review: 2, approved: 3 }
+                  const sorted = [...itemTasks].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
+                  // Counts per status for the inline summary chip
+                  const counts = sorted.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc }, {})
+                  return (
+                    <>
+                      <div style={{ display: 'flex', gap: 3, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center', maxWidth: '100%' }}>
+                        {sorted.map(t => {
+                          const st = getTaskStatus(t.status)
+                          const dLabel = (depts.find(d => d.id === t.department)?.label) || t.department || ''
+                          return (
+                            <div key={t.id}
+                              title={`${dLabel}${t.task_label ? ' · ' + t.task_label : ''} — ${st.label}`}
+                              style={{ width: 14, height: 6, borderRadius: 3, background: st.color, opacity: 0.95 }} />
+                          )
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, fontSize: 9.5, fontWeight: 600, color: '#64748B' }}>
+                        {TASK_STATUSES.map(st => counts[st.id] ? (
+                          <span key={st.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.color }} />
+                            {counts[st.id]}
+                          </span>
+                        ) : null)}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
 
               {/* Reference */}
@@ -835,6 +868,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         {creativeMode && stickers.map(sticker => (
           <StickerItem key={sticker.id} sticker={sticker} scale={scale}
             autoEdit={sticker.id === autoEditId}
+            interactive={effectiveTool === 'select'}
             onSelectionChange={(id) => setSelectedId(prev => id ?? (prev === sticker.id ? null : prev))}
             onUpdate={(u) => onStickerUpdate(sticker.id, u)}
             onDelete={() => onStickerDelete(sticker.id)} />
@@ -914,7 +948,7 @@ const ROTATE_ZONES = [
   { c: 'br', pos: { bottom: -30, right: -30, width: 30, height: 30 } },
 ]
 
-function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelectionChange }) {
+function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelectionChange, interactive = true }) {
   const isImage = sticker.kind === 'image' || !sticker.kind
   const isText = sticker.kind === 'text'
   const isRect = sticker.kind === 'rect'
@@ -935,7 +969,17 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
   // (Ctrl+D, Ctrl+], …). Parent reconciles with `selected ? id : null`.
   useEffect(() => { onSelectionChange?.(selected ? sticker.id : null) }, [selected, sticker.id, onSelectionChange])
 
+  // When the canvas tool switches away from Select, force-deselect so the user doesn't
+  // see lingering handles/toolbars from the previous selection (and so any open inline
+  // editor saves and closes cleanly).
+  useEffect(() => {
+    if (!interactive) { setSelected(false); setEditing(false) }
+  }, [interactive])
+
   const beginDrag = (e) => {
+    // If the canvas isn't in select mode (hand / drawing tool / space-to-pan), let the
+    // mousedown bubble to the canvas — the user wants to pan or draw, not select.
+    if (!interactive) return
     if (editing) return
     e.stopPropagation(); e.preventDefault(); setSelected(true)
     const s = latestRef.current
@@ -1181,10 +1225,11 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelection
                 <path d="M0,0 L10,5 L0,10 z" fill={stroke} />
               </marker>
             </defs>
-            {/* Invisible thick stroke for easy hit-testing */}
+            {/* Invisible thick stroke for easy hit-testing — disabled while a non-select
+                tool is active so panning / drawing isn't blocked by the arrow's hit area. */}
             <line x1={sx} y1={sy} x2={ex} y2={ey}
               stroke="transparent" strokeWidth={Math.max(16, sw * 4)}
-              strokeLinecap="round" style={{ pointerEvents: 'stroke', cursor: 'grab' }}
+              strokeLinecap="round" style={{ pointerEvents: interactive ? 'stroke' : 'none', cursor: 'grab' }}
               onMouseDown={beginDrag} />
             {/* Visible arrow */}
             <line x1={sx} y1={sy} x2={ex} y2={ey}
@@ -1469,6 +1514,36 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
         setAutoEditId(data.id)
         setTimeout(() => setAutoEditId(curr => curr === data.id ? null : curr), 1500)
       }
+      return
+    }
+
+    if (kind === 'rect' || kind === 'ellipse') {
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id,
+        kind, text_content: text || '',
+        text_color: '#1a1a1a', bg_color: '#FFFFFF', font_size: 14,
+        x: baseX, y: baseY, w: w || 200, h: h || 140, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+      }
+      return
+    }
+
+    if (kind === 'arrow') {
+      // Arrow keeps directional deltas (w/h may be negative). Don't clamp to defaults
+      // unless we actually have nothing — otherwise we'd lose direction information.
+      const ww = (typeof w === 'number') ? Math.round(w) : 120
+      const hh = (typeof h === 'number') ? Math.round(h) : 0
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id,
+        kind: 'arrow', text_content: null,
+        text_color: '#1a1a1a', bg_color: null, font_size: 3,
+        x: baseX, y: baseY, w: ww, h: hh, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+      }
     }
   }, [currentProject?.id, user?.id, addToast])
 
@@ -1648,20 +1723,56 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
 
   const allSequences = useMemo(() => [...new Set((shots || []).map(s => s.sequence).filter(Boolean))].sort(), [shots])
 
+  // Creative mode = whole storyboard, no filters allowed. Force everything to 'all'.
+  const effFilterSeq = creativeMode ? 'all' : filterSeq
+  const effFilterStatus = creativeMode ? 'all' : filterStatus
+  const effSearch = creativeMode ? '' : searchText
+
+  // Per-shot / per-asset task buckets. Used by both the status filter and the
+  // per-item task-status bar list in the canvas.
+  const tasksByShot = useMemo(() => {
+    const m = {}
+    for (const t of tasks || []) {
+      if (!t.shot_id) continue
+      ;(m[t.shot_id] = m[t.shot_id] || []).push(t)
+    }
+    return m
+  }, [tasks])
+  const tasksByAsset = useMemo(() => {
+    const m = {}
+    for (const t of tasks || []) {
+      if (!t.asset_id) continue
+      ;(m[t.asset_id] = m[t.asset_id] || []).push(t)
+    }
+    return m
+  }, [tasks])
+
+  // SHOT_STATUSES.id values are derived from the task list (not raw task statuses):
+  // - in_progress: any task is wip OR review
+  // - approved:    at least one task exists AND all tasks are approved
+  // - not_started: no tasks OR every task is todo
+  const matchesFilterStatus = useCallback((bucket, status) => {
+    const ts = bucket || []
+    if (status === 'in_progress') return ts.some(t => t.status === 'wip' || t.status === 'review')
+    if (status === 'approved')    return ts.length > 0 && ts.every(t => t.status === 'approved')
+    if (status === 'not_started') return ts.length === 0 || ts.every(t => t.status === 'todo')
+    return true
+  }, [])
+
   const filteredShots = useMemo(() => {
     let list = shots || []
-    if (filterSeq !== 'all') list = list.filter(s => s.sequence === filterSeq)
-    if (searchText) { const q = searchText.toLowerCase(); list = list.filter(s => s.code?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q)) }
-    if (filterStatus !== 'all') list = list.filter(s => SHOT_DEPTS.some(d => s[STATUS_KEY(d.id)] === filterStatus))
+    if (effFilterSeq !== 'all') list = list.filter(s => s.sequence === effFilterSeq)
+    if (effSearch) { const q = effSearch.toLowerCase(); list = list.filter(s => s.code?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q)) }
+    if (effFilterStatus !== 'all') list = list.filter(s => matchesFilterStatus(tasksByShot[s.id], effFilterStatus))
     return list
-  }, [shots, filterSeq, searchText, filterStatus])
+  }, [shots, effFilterSeq, effSearch, effFilterStatus, tasksByShot, matchesFilterStatus])
 
   const filteredAssets = useMemo(() => {
     let list = assets || []
-    if (searchText) { const q = searchText.toLowerCase(); list = list.filter(a => a.name?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q)) }
-    if (filterStatus !== 'all') list = list.filter(a => ASSET_DEPTS.some(d => a[STATUS_KEY(d.id)] === filterStatus))
+    if (effSearch) { const q = effSearch.toLowerCase(); list = list.filter(a => a.name?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q)) }
+    if (effFilterStatus !== 'all') list = list.filter(a => matchesFilterStatus(tasksByAsset[a.id], effFilterStatus))
     return list
-  }, [assets, searchText, filterStatus])
+  }, [assets, effSearch, effFilterStatus, tasksByAsset, matchesFilterStatus])
 
   const sequences = useMemo(() => {
     const groups = {}
@@ -1764,22 +1875,26 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
             {creativeMode && uploadingSticker && (
               <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Caricamento...</span>
             )}
-            <div style={{ position: 'relative', minWidth: isMobile ? 120 : 180 }}>
-              <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex' }}><IconSearch size={14} color="#94A3B8" /></div>
-              <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder={isShotsTab ? 'Cerca shot...' : 'Cerca asset...'}
-                style={{ width: '100%', padding: '6px 10px 6px 30px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 13, background: '#F8FAFC', outline: 'none' }} />
-            </div>
+            {!creativeMode && (
+              <div style={{ position: 'relative', minWidth: isMobile ? 120 : 180 }}>
+                <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex' }}><IconSearch size={14} color="#94A3B8" /></div>
+                <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder={isShotsTab ? 'Cerca shot...' : 'Cerca asset...'}
+                  style={{ width: '100%', padding: '6px 10px 6px 30px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 13, background: '#F8FAFC', outline: 'none' }} />
+              </div>
+            )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          {isShotsTab && (<>
-            <FilterPill label="Tutti" active={filterSeq === 'all'} onClick={() => setFilterSeq('all')} />
-            {allSequences.map(seq => <FilterPill key={seq} label={seq} active={filterSeq === seq} onClick={() => setFilterSeq(seq)} />)}
-            <div style={{ width: 1, height: 18, background: '#E2E8F0', margin: '0 4px' }} />
-          </>)}
-          {SHOT_STATUSES.map(st => <FilterPill key={st.id} label={st.label} active={filterStatus === st.id} onClick={() => setFilterStatus(filterStatus === st.id ? 'all' : st.id)} dotColor={st.color} />)}
-        </div>
+        {!creativeMode && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {isShotsTab && (<>
+              <FilterPill label="Tutti" active={filterSeq === 'all'} onClick={() => setFilterSeq('all')} />
+              {allSequences.map(seq => <FilterPill key={seq} label={seq} active={filterSeq === seq} onClick={() => setFilterSeq(seq)} />)}
+              <div style={{ width: 1, height: 18, background: '#E2E8F0', margin: '0 4px' }} />
+            </>)}
+            {SHOT_STATUSES.map(st => <FilterPill key={st.id} label={st.label} active={filterStatus === st.id} onClick={() => setFilterStatus(filterStatus === st.id ? 'all' : st.id)} dotColor={st.color} />)}
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -1797,6 +1912,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getDescription={s => s.description}
           getDeptStatus={(s, dId) => s[STATUS_KEY(dId)]}
           getDeptDisabled={(s, dId) => !isDeptEnabled(s, dId)}
+          getTasks={(s) => tasksByShot[s.id] || []}
           openCellImage={openShotCellImage} openRef={openShotRef}
           creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onCreateSticker={handleCreateSticker} />
@@ -1807,9 +1923,10 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getRefUrl={a => a.ref_cloud_url}
           getDescription={a => a.description}
           getDeptStatus={(a, dId) => a[STATUS_KEY(dId)]}
+          getTasks={(a) => tasksByAsset[a.id] || []}
           openCellImage={openAssetCellImage} openRef={openAssetRef}
-          creativeMode={false} stickers={[]} autoEditId={null}
-          onStickerUpdate={() => {}} onStickerDelete={() => {}} onCreateSticker={() => {}} />
+          creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
+          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onCreateSticker={handleCreateSticker} />
       )}
 
       {lightbox && <GalleryLightbox images={lightbox.images} index={lightbox.index} shotCode={lightbox.shotCode} deptLabel={lightbox.deptLabel} statusObj={lightbox.statusObj} onClose={() => setLightbox(null)} onNav={handleNav} />}
