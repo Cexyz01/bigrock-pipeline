@@ -710,6 +710,20 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 const TEXT_COLOR_SWATCHES = ['#1a1a1a', '#ffffff', '#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899']
 const TEXT_BG_SWATCHES = ['transparent', '#FEF3C7', '#FECACA', '#BBF7D0', '#BFDBFE', '#DDD6FE', '#FBCFE8', '#1F2937']
 
+// 8-handle resize map: 4 corners + 4 sides. Each handle's drag affects only the relevant
+// edge(s), with the opposite edge anchored. Free resize (no aspect lock) — feels natural
+// because the dragged handle follows the cursor exactly on both axes.
+const RESIZE_HANDLES = [
+  { c: 'tl', cursor: 'nwse-resize', pos: { top: -7, left: -7 } },
+  { c: 'tr', cursor: 'nesw-resize', pos: { top: -7, right: -7 } },
+  { c: 'bl', cursor: 'nesw-resize', pos: { bottom: -7, left: -7 } },
+  { c: 'br', cursor: 'nwse-resize', pos: { bottom: -7, right: -7 } },
+  { c: 't',  cursor: 'ns-resize',   pos: { top: -7, left: 'calc(50% - 7px)' } },
+  { c: 'r',  cursor: 'ew-resize',   pos: { top: 'calc(50% - 7px)', right: -7 } },
+  { c: 'b',  cursor: 'ns-resize',   pos: { bottom: -7, left: 'calc(50% - 7px)' } },
+  { c: 'l',  cursor: 'ew-resize',   pos: { top: 'calc(50% - 7px)', left: -7 } },
+]
+
 function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
   const isText = sticker.kind === 'text'
   const [selected, setSelected] = useState(!!autoEdit)
@@ -729,11 +743,10 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
     setAction('drag')
   }
 
-  const beginResize = (e, corner) => {
+  const beginResize = (e, handle) => {
     e.stopPropagation(); e.preventDefault()
     const s = latestRef.current
-    const aspect = isText ? null : s.w / Math.max(s.h, 1)
-    startRef.current = { corner, mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h, aspect }
+    startRef.current = { handle, mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
     setAction('resize')
   }
 
@@ -747,6 +760,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
 
   useEffect(() => {
     if (!action) return
+    const MIN_W = 40, MIN_H = 28
     const onMove = (e) => {
       const st = startRef.current; if (!st) return
       if (action === 'drag') {
@@ -754,22 +768,23 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
         onUpdate({ x: Math.round(st.x + dx), y: Math.round(st.y + dy) })
       } else if (action === 'resize') {
         const dx = (e.clientX - st.mx) / scale, dy = (e.clientY - st.my) / scale
-        const c = st.corner, ar = st.aspect
+        const h = st.handle
         let nx = st.x, ny = st.y, nw = st.w, nh = st.h
-        if (ar) {
-          // Image: aspect-locked from the dragged corner
-          if (c === 'br') { nw = st.w + dx; nh = nw / ar }
-          else if (c === 'bl') { nw = st.w - dx; nh = nw / ar; nx = st.x + st.w - nw }
-          else if (c === 'tr') { nw = st.w + dx; nh = nw / ar; ny = st.y + st.h - nh }
-          else if (c === 'tl') { nw = st.w - dx; nh = nw / ar; nx = st.x + st.w - nw; ny = st.y + st.h - nh }
-        } else {
-          // Text: free resize
-          if (c === 'br') { nw = st.w + dx; nh = st.h + dy }
-          else if (c === 'bl') { nw = st.w - dx; nh = st.h + dy; nx = st.x + st.w - nw }
-          else if (c === 'tr') { nw = st.w + dx; nh = st.h - dy; ny = st.y + st.h - nh }
-          else if (c === 'tl') { nw = st.w - dx; nh = st.h - dy; nx = st.x + st.w - nw; ny = st.y + st.h - nh }
+        // Horizontal: right-side handles grow with +dx, left-side handles grow with -dx
+        // (and shift x so the opposite edge stays anchored).
+        if (h === 'br' || h === 'tr' || h === 'r') {
+          nw = Math.max(MIN_W, st.w + dx)
+        } else if (h === 'bl' || h === 'tl' || h === 'l') {
+          nw = Math.max(MIN_W, st.w - dx)
+          nx = st.x + st.w - nw
         }
-        nw = Math.max(40, nw); nh = Math.max(28, nh)
+        // Vertical: bottom-side handles grow with +dy, top-side handles grow with -dy.
+        if (h === 'br' || h === 'bl' || h === 'b') {
+          nh = Math.max(MIN_H, st.h + dy)
+        } else if (h === 'tr' || h === 'tl' || h === 't') {
+          nh = Math.max(MIN_H, st.h - dy)
+          ny = st.y + st.h - nh
+        }
         onUpdate({ x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) })
       } else if (action === 'rotate') {
         const deg = Math.round(Math.atan2(e.clientY - st.cy, e.clientX - st.cx) * (180 / Math.PI) + 90)
@@ -786,12 +801,17 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
     if (!selected) return
     const onClick = (e) => {
       if (elRef.current && !elRef.current.contains(e.target)) {
+        // Make sure any pending text edit is committed to the parent before we hide it
+        if (editing && textRef.current) {
+          const next = textRef.current.innerText
+          if (next !== (sticker.text_content || '')) onUpdate({ text_content: next })
+        }
         setSelected(false); setEditing(false)
       }
     }
     window.addEventListener('mousedown', onClick)
     return () => window.removeEventListener('mousedown', onClick)
-  }, [selected])
+  }, [selected, editing, onUpdate, sticker.text_content])
 
   // Delete key removes the sticker when selected (and not editing)
   useEffect(() => {
@@ -803,17 +823,25 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [selected, editing, onDelete])
 
-  // Autofocus the text area on entering edit mode
+  // Sync external text changes (initial mount, realtime updates) into the contenteditable
+  // WITHOUT touching it while the user is actively editing (would clobber the caret).
   useEffect(() => {
-    if (editing && textRef.current) {
-      textRef.current.focus()
-      // place caret at end
-      const sel = window.getSelection()
-      const range = document.createRange()
-      range.selectNodeContents(textRef.current)
-      range.collapse(false)
-      sel.removeAllRanges(); sel.addRange(range)
-    }
+    const el = textRef.current
+    if (!el) return
+    if (document.activeElement === el) return
+    const want = sticker.text_content || ''
+    if (el.innerText !== want) el.innerText = want
+  }, [sticker.text_content, isText])
+
+  // Autofocus when entering edit mode and place caret at end
+  useEffect(() => {
+    if (!editing || !textRef.current) return
+    textRef.current.focus()
+    const sel = window.getSelection()
+    const range = document.createRange()
+    range.selectNodeContents(textRef.current)
+    range.collapse(false)
+    sel.removeAllRanges(); sel.addRange(range)
   }, [editing])
 
   const show = selected
@@ -835,6 +863,14 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
           ref={textRef}
           contentEditable={editing}
           suppressContentEditableWarning
+          // Save on EVERY keystroke (debounced upstream by handleStickerUpdate). This is
+          // what makes navigation-away-while-typing safe: even if blur never fires (SPA
+          // route change can unmount before blur), the most recent keystroke is already
+          // queued for a DB write.
+          onInput={(e) => {
+            const next = e.currentTarget.innerText
+            if (next !== sticker.text_content) onUpdate({ text_content: next })
+          }}
           onBlur={(e) => {
             const next = e.currentTarget.innerText
             setEditing(false)
@@ -854,25 +890,20 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
             WebkitUserSelect: editing ? 'text' : 'none',
             cursor: editing ? 'text' : 'inherit',
             boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent') ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
-          }}>
-          {sticker.text_content || ''}
-        </div>
+          }}
+        />
       ) : (
         <img
           src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })}
           alt=""
           draggable={false}
           onLoad={(e) => {
-            // Snap the bounding box to the image's natural aspect ratio so the selection
-            // outline always hugs the picture (no empty bars when a portrait image was
-            // stored in a square w/h slot from a previous build).
             const nw = e.currentTarget.naturalWidth
             const nh = e.currentTarget.naturalHeight
             if (!nw || !nh) return
             const cur = sticker.w / Math.max(sticker.h, 1)
             const nat = nw / nh
             if (Math.abs(cur - nat) < 0.02) return
-            // Preserve the longer side; recompute the shorter from the natural ratio.
             const next = sticker.w >= sticker.h
               ? { w: sticker.w, h: Math.round(sticker.w / nat) }
               : { h: sticker.h, w: Math.round(sticker.h * nat) }
@@ -882,23 +913,24 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
       )}
 
       {show && <>
-        {/* Resize corners — only 3 (TL/BL/BR). TR is reserved for the Delete button so
-            the X is never blocked by a resize handle. */}
-        {['tl','bl','br'].map(c => (
-          <div key={c} onMouseDown={e => beginResize(e, c)} style={{
+        {/* 8 resize handles (corners + sides) — free resize, no aspect lock */}
+        {RESIZE_HANDLES.map(h => (
+          <div key={h.c} onMouseDown={e => beginResize(e, h.c)} style={{
             position: 'absolute', width: 14, height: 14,
             background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
-            cursor: (c === 'tl' || c === 'br') ? 'nwse-resize' : 'nesw-resize',
+            cursor: h.cursor,
             boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
-            ...(c === 'tl' ? { top: -7, left: -7 } : c === 'bl' ? { bottom: -7, left: -7 } : { bottom: -7, right: -7 }),
+            ...h.pos,
           }} />
         ))}
 
-        {/* Delete — top-right corner, always above resize handles, with a real trash icon */}
+        {/* Delete — INSIDE the box at top-right so it never overlaps with the outside
+            resize handles. Floats above the image with a contrasting backdrop for
+            clarity, using a real trash icon. */}
         <button onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onDelete() }}
-          title="Elimina"
+          title="Elimina (Canc)"
           style={{
-            position: 'absolute', top: -16, right: -16, width: 32, height: 32, borderRadius: '50%',
+            position: 'absolute', top: 6, right: 6, width: 30, height: 30, borderRadius: '50%',
             background: '#EF4444', border: '2px solid #fff', color: '#fff',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 3px 10px rgba(0,0,0,0.35)', zIndex: 30, padding: 0,
@@ -1219,24 +1251,57 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     }
   }, [creativeMode, currentProject?.id, handleCreateSticker])
 
+  // Pending updates keyed by sticker id, merged across rapid edits, flushed every 800ms
+  // or eagerly on tab-hide / unload / unmount. Storing the merged payload (not just a
+  // timer handle) lets us flush *the latest data* synchronously when the user navigates.
   const stickerSaveTimers = useRef({})
-  const handleStickerUpdate = useCallback((id, updates) => {
-    // Mark as busy so realtime doesn't overwrite
-    busyStickerIds.current.add(id)
-    // Update local state immediately
-    setStickers(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
-    // Debounce DB save — longer delay to batch rapid moves
-    if (stickerSaveTimers.current[id]) clearTimeout(stickerSaveTimers.current[id])
-    stickerSaveTimers.current[id] = setTimeout(() => {
-      updateSticker(id, updates).then(() => {
-        // Unmark busy after DB confirms
-        busyStickerIds.current.delete(id)
-      })
+  const pendingStickerUpdates = useRef({})
+
+  const flushStickerSave = useCallback((id) => {
+    const upd = pendingStickerUpdates.current[id]
+    if (!upd) return
+    delete pendingStickerUpdates.current[id]
+    if (stickerSaveTimers.current[id]) {
+      clearTimeout(stickerSaveTimers.current[id])
       delete stickerSaveTimers.current[id]
-    }, 800)
+    }
+    updateSticker(id, upd)
+      .then(() => busyStickerIds.current.delete(id))
+      .catch(() => busyStickerIds.current.delete(id))
   }, [])
 
+  const flushAllStickerSaves = useCallback(() => {
+    for (const id in pendingStickerUpdates.current) flushStickerSave(id)
+  }, [flushStickerSave])
+
+  const handleStickerUpdate = useCallback((id, updates) => {
+    busyStickerIds.current.add(id)
+    setStickers(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+    // Merge with anything that hasn't been written yet so we never drop a change.
+    pendingStickerUpdates.current[id] = { ...(pendingStickerUpdates.current[id] || {}), ...updates }
+    if (stickerSaveTimers.current[id]) clearTimeout(stickerSaveTimers.current[id])
+    stickerSaveTimers.current[id] = setTimeout(() => flushStickerSave(id), 800)
+  }, [flushStickerSave])
+
+  // Flush on tab hide / page unload / unmount so a route change or close
+  // doesn't drop the last <800ms of edits.
+  useEffect(() => {
+    const onVisChange = () => { if (document.visibilityState === 'hidden') flushAllStickerSaves() }
+    window.addEventListener('beforeunload', flushAllStickerSaves)
+    window.addEventListener('pagehide', flushAllStickerSaves)
+    document.addEventListener('visibilitychange', onVisChange)
+    return () => {
+      window.removeEventListener('beforeunload', flushAllStickerSaves)
+      window.removeEventListener('pagehide', flushAllStickerSaves)
+      document.removeEventListener('visibilitychange', onVisChange)
+      flushAllStickerSaves() // also flush on StoryboardPage unmount (in-app navigation)
+    }
+  }, [flushAllStickerSaves])
+
   const handleStickerDelete = async (id) => {
+    // Cancel any pending update for this sticker (we're about to remove it).
+    if (stickerSaveTimers.current[id]) { clearTimeout(stickerSaveTimers.current[id]); delete stickerSaveTimers.current[id] }
+    delete pendingStickerUpdates.current[id]
     setStickers(prev => prev.filter(s => s.id !== id))
     await deleteSticker(id)
   }
