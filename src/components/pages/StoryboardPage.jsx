@@ -938,7 +938,13 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 // STICKER ITEM — draggable, resizable, rotatable (image or text)
 // ══════════════════════════════════════════════════
 
-const TEXT_COLOR_SWATCHES = ['#1a1a1a', '#ffffff', '#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899']
+// Stroke / text / border colour swatches. Top row = grey ramp (dark → light → white),
+// bottom row = saturated accents. The grey ramp makes shape borders soft by default
+// without forcing pure black.
+const TEXT_COLOR_SWATCHES = [
+  '#1a1a1a', '#334155', '#475569', '#64748B', '#94A3B8', '#CBD5E1', '#FFFFFF',
+  '#EF4444', '#F59E0B', '#FDE047', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899',
+]
 // Broader palette: transparent, neutrals, soft pastels and saturated accents.
 // Arranged so the swatch grid in the toolbar reads top-to-bottom by tone.
 const TEXT_BG_SWATCHES = [
@@ -1477,10 +1483,16 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
               </div>
               <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
             </>}
-            <div style={{ display: 'flex', gap: 3 }} title={isArrow ? 'Colore freccia' : isShape ? 'Bordo / testo' : 'Colore testo'}>
+            <div title={isArrow ? 'Colore freccia' : isShape ? 'Bordo' : 'Colore testo'} style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, 14px)',
+              gridAutoRows: '14px',
+              gap: 3,
+            }}>
               {TEXT_COLOR_SWATCHES.map(c => (
                 <button key={c} onClick={() => onUpdate({ text_color: c })} style={{
-                  width: 14, height: 14, borderRadius: '50%', background: c, cursor: 'pointer',
+                  width: 14, height: 14, borderRadius: '50%', padding: 0,
+                  background: c, cursor: 'pointer',
                   border: (sticker.text_color || '#1a1a1a') === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
                 }} />
               ))}
@@ -1725,7 +1737,9 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       const { data } = await createSticker({
         project_id: currentProject.id, user_id: user.id, board,
         kind, text_content: text || '',
-        text_color: '#1a1a1a', bg_color: '#FFFFFF', font_size: 14,
+        // Soft mid-grey border by default — pure black reads as harsh against the
+        // pastel fill defaults. Users can pick a stronger colour from the swatches.
+        text_color: '#475569', bg_color: '#FFFFFF', font_size: 14,
         opacity: 0.5, border_width: 1,
         x: baseX, y: baseY, w: w || 200, h: h || 140, rotation: 0, z_index: minZ - 1,
       })
