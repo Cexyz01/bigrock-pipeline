@@ -541,9 +541,10 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         onCreateSticker({ kind: 'text', text: '', x, y, w, h })
       }
       setDraft(null)
-      // Return to the safe Hand tool after drawing so the user can't move the
-      // freshly-created object by accident. Press V to switch to Select.
-      setActiveTool('hand')
+      // After drawing, return to Select — the user is already interacting and likely
+      // wants to manipulate / position the new object. Hand is only the *initial*
+      // safe default at page load.
+      setActiveTool('select')
       return
     }
     setDragging(false)
@@ -569,7 +570,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       const k = e.key
       if (k === 'Escape') {
         if (draft) setDraft(null)
-        setActiveTool('hand') // back to the safe default
+        setActiveTool('select') // back to interaction mode (user is already engaged)
         return
       }
       // Space → temporary hand tool while held
@@ -667,14 +668,17 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     }, 0)
   }, [boardW])
 
-  // Cursor for the canvas surface based on the active tool.
+  // Cursor for the canvas surface based on the active tool. In Select mode the canvas
+  // gets the default arrow cursor — that way an empty area looks "inert" and the user
+  // can tell at a glance when they're hovering a sticker (the sticker's own `grab`
+  // cursor takes over and signals "click here drags this").
   const surfaceCursor = (() => {
     if (dragging) return 'grabbing'
     if (draft) return 'crosshair'
     if (effectiveTool === 'hand') return 'grab'
     if (effectiveTool === 'text') return 'text'
     if (effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') return 'crosshair'
-    return 'grab' // select
+    return 'default' // select → arrow over empty board
   })()
 
   return (
