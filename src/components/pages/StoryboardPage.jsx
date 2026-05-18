@@ -1193,7 +1193,14 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     ch = Math.max(ch, 4)
   }
 
-  return (
+  // Stable normal z-index for the content layer. Selection no longer hoists the
+  // sticker to the top — the chrome (handles, toolbars, outline) is rendered in a
+  // SEPARATE overlay layer at a very high z-index, so the user can still see the
+  // sticker's real depth-order while bringing it forward/backward.
+  const contentZ = 1000 + (sticker.z_index || 0)
+  const chromeZ = 9999
+
+  return (<>
     <div ref={elRef}
       onMouseDown={beginDrag}
       onDoubleClick={(isText || isShape) ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
@@ -1201,13 +1208,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
         position: 'absolute', left: cx, top: cy, width: cw, height: ch,
         transform: `rotate(${sticker.rotation || 0}deg)`,
         cursor: editing ? 'text' : action === 'drag' ? 'grabbing' : 'grab',
-        // Selected stickers hop to a very high z-index so their action toolbar /
-        // handles are never occluded by another sticker that happens to sit above
-        // them in the normal stacking order. They drop back to their persistent
-        // z_index as soon as they're deselected.
-        zIndex: selected ? 9999 : 1000 + (sticker.z_index || 0),
-        outline: show && !isArrow ? '2px solid #F28C28' : 'none',
-        outlineOffset: isArrow ? 0 : 0,
+        zIndex: contentZ,
         borderRadius: 4,
         // For arrows: don't let the rectangular bounding box catch clicks. Only the
         // SVG line + endpoint handles + action toolbar should be interactive, so the
@@ -1318,13 +1319,30 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
         )
       })()}
 
-      {show && <>
+    </div>
+
+    {/* Chrome overlay — sits at a very high z-index in a SEPARATE wrapper so the
+        selection outline, handles and toolbars stay above every other sticker, while
+        the sticker's content itself stays at its real z-order (the user can still tell
+        what's in front and what's behind when bringing forward / sending back).
+        Positioned identically to the content layer so handles line up; rotated with
+        the same angle. pointer-events: none on the wrapper so it doesn't steal clicks
+        in empty corners — interactive children override to auto. */}
+    {show && <div style={{
+      position: 'absolute', left: cx, top: cy, width: cw, height: ch,
+      transform: `rotate(${sticker.rotation || 0}deg)`,
+      zIndex: chromeZ,
+      pointerEvents: 'none',
+      outline: !isArrow ? '2px solid #F28C28' : 'none',
+      borderRadius: 4,
+    }}>
         {!isArrow && <>
           {/* Rotation zones — invisible squares in the outer quadrant of each corner. */}
           {ROTATE_ZONES.map(r => (
             <div key={'rot-' + r.c} onMouseDown={beginRotate} style={{
               position: 'absolute', cursor: ROTATE_CURSOR,
               background: 'transparent', zIndex: 5,
+              pointerEvents: 'auto',
               ...r.pos,
             }} />
           ))}
@@ -1339,6 +1357,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
                 background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
                 cursor: h.cursor,
                 boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
+                pointerEvents: 'auto',
                 ...h.pos,
               }} />
             ))}
@@ -1453,9 +1472,8 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             </>}
           </div>
         )}
-      </>}
-    </div>
-  )
+    </div>}
+  </>)
 }
 
 const miniBtn = {

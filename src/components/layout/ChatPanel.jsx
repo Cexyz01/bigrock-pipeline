@@ -153,9 +153,22 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
       author: { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, role: user.role, mood_emoji: user.mood_emoji },
     }
     setMessages(prev => [...prev, optimisticMsg])
-    const { error } = await sendChatMessage(channel, user.id, body, projectId)
+    const { data, error } = await sendChatMessage(channel, user.id, body, projectId)
     setSending(false)
-    if (error) setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
+    if (error) {
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
+      return
+    }
+    // Replace optimistic row with the real one returned by Supabase so the
+    // message is visible immediately without waiting for realtime/polling.
+    if (data) {
+      setMessages(prev => {
+        if (prev.some(m => m.id === data.id)) {
+          return prev.filter(m => m.id !== optimisticMsg.id)
+        }
+        return prev.map(m => m.id === optimisticMsg.id ? data : m)
+      })
+    }
   }
 
   const handleSendDM = async () => {
@@ -168,10 +181,24 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
       sender: { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, role: user.role, mood_emoji: user.mood_emoji },
     }
     setDmMessages(prev => [...prev, optimisticMsg])
-    const { error } = await sendDM(user.id, dmPeer.id, body)
+    const { data, error } = await sendDM(user.id, dmPeer.id, body)
     setSending(false)
-    if (error) setDmMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
-    else fetchConversations()
+    if (error) {
+      setDmMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
+      return
+    }
+    // Replace optimistic row with the real one so the sent message stays
+    // visible without waiting for realtime/polling (realtime DM sub only
+    // fires for the recipient, not the sender).
+    if (data) {
+      setDmMessages(prev => {
+        if (prev.some(m => m.id === data.id)) {
+          return prev.filter(m => m.id !== optimisticMsg.id)
+        }
+        return prev.map(m => m.id === optimisticMsg.id ? data : m)
+      })
+    }
+    fetchConversations()
   }
 
   const handleSend = mode === 'channels' ? handleSendChannel : handleSendDM
