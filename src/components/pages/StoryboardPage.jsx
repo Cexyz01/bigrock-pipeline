@@ -276,6 +276,32 @@ function computeRowH(item, imageMap, depts, description, descHeights) {
 // CANVAS / BOARD VIEW — pan & zoom whiteboard
 // ══════════════════════════════════════════════════
 
+// Tool palette definition. Shortcuts intentionally mirror Figma/Miro defaults.
+const TOOLS = [
+  { id: 'select',  label: 'Seleziona',  shortcut: 'V' },
+  { id: 'hand',    label: 'Mano',       shortcut: 'H' },
+  { id: 'text',    label: 'Testo',      shortcut: 'T' },
+  { id: 'rect',    label: 'Rettangolo', shortcut: 'R' },
+  { id: 'ellipse', label: 'Ellisse',    shortcut: 'E' },
+  { id: 'arrow',   label: 'Freccia',    shortcut: 'A' },
+]
+
+function ToolIcon({ id, active }) {
+  const stroke = active ? '#fff' : '#475569'
+  const sw = 2
+  const common = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke, strokeWidth: sw, strokeLinecap: 'round', strokeLinejoin: 'round' }
+  switch (id) {
+    case 'select':  return <svg {...common}><path d="M5 3l14 8-6 1-3 7L5 3z" /></svg>
+    case 'hand':    return <svg {...common}><path d="M9 11V4.5a1.5 1.5 0 0 1 3 0V11" /><path d="M12 11V3.5a1.5 1.5 0 0 1 3 0V11" /><path d="M15 11V4.5a1.5 1.5 0 0 1 3 0V13" /><path d="M6 13.5V8.5a1.5 1.5 0 0 1 3 0V14" /><path d="M18 13c0 5-3 8-6 8-4 0-6-3-6-6v-1.5" /></svg>
+    case 'text':    return <svg {...common}><path d="M4 5h16" /><path d="M12 5v15" /><path d="M9 20h6" /></svg>
+    case 'rect':    return <svg {...common}><rect x="4" y="6" width="16" height="12" rx="1.5" /></svg>
+    case 'ellipse': return <svg {...common}><ellipse cx="12" cy="12" rx="8" ry="6" /></svg>
+    case 'arrow':   return <svg {...common}><path d="M4 12h15" /><path d="M14 6l5 6-5 6" /></svg>
+    case 'image':   return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M5 19l5-5 4 4 3-3 3 3" /></svg>
+    default: return null
+  }
+}
+
 function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
@@ -286,6 +312,17 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   const [dragging, setDragging] = useState(false)
   const [dropHighlight, setDropHighlight] = useState(false)
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
+
+  // Tool palette state. Available tools: select | hand | text | rect | ellipse | arrow.
+  // While a drawing tool is active, mousedown on the background canvas starts a "draft"
+  // that the user drags out — on mouseup the draft becomes a real sticker.
+  const [activeTool, setActiveTool] = useState('select')
+  const [spaceHeld, setSpaceHeld] = useState(false) // Space-to-pan (Figma/Miro style)
+  const effectiveTool = spaceHeld ? 'hand' : activeTool
+  const [draft, setDraft] = useState(null) // { kind, sx, sy, ex, ey } in board coords during drag
+  const [selectedId, setSelectedId] = useState(null) // for keyboard shortcuts
+  const selectedIdRef = useRef(null)
+  selectedIdRef.current = selectedId
 
   // Per-shot measured description height. Updated by a ResizeObserver attached to the
   // inner description block (which has no height constraint, so its scrollHeight = the
@@ -445,7 +482,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  // Pan with mouse drag
+  // Pan with mouse drag, OR start drawing if a drawing tool is active.
   const handleMouseDown = useCallback((e) => {
     const p = pan || { x: 40, y: 20 }
     if (e.button === 1) {
@@ -455,22 +492,61 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
     if (e.button !== 0) return
-    if (e.target.tagName === 'IMG') return
+
+    // A drawing tool is active → start a draft at the mouse position (in board coords).
+    if (creativeMode && (effectiveTool === 'text' || effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow')) {
+      e.preventDefault()
+      const b = screenToBoard(e.clientX, e.clientY)
+      setDraft({ kind: effectiveTool === 'text' ? 'text' : effectiveTool, sx: b.x, sy: b.y, ex: b.x, ey: b.y })
+      return
+    }
+
+    // Otherwise: pan. (Hand tool always pans; Select tool pans on the background since
+    // sticker clicks are stopped by the sticker's own onMouseDown.)
     setDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
-  }, [pan])
+  }, [pan, creativeMode, effectiveTool, screenToBoard])
 
   const handleMouseMove = useCallback((e) => {
+    if (draft) {
+      const b = screenToBoard(e.clientX, e.clientY)
+      setDraft(d => d ? { ...d, ex: b.x, ey: b.y } : d)
+      return
+    }
     if (!dragging) return
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy })
-  }, [dragging])
+  }, [dragging, draft, screenToBoard])
 
-  const handleMouseUp = useCallback(() => setDragging(false), [])
+  const handleMouseUp = useCallback(() => {
+    if (draft) {
+      const dxAbs = Math.abs(draft.ex - draft.sx)
+      const dyAbs = Math.abs(draft.ey - draft.sy)
+      const drag = dxAbs > 6 || dyAbs > 6
+      if (draft.kind === 'arrow') {
+        if (drag) onCreateSticker({ kind: 'arrow', x: draft.sx, y: draft.sy, w: draft.ex - draft.sx, h: draft.ey - draft.sy })
+      } else if (draft.kind === 'rect' || draft.kind === 'ellipse') {
+        const x = Math.min(draft.sx, draft.ex)
+        const y = Math.min(draft.sy, draft.ey)
+        const w = Math.max(60, dxAbs), h = Math.max(40, dyAbs)
+        onCreateSticker({ kind: draft.kind, x, y, w, h })
+      } else if (draft.kind === 'text') {
+        const x = Math.min(draft.sx, draft.ex)
+        const y = Math.min(draft.sy, draft.ey)
+        const w = drag ? Math.max(80, dxAbs) : 240
+        const h = drag ? Math.max(40, dyAbs) : 60
+        onCreateSticker({ kind: 'text', text: '', x, y, w, h })
+      }
+      setDraft(null)
+      setActiveTool('select') // auto-return to select after drawing (Figma behaviour)
+      return
+    }
+    setDragging(false)
+  }, [draft, onCreateSticker])
 
   useEffect(() => {
-    if (dragging) {
+    if (dragging || draft) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -478,7 +554,36 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         window.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [dragging, handleMouseMove, handleMouseUp])
+  }, [dragging, draft, handleMouseMove, handleMouseUp])
+
+  // Keyboard shortcuts (Figma-style). Skip while typing in any editable element.
+  useEffect(() => {
+    if (!creativeMode) return
+    const isTypingTarget = (el) => el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')
+    const onKey = (e) => {
+      if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return
+      const k = e.key
+      if (k === 'Escape') {
+        if (draft) setDraft(null)
+        setActiveTool('select')
+        return
+      }
+      // Space → temporary hand tool while held
+      if (k === ' ' && !e.repeat) { e.preventDefault(); setSpaceHeld(true); return }
+      // Tool shortcuts
+      const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
+        t: 'text', T: 'text', r: 'rect', R: 'rect', e: 'ellipse', E: 'ellipse',
+        a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow' }
+      if (toolKeys[k] && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
+    }
+    const onKeyUp = (e) => { if (e.key === ' ') setSpaceHeld(false) }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [creativeMode, draft])
 
   // Calculate board layout positions
   const totalCols = 3 + depts.length
@@ -539,6 +644,16 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     }, 0)
   }, [boardW])
 
+  // Cursor for the canvas surface based on the active tool.
+  const surfaceCursor = (() => {
+    if (dragging) return 'grabbing'
+    if (draft) return 'crosshair'
+    if (effectiveTool === 'hand') return 'grab'
+    if (effectiveTool === 'text') return 'text'
+    if (effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') return 'crosshair'
+    return 'grab' // select
+  })()
+
   return (
     <div ref={containerRef} onMouseDown={handleMouseDown} onAuxClick={e => e.preventDefault()}
       onDragEnter={creativeMode ? handleDragOver : undefined}
@@ -547,7 +662,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       onDrop={creativeMode ? handleDrop : undefined}
       style={{
         flex: 1, overflow: 'hidden', position: 'relative',
-        cursor: dragging ? 'grabbing' : 'grab',
+        cursor: surfaceCursor,
         background: dropHighlight ? '#FEF3C7' : '#E8ECF1',
         backgroundImage: dropHighlight ? 'none' : 'radial-gradient(circle, #CBD5E1 1px, transparent 1px)',
         backgroundSize: '24px 24px',
@@ -562,27 +677,52 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         <button onClick={resetView} title="Reset view" style={{ ...zoomBtnStyle, fontSize: 11 }}><IconTarget size={14} /></button>
       </div>
 
-      {/* Creative-mode quick-add toolbar */}
+      {/* Tool palette (Creative mode) — Figma/Miro style vertical-ish row pinned top-center.
+          Click a tool, then click-drag on the board to draw. Esc returns to Select.
+          Image button opens the file picker. */}
       {creativeMode && (
         <div style={{
-          position: 'absolute', top: 16, left: 16, zIndex: 20,
-          display: 'flex', gap: 6, padding: 6, borderRadius: 12,
-          background: 'rgba(255,255,255,0.95)', border: '1px solid #E2E8F0',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.08)', backdropFilter: 'blur(8px)',
+          position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
+          display: 'flex', gap: 4, padding: 5, borderRadius: 12,
+          background: 'rgba(255,255,255,0.96)', border: '1px solid #E2E8F0',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.12)', backdropFilter: 'blur(8px)',
         }}>
-          <button onClick={handleAddText} style={toolbarBtnStyle}>
-            <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>T</span>
-            <span>Testo</span>
-          </button>
-          <button onClick={() => fileInputRef.current?.click()} style={toolbarBtnStyle}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>＋</span>
-            <span>Immagine</span>
+          {TOOLS.map(t => (
+            <button key={t.id} onClick={() => setActiveTool(t.id)} title={`${t.label} (${t.shortcut})`}
+              style={{
+                width: 36, height: 36, borderRadius: 8, padding: 0,
+                border: '1px solid transparent',
+                background: activeTool === t.id ? '#F28C28' : 'transparent',
+                color: activeTool === t.id ? '#fff' : '#475569',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.12s',
+              }}>
+              <ToolIcon id={t.id} active={activeTool === t.id} />
+            </button>
+          ))}
+          <div style={{ width: 1, background: '#E2E8F0', margin: '4px 2px' }} />
+          <button onClick={() => fileInputRef.current?.click()} title="Carica immagine"
+            style={{
+              width: 36, height: 36, borderRadius: 8, padding: 0,
+              border: '1px solid transparent', background: 'transparent',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#475569',
+            }}>
+            <ToolIcon id="image" />
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" multiple
             style={{ display: 'none' }} onChange={onFilesPicked} />
-          <div style={{ alignSelf: 'center', fontSize: 10, color: '#94A3B8', marginLeft: 4, maxWidth: 160, lineHeight: 1.3 }}>
-            Trascina file o incolla (Ctrl/⌘+V)
-          </div>
+        </div>
+      )}
+
+      {/* Hint chip when a drawing tool is armed */}
+      {creativeMode && (effectiveTool === 'text' || effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') && !draft && (
+        <div style={{
+          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 19,
+          padding: '4px 10px', fontSize: 11, color: '#fff', background: 'rgba(15,23,42,0.85)',
+          borderRadius: 999, pointerEvents: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+        }}>
+          Trascina per disegnare · <kbd style={{ fontFamily: 'inherit', opacity: 0.7 }}>Esc</kbd> per annullare
         </div>
       )}
 
@@ -695,9 +835,44 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         {creativeMode && stickers.map(sticker => (
           <StickerItem key={sticker.id} sticker={sticker} scale={scale}
             autoEdit={sticker.id === autoEditId}
+            onSelectionChange={(id) => setSelectedId(prev => id ?? (prev === sticker.id ? null : prev))}
             onUpdate={(u) => onStickerUpdate(sticker.id, u)}
             onDelete={() => onStickerDelete(sticker.id)} />
         ))}
+
+        {/* Drawing preview while a drawing tool is being dragged */}
+        {draft && (() => {
+          const x = Math.min(draft.sx, draft.ex), y = Math.min(draft.sy, draft.ey)
+          const w = Math.abs(draft.ex - draft.sx), h = Math.abs(draft.ey - draft.sy)
+          if (draft.kind === 'arrow') {
+            const pad = 14
+            return (
+              <svg style={{ position: 'absolute', left: x - pad, top: y - pad, pointerEvents: 'none' }}
+                width={w + pad * 2} height={h + pad * 2}
+                viewBox={`${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`}>
+                <defs>
+                  <marker id="draft-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="#F28C28" />
+                  </marker>
+                </defs>
+                <line
+                  x1={draft.ex >= draft.sx ? 0 : w}
+                  y1={draft.ey >= draft.sy ? 0 : h}
+                  x2={draft.ex >= draft.sx ? w : 0}
+                  y2={draft.ey >= draft.sy ? h : 0}
+                  stroke="#F28C28" strokeWidth={3} strokeDasharray="6 4" strokeLinecap="round" markerEnd="url(#draft-ah)" />
+              </svg>
+            )
+          }
+          return (
+            <div style={{
+              position: 'absolute', left: x, top: y, width: w, height: h,
+              border: '2px dashed #F28C28',
+              borderRadius: draft.kind === 'ellipse' ? '50%' : 6,
+              background: 'rgba(242,140,40,0.06)', pointerEvents: 'none',
+            }} />
+          )
+        })()}
       </div>
     </div>
   )
@@ -738,16 +913,26 @@ const ROTATE_ZONES = [
   { c: 'br', pos: { bottom: -22, right: -22, width: 36, height: 36 } },
 ]
 
-function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
+function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit, onSelectionChange }) {
+  const isImage = sticker.kind === 'image' || !sticker.kind
   const isText = sticker.kind === 'text'
+  const isRect = sticker.kind === 'rect'
+  const isEllipse = sticker.kind === 'ellipse'
+  const isShape = isRect || isEllipse
+  const isArrow = sticker.kind === 'arrow'
+
   const [selected, setSelected] = useState(!!autoEdit)
-  const [editing, setEditing] = useState(!!autoEdit && isText)
-  const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate'
+  const [editing, setEditing] = useState(!!autoEdit && (isText || isShape))
+  const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate' | 'endpoint'
   const startRef = useRef(null)
   const elRef = useRef(null)
   const textRef = useRef(null)
   const latestRef = useRef(sticker)
   latestRef.current = sticker
+
+  // Notify parent when selection changes so it can track the active sticker for shortcuts
+  // (Ctrl+D, Ctrl+], …). Parent reconciles with `selected ? id : null`.
+  useEffect(() => { onSelectionChange?.(selected ? sticker.id : null) }, [selected, sticker.id, onSelectionChange])
 
   const beginDrag = (e) => {
     if (editing) return
@@ -770,6 +955,15 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
     const rect = elRef.current.getBoundingClientRect()
     startRef.current = { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 }
     setAction('rotate')
+  }
+
+  // Arrow endpoint dragging: 'start' moves (x,y) and keeps the end fixed by adjusting w/h;
+  // 'end' moves (x+w, y+h) by adjusting w/h while keeping (x,y) fixed.
+  const beginEndpoint = (e, which) => {
+    e.stopPropagation(); e.preventDefault()
+    const s = latestRef.current
+    startRef.current = { which, mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
+    setAction('endpoint')
   }
 
   useEffect(() => {
@@ -803,6 +997,16 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
       } else if (action === 'rotate') {
         const deg = Math.round(Math.atan2(e.clientY - st.cy, e.clientX - st.cx) * (180 / Math.PI) + 90)
         onUpdate({ rotation: deg })
+      } else if (action === 'endpoint') {
+        const dx = (e.clientX - st.mx) / scale, dy = (e.clientY - st.my) / scale
+        if (st.which === 'start') {
+          // Move start point; keep end fixed by adjusting w/h.
+          const nx = Math.round(st.x + dx), ny = Math.round(st.y + dy)
+          onUpdate({ x: nx, y: ny, w: Math.round(st.w - dx), h: Math.round(st.h - dy) })
+        } else {
+          // Move end point; keep start (x,y) fixed.
+          onUpdate({ w: Math.round(st.w + dx), h: Math.round(st.h + dy) })
+        }
       }
     }
     const onUp = () => setAction(null)
@@ -845,7 +1049,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
     if (document.activeElement === el) return
     const want = sticker.text_content || ''
     if (el.innerText !== want) el.innerText = want
-  }, [sticker.text_content, isText])
+  }, [sticker.text_content])
 
   // Autofocus when entering edit mode and place caret at end
   useEffect(() => {
@@ -860,53 +1064,33 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
 
   const show = selected
 
+  // Container box. Arrows may have negative w/h (direction-bearing deltas) so we flip
+  // the top-left and use absolute dimensions for the actual rendered box.
+  let cx = sticker.x, cy = sticker.y
+  let cw = isArrow ? Math.abs(sticker.w) : sticker.w
+  let ch = isArrow ? Math.abs(sticker.h) : sticker.h
+  if (isArrow) {
+    if (sticker.w < 0) cx = sticker.x + sticker.w
+    if (sticker.h < 0) cy = sticker.y + sticker.h
+    // Ensure the bounding box has at least some clickable area
+    cw = Math.max(cw, 4)
+    ch = Math.max(ch, 4)
+  }
+
   return (
     <div ref={elRef}
       onMouseDown={beginDrag}
-      onDoubleClick={isText ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
+      onDoubleClick={(isText || isShape) ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
       style={{
-        position: 'absolute', left: sticker.x, top: sticker.y, width: sticker.w, height: sticker.h,
+        position: 'absolute', left: cx, top: cy, width: cw, height: ch,
         transform: `rotate(${sticker.rotation || 0}deg)`,
         cursor: editing ? 'text' : action === 'drag' ? 'grabbing' : 'grab',
         zIndex: 1000 + (sticker.z_index || 0),
-        outline: show ? '2px solid #F28C28' : 'none',
+        outline: show && !isArrow ? '2px solid #F28C28' : 'none',
+        outlineOffset: isArrow ? 0 : 0,
         borderRadius: 4,
       }}>
-      {isText ? (
-        <div
-          ref={textRef}
-          contentEditable={editing}
-          suppressContentEditableWarning
-          // Save on EVERY keystroke (debounced upstream by handleStickerUpdate). This is
-          // what makes navigation-away-while-typing safe: even if blur never fires (SPA
-          // route change can unmount before blur), the most recent keystroke is already
-          // queued for a DB write.
-          onInput={(e) => {
-            const next = e.currentTarget.innerText
-            if (next !== sticker.text_content) onUpdate({ text_content: next })
-          }}
-          onBlur={(e) => {
-            const next = e.currentTarget.innerText
-            setEditing(false)
-            if (next !== sticker.text_content) onUpdate({ text_content: next })
-          }}
-          onMouseDown={editing ? (e) => e.stopPropagation() : undefined}
-          style={{
-            width: '100%', height: '100%',
-            background: sticker.bg_color || 'transparent',
-            color: sticker.text_color || '#1a1a1a',
-            fontSize: sticker.font_size || 18, lineHeight: 1.35,
-            fontWeight: 600, padding: '8px 12px', boxSizing: 'border-box',
-            borderRadius: 8, outline: editing ? '2px solid #F28C28' : 'none',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            overflow: 'hidden',
-            userSelect: editing ? 'text' : 'none',
-            WebkitUserSelect: editing ? 'text' : 'none',
-            cursor: editing ? 'text' : 'inherit',
-            boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent') ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
-          }}
-        />
-      ) : (
+      {isImage && (
         <img
           src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })}
           alt=""
@@ -926,41 +1110,142 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
           style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none', userSelect: 'none', display: 'block', borderRadius: 4 }} />
       )}
 
+      {(isText || isShape) && (
+        <div
+          ref={textRef}
+          contentEditable={editing}
+          suppressContentEditableWarning
+          onInput={(e) => {
+            const next = e.currentTarget.innerText
+            if (next !== sticker.text_content) onUpdate({ text_content: next })
+          }}
+          onBlur={(e) => {
+            const next = e.currentTarget.innerText
+            setEditing(false)
+            if (next !== sticker.text_content) onUpdate({ text_content: next })
+          }}
+          onMouseDown={editing ? (e) => e.stopPropagation() : undefined}
+          style={{
+            width: '100%', height: '100%',
+            background: isShape ? (sticker.bg_color && sticker.bg_color !== 'transparent' ? sticker.bg_color : '#FFFFFF') : (sticker.bg_color || 'transparent'),
+            color: sticker.text_color || '#1a1a1a',
+            fontSize: sticker.font_size || (isShape ? 14 : 18), lineHeight: 1.35,
+            fontWeight: isShape ? 500 : 600,
+            padding: isShape ? '10px 14px' : '8px 12px',
+            boxSizing: 'border-box',
+            borderRadius: isEllipse ? '50%' : (isShape ? 10 : 8),
+            border: isShape ? `2px solid ${sticker.text_color || '#1a1a1a'}` : 'none',
+            outline: editing && !isShape ? '2px solid #F28C28' : 'none',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            overflow: 'hidden',
+            userSelect: editing ? 'text' : 'none',
+            WebkitUserSelect: editing ? 'text' : 'none',
+            cursor: editing ? 'text' : 'inherit',
+            display: isShape ? 'flex' : 'block',
+            alignItems: isShape ? 'center' : undefined,
+            justifyContent: isShape ? 'center' : undefined,
+            textAlign: isShape ? 'center' : 'left',
+            boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent' && !isShape) ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
+          }}
+        />
+      )}
+
+      {isArrow && (() => {
+        // Arrow line in container coords. The mounting point (cx,cy) is min(x, x+w),
+        // so the start is at whichever corner reflects the (originally signed) deltas.
+        const sx = sticker.w < 0 ? Math.abs(sticker.w) : 0
+        const sy = sticker.h < 0 ? Math.abs(sticker.h) : 0
+        const ex = sticker.w < 0 ? 0 : cw
+        const ey = sticker.h < 0 ? 0 : ch
+        const stroke = sticker.text_color || '#1a1a1a'
+        const sw = sticker.font_size || 3
+        const markerId = `ah-${sticker.id}`
+        // Extra padding to allow the arrowhead to render outside the line stroke
+        const PAD = Math.max(10, sw * 3)
+        return (
+          <svg
+            width={cw + PAD * 2}
+            height={ch + PAD * 2}
+            viewBox={`${-PAD} ${-PAD} ${cw + PAD * 2} ${ch + PAD * 2}`}
+            style={{ position: 'absolute', left: -PAD, top: -PAD, overflow: 'visible', pointerEvents: 'none' }}>
+            <defs>
+              <marker id={markerId} viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill={stroke} />
+              </marker>
+            </defs>
+            {/* Invisible thick stroke for easy hit-testing */}
+            <line x1={sx} y1={sy} x2={ex} y2={ey}
+              stroke="transparent" strokeWidth={Math.max(16, sw * 4)}
+              strokeLinecap="round" style={{ pointerEvents: 'stroke', cursor: 'grab' }}
+              onMouseDown={beginDrag} />
+            {/* Visible arrow */}
+            <line x1={sx} y1={sy} x2={ex} y2={ey}
+              stroke={stroke} strokeWidth={sw} strokeLinecap="round"
+              markerEnd={`url(#${markerId})`}
+              style={{ pointerEvents: 'none' }} />
+            {/* Dashed selection guide (selected only) */}
+            {show && <line x1={sx} y1={sy} x2={ex} y2={ey}
+              stroke="#F28C28" strokeWidth={Math.max(1, sw + 1)} strokeDasharray="6 4"
+              strokeLinecap="round" opacity="0.6" style={{ pointerEvents: 'none' }} />}
+          </svg>
+        )
+      })()}
+
       {show && <>
-        {/* Rotation zones — invisible squares in the outer quadrant of each corner.
-            Hovering them shows a rotation cursor; mousedown starts rotating. Lower
-            z-index than the resize handles so the handles still grab the corner clicks. */}
-        {ROTATE_ZONES.map(r => (
-          <div key={'rot-' + r.c} onMouseDown={beginRotate} style={{
-            position: 'absolute', cursor: ROTATE_CURSOR,
-            background: 'transparent', zIndex: 5,
-            ...r.pos,
-          }} />
-        ))}
+        {!isArrow && <>
+          {/* Rotation zones — invisible squares in the outer quadrant of each corner. */}
+          {ROTATE_ZONES.map(r => (
+            <div key={'rot-' + r.c} onMouseDown={beginRotate} style={{
+              position: 'absolute', cursor: ROTATE_CURSOR,
+              background: 'transparent', zIndex: 5,
+              ...r.pos,
+            }} />
+          ))}
+          {/* 8 resize handles (corners + sides) — free resize, no aspect lock */}
+          {RESIZE_HANDLES.map(h => (
+            <div key={h.c} onMouseDown={e => beginResize(e, h.c)} style={{
+              position: 'absolute', width: 14, height: 14,
+              background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
+              cursor: h.cursor,
+              boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
+              ...h.pos,
+            }} />
+          ))}
+        </>}
 
-        {/* 8 resize handles (corners + sides) — free resize, no aspect lock */}
-        {RESIZE_HANDLES.map(h => (
-          <div key={h.c} onMouseDown={e => beginResize(e, h.c)} style={{
-            position: 'absolute', width: 14, height: 14,
-            background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
-            cursor: h.cursor,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
-            ...h.pos,
-          }} />
-        ))}
+        {isArrow && (() => {
+          // Endpoint handles at the actual start and end of the arrow within the box.
+          const sx = sticker.w < 0 ? Math.abs(sticker.w) : 0
+          const sy = sticker.h < 0 ? Math.abs(sticker.h) : 0
+          const ex = sticker.w < 0 ? 0 : cw
+          const ey = sticker.h < 0 ? 0 : ch
+          const handleStyle = (xPos, yPos) => ({
+            position: 'absolute', left: xPos - 8, top: yPos - 8, width: 16, height: 16,
+            background: '#fff', border: '2px solid #F28C28', borderRadius: '50%',
+            cursor: 'grab', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', zIndex: 12,
+          })
+          return <>
+            <div onMouseDown={(e) => beginEndpoint(e, 'start')} style={handleStyle(sx, sy)} />
+            <div onMouseDown={(e) => beginEndpoint(e, 'end')} style={handleStyle(ex, ey)} />
+          </>
+        })()}
 
-        {/* Delete — INSIDE the box at top-right so it never overlaps with the outside
-            resize handles. Floats above the image with a contrasting backdrop for
-            clarity, using a real trash icon. */}
+        {/* Delete chip. For images/text/shapes it sits INSIDE the box top-right. For
+            arrows it floats next to the end-point so it's always reachable. */}
         <button onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onDelete() }}
           title="Elimina (Canc)"
           style={{
-            position: 'absolute', top: 6, right: 6, width: 30, height: 30, borderRadius: '50%',
+            position: 'absolute',
+            ...(isArrow
+              ? { left: (sticker.w < 0 ? 0 : cw) + 12, top: (sticker.h < 0 ? 0 : ch) + 12 }
+              : { top: 6, right: 6 }),
+            width: 28, height: 28, borderRadius: '50%',
             background: '#EF4444', border: '2px solid #fff', color: '#fff',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 3px 10px rgba(0,0,0,0.35)', zIndex: 30, padding: 0,
           }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 6h18" />
             <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -970,23 +1255,28 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
           </svg>
         </button>
 
-        {/* Text formatting toolbar */}
-        {isText && (
+        {/* Formatting toolbar: text/shape get font-size + text colour + fill colour.
+            Arrows get stroke-width + stroke colour. */}
+        {(isText || isShape || isArrow) && (
           <div onMouseDown={(e) => e.stopPropagation()} style={{
-            position: 'absolute', bottom: -56, left: '50%', transform: 'translateX(-50%)',
+            position: 'absolute', bottom: -56,
+            left: isArrow ? Math.min((sticker.w < 0 ? 0 : cw), (sticker.w < 0 ? cw : 0)) : '50%',
+            transform: isArrow ? 'none' : 'translateX(-50%)',
             background: '#fff', borderRadius: 10, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center',
             boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', zIndex: 12,
             whiteSpace: 'nowrap',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button onClick={() => onUpdate({ font_size: Math.max(10, (sticker.font_size || 18) - 2) })}
-                style={miniBtn}>A−</button>
-              <span style={{ fontSize: 11, color: '#64748B', minWidth: 18, textAlign: 'center' }}>{sticker.font_size || 18}</span>
-              <button onClick={() => onUpdate({ font_size: Math.min(96, (sticker.font_size || 18) + 2) })}
-                style={miniBtn}>A+</button>
+              <button onClick={() => onUpdate({ font_size: Math.max(isArrow ? 1 : 10, (sticker.font_size || (isArrow ? 3 : 18)) - (isArrow ? 1 : 2)) })}
+                style={miniBtn}>{isArrow ? '−' : 'A−'}</button>
+              <span style={{ fontSize: 11, color: '#64748B', minWidth: 18, textAlign: 'center' }}>
+                {sticker.font_size || (isArrow ? 3 : 18)}
+              </span>
+              <button onClick={() => onUpdate({ font_size: Math.min(isArrow ? 24 : 96, (sticker.font_size || (isArrow ? 3 : 18)) + (isArrow ? 1 : 2)) })}
+                style={miniBtn}>{isArrow ? '+' : 'A+'}</button>
             </div>
             <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
-            <div style={{ display: 'flex', gap: 3 }} title="Colore testo">
+            <div style={{ display: 'flex', gap: 3 }} title={isArrow ? 'Colore freccia' : isShape ? 'Bordo / testo' : 'Colore testo'}>
               {TEXT_COLOR_SWATCHES.map(c => (
                 <button key={c} onClick={() => onUpdate({ text_color: c })} style={{
                   width: 14, height: 14, borderRadius: '50%', background: c, cursor: 'pointer',
@@ -994,17 +1284,19 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
                 }} />
               ))}
             </div>
-            <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
-            <div style={{ display: 'flex', gap: 3 }} title="Sfondo">
-              {TEXT_BG_SWATCHES.map(c => (
-                <button key={c} onClick={() => onUpdate({ bg_color: c })} style={{
-                  width: 14, height: 14, borderRadius: 4,
-                  background: c === 'transparent' ? 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 8px 8px' : c,
-                  cursor: 'pointer',
-                  border: (sticker.bg_color || 'transparent') === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
-                }} />
-              ))}
-            </div>
+            {!isArrow && <>
+              <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+              <div style={{ display: 'flex', gap: 3 }} title={isShape ? 'Riempimento' : 'Sfondo'}>
+                {TEXT_BG_SWATCHES.map(c => (
+                  <button key={c} onClick={() => onUpdate({ bg_color: c })} style={{
+                    width: 14, height: 14, borderRadius: 4,
+                    background: c === 'transparent' ? 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 8px 8px' : c,
+                    cursor: 'pointer',
+                    border: (sticker.bg_color || 'transparent') === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
+                  }} />
+                ))}
+              </div>
+            </>}
           </div>
         )}
       </>}
