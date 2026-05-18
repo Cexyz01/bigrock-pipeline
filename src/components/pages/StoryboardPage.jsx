@@ -302,7 +302,7 @@ function ToolIcon({ id, active }) {
   }
 }
 
-function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onBringForward, onSendBack, onCreateSticker }) {
+function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onBringForward, onSendBack, onUndo, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
   const containerRef = useRef(null)
@@ -582,6 +582,13 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         if (selectedIdRef.current) onSendBack?.(selectedIdRef.current)
         return
       }
+      // Undo (delete + create operations). Ctrl/⌘+Z. Skip Shift+Z to leave room for
+      // a future redo, even though redo isn't implemented yet.
+      if (mod && !e.shiftKey && (k === 'z' || k === 'Z')) {
+        e.preventDefault()
+        onUndo?.()
+        return
+      }
       // Tool shortcuts
       const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
         t: 'text', T: 'text', r: 'rect', R: 'rect', e: 'ellipse', E: 'ellipse',
@@ -595,7 +602,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [creativeMode, draft, onBringForward, onSendBack])
+  }, [creativeMode, draft, onBringForward, onSendBack, onUndo])
 
   // Calculate board layout positions
   const totalCols = 3 + depts.length
@@ -1042,6 +1049,26 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
         const dx = (e.clientX - st.mx) / scale, dy = (e.clientY - st.my) / scale
         const h = st.handle
         let nx = st.x, ny = st.y, nw = st.w, nh = st.h
+
+        // Images keep a fixed aspect ratio — corner drag is locked to the original
+        // ratio so the picture is only scaled, never stretched. The orientation of
+        // the dominant axis (Δx vs Δy) decides which dimension leads the resize.
+        if (isImage && (h === 'tl' || h === 'tr' || h === 'bl' || h === 'br')) {
+          const ar = st.w / Math.max(st.h, 1)
+          const sx = (h === 'br' || h === 'tr') ? 1 : -1 // horizontal sign
+          const sy = (h === 'br' || h === 'bl') ? 1 : -1 // vertical sign
+          // Project both axes onto the same "width-equivalent" measure to compare.
+          const dxw = sx * dx
+          const dyw = sy * dy * ar
+          const eff = Math.abs(dxw) > Math.abs(dyw) ? dxw : dyw
+          nw = Math.round(Math.max(MIN_W, st.w + eff))
+          nh = Math.round(nw / ar)
+          if (sx < 0) nx = st.x + st.w - nw // anchored right edge
+          if (sy < 0) ny = st.y + st.h - nh // anchored bottom edge
+          onUpdate({ x: nx, y: ny, w: nw, h: nh })
+          return
+        }
+
         // Round nw FIRST and derive nx from the rounded value so the anchored edge
         // stays pixel-exact (st.x + st.w == nx + nw always, no sub-pixel wobble).
         if (h === 'br' || h === 'tr' || h === 'r') {
@@ -1277,16 +1304,20 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
               ...r.pos,
             }} />
           ))}
-          {/* 8 resize handles (corners + sides) — free resize, no aspect lock */}
-          {RESIZE_HANDLES.map(h => (
-            <div key={h.c} onMouseDown={e => beginResize(e, h.c)} style={{
-              position: 'absolute', width: 14, height: 14,
-              background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
-              cursor: h.cursor,
-              boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
-              ...h.pos,
-            }} />
-          ))}
+          {/* Resize handles — images keep a fixed aspect ratio, so only the 4 corners
+              are shown (side handles would imply stretching). Text, shapes, etc. get
+              the full 8 handles (corners + sides) for free resize. */}
+          {RESIZE_HANDLES
+            .filter(h => !isImage || ['tl','tr','bl','br'].includes(h.c))
+            .map(h => (
+              <div key={h.c} onMouseDown={e => beginResize(e, h.c)} style={{
+                position: 'absolute', width: 14, height: 14,
+                background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
+                cursor: h.cursor,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 10,
+                ...h.pos,
+              }} />
+            ))}
         </>}
 
         {isArrow && (() => {
@@ -1521,6 +1552,15 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   const activeTabRef = useRef(activeTab)
   activeTabRef.current = activeTab
 
+  // Undo stack — declared as a ref BEFORE handleCreateSticker so the create-undo
+  // bookkeeping below doesn't hit the temporal dead zone. `handleUndo` (which needs
+  // currentProject / user) is defined further down once those are in scope.
+  const undoStack = useRef([])
+  const pushUndo = useCallback((entry) => {
+    undoStack.current.push(entry)
+    if (undoStack.current.length > 30) undoStack.current.shift()
+  }, [])
+
   // Unified item creator — handles image files (upload to Cloudinary) and plain text.
   // Declared BEFORE the effects that depend on it to avoid TDZ during render.
   const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h }) => {
@@ -1553,6 +1593,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        pushUndo({ type: 'create', id: data.id })
       }
       return
     }
@@ -1566,6 +1607,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        pushUndo({ type: 'create', id: data.id })
         setAutoEditId(data.id)
         setTimeout(() => setAutoEditId(curr => curr === data.id ? null : curr), 1500)
       }
@@ -1581,6 +1623,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        pushUndo({ type: 'create', id: data.id })
       }
       return
     }
@@ -1598,9 +1641,10 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        pushUndo({ type: 'create', id: data.id })
       }
     }
-  }, [currentProject?.id, user?.id, addToast])
+  }, [currentProject?.id, user?.id, addToast, pushUndo])
 
   useEffect(() => { loadImages() }, [loadImages])
   useEffect(() => { loadStickers() }, [loadStickers])
@@ -1746,6 +1790,30 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     }
   }, [flushAllStickerSaves])
 
+  // Undo handler — pops the most recent recorded op and reverses it. The undoStack /
+  // pushUndo themselves are hoisted above handleCreateSticker (TDZ safety).
+  const handleUndo = useCallback(async () => {
+    const entry = undoStack.current.pop()
+    if (!entry) return
+    if (entry.type === 'delete') {
+      const s = entry.sticker
+      const { data } = await createSticker({
+        project_id: s.project_id || currentProject.id, user_id: user.id,
+        board: s.board || 'shots', kind: s.kind, image_url: s.image_url,
+        text_content: s.text_content, text_color: s.text_color, bg_color: s.bg_color,
+        font_size: s.font_size, x: s.x, y: s.y, w: s.w, h: s.h,
+        rotation: s.rotation || 0, z_index: s.z_index || 0,
+      })
+      if (data?.id) setStickers(prev => prev.some(st => st.id === data.id) ? prev : [...prev, data])
+    } else if (entry.type === 'create') {
+      // Cancel any pending updates for this sticker, then remove it.
+      if (stickerSaveTimers.current[entry.id]) { clearTimeout(stickerSaveTimers.current[entry.id]); delete stickerSaveTimers.current[entry.id] }
+      delete pendingStickerUpdates.current[entry.id]
+      setStickers(prev => prev.filter(s => s.id !== entry.id))
+      await deleteSticker(entry.id)
+    }
+  }, [currentProject?.id, user?.id])
+
   // Z-order: bring to front / send to back. Uses the existing optimistic update path
   // (handleStickerUpdate) so the new ordering is rendered immediately and saved with
   // the usual 800ms debounce / unmount flush.
@@ -1763,6 +1831,8 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     // Cancel any pending update for this sticker (we're about to remove it).
     if (stickerSaveTimers.current[id]) { clearTimeout(stickerSaveTimers.current[id]); delete stickerSaveTimers.current[id] }
     delete pendingStickerUpdates.current[id]
+    const target = stickersRef.current.find(s => s.id === id)
+    if (target) pushUndo({ type: 'delete', sticker: target })
     setStickers(prev => prev.filter(s => s.id !== id))
     await deleteSticker(id)
   }
@@ -1987,6 +2057,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
           onBringForward={handleBringForward} onSendBack={handleSendBack}
+          onUndo={handleUndo}
           onCreateSticker={handleCreateSticker} />
       ) : (
         <CanvasBoard
@@ -2002,6 +2073,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
           onBringForward={handleBringForward} onSendBack={handleSendBack}
+          onUndo={handleUndo}
           onCreateSticker={handleCreateSticker} />
       )}
 

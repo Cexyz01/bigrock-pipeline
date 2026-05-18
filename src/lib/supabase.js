@@ -520,18 +520,21 @@ export async function sendNotification(userId, type, title, body, linkType, link
 
 // ── Chat ──
 
-export async function getChatMessages(channel, limit = 100) {
+export async function getChatMessages(channel, projectId, limit = 100) {
+  if (!projectId) return []
   const { data } = await supabase.from('chat_messages')
     .select('*, author:profiles(id, full_name, avatar_url, role, mood_emoji)')
     .eq('channel', channel)
+    .eq('project_id', projectId)
     .order('created_at', { ascending: true })
     .limit(limit)
   return data || []
 }
 
-export async function sendChatMessage(channel, authorId, body) {
+export async function sendChatMessage(channel, authorId, body, projectId) {
+  if (!projectId) return { data: null, error: new Error('Missing projectId') }
   const { data, error } = await supabase.from('chat_messages')
-    .insert({ channel, author_id: authorId, body })
+    .insert({ channel, author_id: authorId, body, project_id: projectId })
     .select('*, author:profiles(id, full_name, avatar_url, role, mood_emoji)')
     .single()
   return { data, error }
@@ -1459,15 +1462,18 @@ export function subscribeToWipUpdates(callback) {
     .subscribe()
 }
 
-export function subscribeToChatChannel(channel, callback) {
+export function subscribeToChatChannel(channel, projectId, callback) {
   return supabase
-    .channel(`chat-${channel}`)
+    .channel(`chat-${projectId || 'none'}-${channel}`)
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
       table: 'chat_messages',
-      filter: `channel=eq.${channel}`,
-    }, callback)
+      filter: `project_id=eq.${projectId}`,
+    }, (payload) => {
+      if (payload?.new?.channel !== channel) return
+      callback(payload)
+    })
     .subscribe()
 }
 

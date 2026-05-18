@@ -4,13 +4,26 @@ import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, get
 import Av from '../ui/Av'
 import { IconX, IconSmile, IconSend } from '../ui/Icons'
 
-export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCount = 0, onDmRead, isMobile = false }) {
+export default function ChatPanel({ user, open, onToggle, profiles, projectMembers = [], currentProject, dmUnreadCount = 0, onDmRead, isMobile = false }) {
   const staff = isStaff(user)
-  const channels = ['general']
-  if (staff) {
-    DEPTS.forEach(d => channels.push(d.id))
-  } else if (user.department) {
-    channels.push(user.department)
+  const projectId = currentProject?.id || null
+
+  // Per-project department assignment from project_members.project_role.
+  // Staff sees every department channel; students see only the channels for
+  // the departments they are assigned to in the CURRENT project.
+  const myAssignments = projectMembers
+    .filter(pm => pm.user_id === user.id && pm.project_role)
+    .map(pm => pm.project_role)
+
+  const channels = projectId ? ['general'] : []
+  if (projectId) {
+    if (staff) {
+      DEPTS.forEach(d => channels.push(d.id))
+    } else {
+      myAssignments.forEach(d => {
+        if (DEPTS.find(x => x.id === d) && !channels.includes(d)) channels.push(d)
+      })
+    }
   }
 
   // Mode: 'channels' or 'dm'
@@ -40,22 +53,32 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
 
   // ── Channel logic (existing) ──
   const fetchMessages = useCallback((ch) => {
-    return getChatMessages(ch || channelRef.current).then(data => {
+    if (!projectId) { setMessages([]); return Promise.resolve([]) }
+    return getChatMessages(ch || channelRef.current, projectId).then(data => {
       setMessages(data)
       return data
     })
-  }, [])
+  }, [projectId])
+
+  // If the active channel disappears (e.g. project switch or assignment change),
+  // fall back to 'general' so we never query a stale channel.
+  useEffect(() => {
+    if (channels.length > 0 && !channels.includes(channel)) {
+      setChannel(channels[0])
+    }
+  }, [channels, channel])
 
   useEffect(() => {
     if (open && mode === 'channels') fetchMessages(channel)
   }, [channel, open, mode, fetchMessages])
 
   useEffect(() => {
-    const sub = subscribeToChatChannel(channel, (payload) => {
+    if (!projectId) return undefined
+    const sub = subscribeToChatChannel(channel, projectId, (payload) => {
       if (payload.eventType === 'INSERT' && payload.new) fetchMessages(channel)
     })
     return () => supabase.removeChannel(sub)
-  }, [channel, fetchMessages])
+  }, [channel, projectId, fetchMessages])
 
   useEffect(() => {
     if (!open || mode !== 'channels') return
@@ -130,7 +153,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, dmUnreadCoun
       author: { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, role: user.role, mood_emoji: user.mood_emoji },
     }
     setMessages(prev => [...prev, optimisticMsg])
-    const { error } = await sendChatMessage(channel, user.id, body)
+    const { error } = await sendChatMessage(channel, user.id, body, projectId)
     setSending(false)
     if (error) setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
   }
