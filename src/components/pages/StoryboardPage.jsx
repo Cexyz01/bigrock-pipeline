@@ -305,8 +305,18 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     const cx = bx - 100, cy = by - 100
 
     const dt = e.dataTransfer
-    const files = dt?.files
-    if (files && files.length) {
+    // Safari: prefer dataTransfer.files but fall back to .items where files can be empty
+    const files = []
+    if (dt?.files && dt.files.length) for (const f of dt.files) files.push(f)
+    if (!files.length && dt?.items && dt.items.length) {
+      for (const it of dt.items) {
+        if (it.kind === 'file') {
+          const f = it.getAsFile()
+          if (f) files.push(f)
+        }
+      }
+    }
+    if (files.length) {
       let i = 0
       for (const f of files) {
         if (f.type.startsWith('image/')) {
@@ -794,7 +804,9 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
             fontWeight: 600, padding: '8px 12px', boxSizing: 'border-box',
             borderRadius: 8, outline: editing ? '2px solid #F28C28' : 'none',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            overflow: 'hidden', userSelect: editing ? 'text' : 'none',
+            overflow: 'hidden',
+            userSelect: editing ? 'text' : 'none',
+            WebkitUserSelect: editing ? 'text' : 'none',
             cursor: editing ? 'text' : 'inherit',
             boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent') ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
           }}>
@@ -961,6 +973,51 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     })
   }, [currentProject?.id])
 
+  // Refs that follow the latest values without forcing callback re-creation.
+  const stickersRef = useRef(stickers)
+  stickersRef.current = stickers
+  const creativeModeRef = useRef(creativeMode)
+  creativeModeRef.current = creativeMode
+
+  // Unified item creator — handles image files (upload to Cloudinary) and plain text.
+  // Declared BEFORE the effects that depend on it to avoid TDZ during render.
+  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h }) => {
+    if (!currentProject?.id || !creativeModeRef.current) return
+    const baseX = Math.round(x ?? 300), baseY = Math.round(y ?? 300)
+    const z = stickersRef.current.length
+
+    if (kind === 'image') {
+      if (!file) return
+      setUploadingSticker(true)
+      const { url, error } = await uploadStickerImage(currentProject.id, file)
+      setUploadingSticker(false)
+      if (error) { addToast?.('Upload error: ' + error.message, 'danger'); return }
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id,
+        kind: 'image', image_url: url,
+        x: baseX, y: baseY, w: w || 220, h: h || 220, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+      }
+      return
+    }
+
+    if (kind === 'text') {
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id,
+        kind: 'text', text_content: text || '',
+        text_color: '#1a1a1a', bg_color: '#FEF3C7', font_size: 18,
+        x: baseX, y: baseY, w: w || 240, h: h || 80, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        setAutoEditId(data.id)
+        setTimeout(() => setAutoEditId(curr => curr === data.id ? null : curr), 1500)
+      }
+    }
+  }, [currentProject?.id, user?.id, addToast])
+
   useEffect(() => { loadImages() }, [loadImages])
   useEffect(() => { loadStickers() }, [loadStickers])
 
@@ -976,8 +1033,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   }, [currentProject?.id, loadImages, loadStickers])
 
   // Page focus refetch: if a tab has been idle (sleep, background), the Realtime
-  // channel can miss DELETEs. A focus/visibility refetch keeps the local state honest
-  // (the "broken-image '?' icon after a remote delete" scenario).
+  // channel can miss DELETEs. A focus/visibility refetch keeps the local state honest.
   useEffect(() => {
     if (!currentProject?.id) return
     const onWake = () => {
@@ -1001,13 +1057,22 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       if (e.dataTransfer?.types?.length) e.preventDefault()
     }
     const onWinDrop = async (e) => {
-      // If the canvas already handled it, defaultPrevented is true — bail out.
-      if (e.defaultPrevented) return
+      if (e.defaultPrevented) return // canvas already handled it
       const dt = e.dataTransfer
       if (!dt) return
       e.preventDefault()
-      const files = dt.files
-      if (files && files.length) {
+      // Safari: dataTransfer.files can be empty when items has them — try both
+      const files = []
+      if (dt.files && dt.files.length) for (const f of dt.files) files.push(f)
+      if (!files.length && dt.items && dt.items.length) {
+        for (const it of dt.items) {
+          if (it.kind === 'file') {
+            const f = it.getAsFile()
+            if (f) files.push(f)
+          }
+        }
+      }
+      if (files.length) {
         for (const f of files) {
           if (f.type.startsWith('image/')) {
             await handleCreateSticker({ kind: 'image', file: f, x: 300, y: 300 })
@@ -1019,7 +1084,6 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       if (txt && txt.trim()) await handleCreateSticker({ kind: 'text', text: txt.trim(), x: 300, y: 300 })
     }
     const onPaste = async (e) => {
-      // Don't intercept paste happening inside an editable field
       const t = e.target
       if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
       const items = e.clipboardData?.items
@@ -1034,7 +1098,6 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           }
         }
       }
-      // Plain text paste → text sticker
       const txt = e.clipboardData?.getData('text/plain')
       if (txt && txt.trim()) {
         e.preventDefault()
@@ -1051,46 +1114,6 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       window.removeEventListener('paste', onPaste)
     }
   }, [creativeMode, currentProject?.id, handleCreateSticker])
-
-  // Unified sticker creator — handles image files (upload to Cloudinary) and plain text.
-  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h }) => {
-    if (!currentProject?.id || !creativeMode) return
-    const baseX = Math.round(x ?? 300), baseY = Math.round(y ?? 300)
-    const z = stickers.length
-
-    if (kind === 'image') {
-      if (!file) return
-      setUploadingSticker(true)
-      const { url, error } = await uploadStickerImage(currentProject.id, file)
-      setUploadingSticker(false)
-      if (error) { addToast?.('Upload error: ' + error.message, 'danger'); return }
-      const { data } = await createSticker({
-        project_id: currentProject.id, user_id: user.id,
-        kind: 'image', image_url: url,
-        x: baseX, y: baseY, w: w || 220, h: h || 220, rotation: 0, z_index: z,
-      })
-      if (data?.id) {
-        // Optimistic insert (realtime will reconcile)
-        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
-      }
-      return
-    }
-
-    if (kind === 'text') {
-      const { data } = await createSticker({
-        project_id: currentProject.id, user_id: user.id,
-        kind: 'text', text_content: text || '',
-        text_color: '#1a1a1a', bg_color: '#FEF3C7', font_size: 18,
-        x: baseX, y: baseY, w: w || 240, h: h || 80, rotation: 0, z_index: z,
-      })
-      if (data?.id) {
-        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
-        setAutoEditId(data.id)
-        // Clear the auto-edit marker shortly after so future mounts don't re-trigger it.
-        setTimeout(() => setAutoEditId(curr => curr === data.id ? null : curr), 1500)
-      }
-    }
-  }, [currentProject?.id, creativeMode, user?.id, stickers.length, addToast])
 
   const stickerSaveTimers = useRef({})
   const handleStickerUpdate = useCallback((id, updates) => {
