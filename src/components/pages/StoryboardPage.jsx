@@ -941,6 +941,20 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 const TEXT_COLOR_SWATCHES = ['#1a1a1a', '#ffffff', '#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899']
 const TEXT_BG_SWATCHES = ['transparent', '#FEF3C7', '#FECACA', '#BBF7D0', '#BFDBFE', '#DDD6FE', '#FBCFE8', '#1F2937']
 
+// Convert a hex colour string to rgba with a user-supplied alpha. Used to apply the
+// shape opacity slider to the fill ONLY — leaves border and label at full opacity,
+// which is the usual behaviour in design tools.
+function hexToRgba(hex, alpha) {
+  if (!hex || hex === 'transparent') return 'transparent'
+  if (alpha == null || alpha >= 1) return hex
+  let h = hex.startsWith('#') ? hex.slice(1) : hex
+  if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const m = /^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h)
+  if (!m) return hex
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16)
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`
+}
+
 // 8-handle resize map: 4 corners + 4 sides. Each handle's drag affects only the relevant
 // edge(s), with the opposite edge anchored. Free resize (no aspect lock) — feels natural
 // because the dragged handle follows the cursor exactly on both axes.
@@ -1253,7 +1267,12 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           onMouseDown={editing ? (e) => e.stopPropagation() : undefined}
           style={{
             width: '100%', height: '100%',
-            background: isShape ? (sticker.bg_color ?? '#FFFFFF') : (sticker.bg_color || 'transparent'),
+            // Opacity is applied to the FILL only (via rgba) so the border and the
+            // label text stay crisp regardless of the slider value — matches Figma /
+            // Sketch behaviour.
+            background: isShape
+              ? hexToRgba(sticker.bg_color ?? '#FFFFFF', typeof sticker.opacity === 'number' ? sticker.opacity : 1)
+              : (sticker.bg_color || 'transparent'),
             color: sticker.text_color || '#1a1a1a',
             fontSize: sticker.font_size || (isShape ? 14 : 18), lineHeight: 1.35,
             fontWeight: isShape ? 500 : 600,
@@ -1261,7 +1280,6 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             boxSizing: 'border-box',
             borderRadius: isEllipse ? '50%' : (isShape ? 10 : 8),
             border: isShape ? `${sticker.border_width ?? 2}px solid ${sticker.text_color || '#1a1a1a'}` : 'none',
-            opacity: isShape ? (typeof sticker.opacity === 'number' ? sticker.opacity : 1) : 1,
             outline: editing && !isShape ? '2px solid #F28C28' : 'none',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             overflow: 'hidden',
