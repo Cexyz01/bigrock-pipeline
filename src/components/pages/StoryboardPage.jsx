@@ -323,9 +323,22 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   const [spaceHeld, setSpaceHeld] = useState(false) // Space-to-pan (Figma/Miro style)
   const effectiveTool = spaceHeld ? 'hand' : activeTool
   const [draft, setDraft] = useState(null) // { kind, sx, sy, ex, ey } in board coords during drag
-  const [selectedId, setSelectedId] = useState(null) // for keyboard shortcuts
-  const selectedIdRef = useRef(null)
-  selectedIdRef.current = selectedId
+  // Selection is centralised here: a Set of sticker ids, so we can support
+  // single click, additive (Shift/Ctrl) click, and marquee box-selection without
+  // the per-sticker selection-state drift that lets handles linger on multiple stickers.
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+  // Marquee (left-drag on empty canvas while in Select mode). Coordinates are stored
+  // in board space so the rectangle stays anchored to the world as the user pans/zooms.
+  const [marquee, setMarquee] = useState(null) // { sx, sy, ex, ey } in board coords
+  // Group manipulation. While active, mousemove on window applies the captured deltas
+  // to every selected sticker via handleStickerUpdate. We snapshot the starting geometry
+  // for every selected sticker once on mousedown so resizes / drags scale relative to
+  // a consistent anchor and the relative layout is preserved exactly.
+  const [groupAction, setGroupAction] = useState(null)
+  // groupAction shape (drag):   { kind: 'drag',   mx, my, snaps: Map<id, {x,y}> }
+  // groupAction shape (resize): { kind: 'resize', mx, my, handle, bbox: {x,y,w,h}, snaps: Map<id, {x,y,w,h}> }
 
   // Per-shot measured description height. Updated by a ResizeObserver attached to the
   // inner description block (which has no height constraint, so its scrollHeight = the
@@ -485,10 +498,19 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  // Pan with mouse drag, OR start drawing if a drawing tool is active.
+  // Mouse buttons & tools matrix:
+  //   middle / right click  → pan (any tool)
+  //   left + Hand tool       → pan
+  //   left + drawing tool    → start drawing draft
+  //   left + Select tool     → start marquee box-selection on the empty board.
+  //                            Sticker mousedowns stop propagation, so this only fires
+  //                            on empty surface.
+  //   Space held            → temporarily acts as Hand (handled via spaceHeld in
+  //                            effectiveTool above).
   const handleMouseDown = useCallback((e) => {
     const p = pan || { x: 40, y: 20 }
-    if (e.button === 1) {
+    // Middle button or right button → pan.
+    if (e.button === 1 || e.button === 2) {
       e.preventDefault()
       setDragging(true)
       dragStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
@@ -504,8 +526,17 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
 
-    // Otherwise: pan. (Hand tool always pans; Select tool pans on the background since
-    // sticker clicks are stopped by the sticker's own onMouseDown.)
+    // Select tool + left click on empty board → marquee. Unless Shift/Ctrl held (then
+    // the marquee adds to the existing selection on release).
+    if (creativeMode && effectiveTool === 'select') {
+      const b = screenToBoard(e.clientX, e.clientY)
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey
+      if (!additive) setSelectedIds(new Set()) // clear so the user sees an immediate reset
+      setMarquee({ sx: b.x, sy: b.y, ex: b.x, ey: b.y, additive })
+      return
+    }
+
+    // Hand tool (or fallback) with left button → pan.
     setDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
   }, [pan, creativeMode, effectiveTool, screenToBoard])
@@ -516,13 +547,49 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       setDraft(d => d ? { ...d, ex: b.x, ey: b.y } : d)
       return
     }
+    if (marquee) {
+      const b = screenToBoard(e.clientX, e.clientY)
+      setMarquee(m => m ? { ...m, ex: b.x, ey: b.y } : m)
+      return
+    }
     if (!dragging) return
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy })
-  }, [dragging, draft, screenToBoard])
+  }, [dragging, draft, marquee, screenToBoard])
 
   const handleMouseUp = useCallback(() => {
+    if (marquee) {
+      const x1 = Math.min(marquee.sx, marquee.ex), x2 = Math.max(marquee.sx, marquee.ex)
+      const y1 = Math.min(marquee.sy, marquee.ey), y2 = Math.max(marquee.sy, marquee.ey)
+      const tinyDrag = (x2 - x1) < 4 && (y2 - y1) < 4
+      if (tinyDrag) {
+        // Treat as a plain click on background → clear selection (already cleared in
+        // mousedown when not additive). Nothing more to do.
+        setMarquee(null)
+        return
+      }
+      // Bounding-box intersection — fast and matches user expectation (Figma-style).
+      // Arrows have signed w/h so we normalise to an absolute box just for hit-testing.
+      const hits = []
+      for (const s of stickers) {
+        const sx = s.w < 0 ? s.x + s.w : s.x
+        const sy = s.h < 0 ? s.y + s.h : s.y
+        const sw = Math.abs(s.w), sh = Math.abs(s.h)
+        const intersects = sx < x2 && sx + sw > x1 && sy < y2 && sy + sh > y1
+        if (intersects) hits.push(s.id)
+      }
+      setSelectedIds(prev => {
+        if (marquee.additive) {
+          const next = new Set(prev)
+          for (const id of hits) next.add(id)
+          return next
+        }
+        return new Set(hits)
+      })
+      setMarquee(null)
+      return
+    }
     if (draft) {
       const dxAbs = Math.abs(draft.ex - draft.sx)
       const dyAbs = Math.abs(draft.ey - draft.sy)
@@ -549,10 +616,10 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
     setDragging(false)
-  }, [draft, onCreateSticker])
+  }, [draft, marquee, stickers, onCreateSticker])
 
   useEffect(() => {
-    if (dragging || draft) {
+    if (dragging || draft || marquee) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -560,7 +627,150 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         window.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [dragging, draft, handleMouseMove, handleMouseUp])
+  }, [dragging, draft, marquee, handleMouseMove, handleMouseUp])
+
+  // Selection helper passed to each StickerItem. Sticker calls this on mousedown:
+  //   additive=true (Shift/Ctrl) → toggle membership without losing the rest.
+  //   additive=false             → if id is already in the selection, keep the
+  //                                selection intact (so a click-and-drag on a
+  //                                multi-selected sticker initiates a group drag);
+  //                                otherwise collapse the selection to just that id.
+  const selectSticker = useCallback((id, { additive = false } = {}) => {
+    setSelectedIds(prev => {
+      if (additive) {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id); else next.add(id)
+        return next
+      }
+      if (prev.has(id)) return prev
+      return new Set([id])
+    })
+  }, [])
+
+  // Group drag — engaged when the user mousedowns on a sticker that's part of a
+  // multi-selection. We snapshot every selected sticker's starting position once,
+  // then translate them all by the same delta. Relative positions are preserved
+  // exactly (no rounding drift across moves because the delta is always computed
+  // from the original snapshot, not the previous frame).
+  const beginGroupDrag = useCallback((e) => {
+    const ids = Array.from(selectedIdsRef.current)
+    if (ids.length === 0) return
+    const snaps = new Map()
+    for (const id of ids) {
+      const s = stickers.find(x => x.id === id)
+      if (s) snaps.set(id, { x: s.x, y: s.y })
+    }
+    setGroupAction({ kind: 'drag', mx: e.clientX, my: e.clientY, snaps,
+      // For undo: capture full geometry on every sticker so we can restore on Ctrl+Z.
+      beforeAll: ids.map(id => {
+        const s = stickers.find(x => x.id === id)
+        return s ? { id, before: { x: s.x, y: s.y, w: s.w, h: s.h, rotation: s.rotation || 0 } } : null
+      }).filter(Boolean),
+    })
+  }, [stickers])
+
+  // Group bbox in board coordinates — derived from all currently selected stickers.
+  // Returns null when fewer than 2 are selected (single-selection has its own chrome).
+  const groupBbox = useMemo(() => {
+    if (selectedIds.size < 2) return null
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const id of selectedIds) {
+      const s = stickers.find(x => x.id === id)
+      if (!s) continue
+      const sx = s.w < 0 ? s.x + s.w : s.x
+      const sy = s.h < 0 ? s.y + s.h : s.y
+      const sw = Math.abs(s.w), sh = Math.abs(s.h)
+      if (sx < minX) minX = sx
+      if (sy < minY) minY = sy
+      if (sx + sw > maxX) maxX = sx + sw
+      if (sy + sh > maxY) maxY = sy + sh
+    }
+    if (!Number.isFinite(minX)) return null
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+  }, [selectedIds, stickers])
+
+  // Begin a group resize from one of the 8 handles on the group bbox.
+  // We snapshot each sticker's geometry relative to the bbox so we can rescale
+  // proportionally: nx = bbox.x + (sx - bbox.x) * scaleX, nw = sw * scaleX, etc.
+  // This preserves the relative spacing between every pair of selected stickers.
+  const beginGroupResize = useCallback((e, handle) => {
+    e.stopPropagation(); e.preventDefault()
+    if (!groupBbox) return
+    const ids = Array.from(selectedIdsRef.current)
+    const snaps = new Map()
+    for (const id of ids) {
+      const s = stickers.find(x => x.id === id)
+      if (s) snaps.set(id, { x: s.x, y: s.y, w: s.w, h: s.h })
+    }
+    setGroupAction({ kind: 'resize', mx: e.clientX, my: e.clientY, handle,
+      bbox: { ...groupBbox }, snaps,
+      beforeAll: ids.map(id => {
+        const s = stickers.find(x => x.id === id)
+        return s ? { id, before: { x: s.x, y: s.y, w: s.w, h: s.h, rotation: s.rotation || 0 } } : null
+      }).filter(Boolean),
+    })
+  }, [groupBbox, stickers])
+
+  // Window-level mousemove/mouseup driver for group actions. Lives separately from
+  // the canvas-level driver so it keeps working even when the cursor crosses outside
+  // the canvas surface mid-gesture.
+  useEffect(() => {
+    if (!groupAction) return
+    const onMove = (e) => {
+      const dx = (e.clientX - groupAction.mx) / scale
+      const dy = (e.clientY - groupAction.my) / scale
+      if (groupAction.kind === 'drag') {
+        for (const [id, start] of groupAction.snaps) {
+          onStickerUpdate(id, { x: Math.round(start.x + dx), y: Math.round(start.y + dy) })
+        }
+        return
+      }
+      // resize
+      const { handle, bbox, snaps } = groupAction
+      const MIN = 8 // minimum group dimension, in board px
+      // Compute the new bbox by moving the dragged handle. Sides anchor the opposite
+      // edge; corners anchor the diagonally-opposite corner.
+      let nx = bbox.x, ny = bbox.y, nw = bbox.w, nh = bbox.h
+      if (handle === 'br' || handle === 'tr' || handle === 'r') nw = Math.max(MIN, bbox.w + dx)
+      if (handle === 'bl' || handle === 'tl' || handle === 'l') { nw = Math.max(MIN, bbox.w - dx); nx = bbox.x + bbox.w - nw }
+      if (handle === 'br' || handle === 'bl' || handle === 'b') nh = Math.max(MIN, bbox.h + dy)
+      if (handle === 'tr' || handle === 'tl' || handle === 't') { nh = Math.max(MIN, bbox.h - dy); ny = bbox.y + bbox.h - nh }
+      const sxScale = nw / bbox.w
+      const syScale = nh / bbox.h
+      for (const [id, st] of snaps) {
+        // Map sticker geometry from old bbox space to new bbox space. Negative w/h
+        // (arrows pointing left/up) are preserved by scaling the signed value.
+        const relX = st.x - bbox.x
+        const relY = st.y - bbox.y
+        onStickerUpdate(id, {
+          x: Math.round(nx + relX * sxScale),
+          y: Math.round(ny + relY * syScale),
+          w: Math.round(st.w * sxScale),
+          h: Math.round(st.h * syScale),
+        })
+      }
+    }
+    const onUp = () => {
+      // One undo entry per sticker (the existing undo model uses per-id 'update'
+      // entries; pushing N keeps Ctrl+Z atomic per group gesture if the user
+      // presses Ctrl+Z N times — acceptable, and avoids inventing a new entry type).
+      const before = groupAction.beforeAll || []
+      for (const { id, before: b } of before) {
+        const s = stickers.find(x => x.id === id)
+        if (!s) continue
+        if (b.x !== s.x || b.y !== s.y || b.w !== s.w || b.h !== s.h) {
+          onCommitUndo?.({ type: 'update', id, before: b })
+        }
+      }
+      setGroupAction(null)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [groupAction, scale, onStickerUpdate, onCommitUndo, stickers])
 
   // Keyboard shortcuts (Figma-style). Skip while typing in any editable element.
   useEffect(() => {
@@ -571,21 +781,37 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       const k = e.key
       if (k === 'Escape') {
         if (draft) setDraft(null)
+        if (selectedIdsRef.current.size > 0) setSelectedIds(new Set())
         setActiveTool('select') // back to interaction mode (user is already engaged)
         return
       }
       // Space → temporary hand tool while held
       if (k === ' ' && !e.repeat) { e.preventDefault(); setSpaceHeld(true); return }
-      // Z-order shortcuts (Figma defaults)
+      // Z-order shortcuts (Figma defaults). Apply to every selected sticker so the
+      // whole group moves forward/back together.
       const mod = e.ctrlKey || e.metaKey
       if (mod && (k === ']' || k === '}')) {
         e.preventDefault()
-        if (selectedIdRef.current) onBringForward?.(selectedIdRef.current)
+        for (const id of selectedIdsRef.current) onBringForward?.(id)
         return
       }
       if (mod && (k === '[' || k === '{')) {
         e.preventDefault()
-        if (selectedIdRef.current) onSendBack?.(selectedIdRef.current)
+        for (const id of selectedIdsRef.current) onSendBack?.(id)
+        return
+      }
+      // Select all stickers on the current board (Ctrl/⌘+A).
+      if (mod && (k === 'a' || k === 'A')) {
+        e.preventDefault()
+        setSelectedIds(new Set(stickers.map(s => s.id)))
+        return
+      }
+      // Group delete — when 2+ stickers are selected. (Single selection already
+      // handles its own Delete inside StickerItem.)
+      if ((k === 'Delete' || k === 'Backspace') && selectedIdsRef.current.size > 1) {
+        e.preventDefault()
+        for (const id of selectedIdsRef.current) onStickerDelete?.(id)
+        setSelectedIds(new Set())
         return
       }
       // Undo (delete + create operations). Ctrl/⌘+Z. Skip Shift+Z to leave room for
@@ -608,7 +834,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [creativeMode, draft, onBringForward, onSendBack, onUndo])
+  }, [creativeMode, draft, stickers, onBringForward, onSendBack, onUndo, onStickerDelete])
 
   // Calculate board layout positions
   const totalCols = 3 + depts.length
@@ -684,6 +910,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 
   return (
     <div ref={containerRef} onMouseDown={handleMouseDown} onAuxClick={e => e.preventDefault()}
+      onContextMenu={e => e.preventDefault()}
       onDragEnter={creativeMode ? handleDragOver : undefined}
       onDragOver={creativeMode ? handleDragOver : undefined}
       onDragLeave={creativeMode ? handleDragLeave : undefined}
@@ -897,13 +1124,54 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           <StickerItem key={sticker.id} sticker={sticker} scale={scale}
             autoEdit={sticker.id === autoEditId}
             interactive={effectiveTool === 'select'}
-            onSelectionChange={(id) => setSelectedId(prev => id ?? (prev === sticker.id ? null : prev))}
+            selected={selectedIds.has(sticker.id)}
+            multiSelect={selectedIds.size > 1 && selectedIds.has(sticker.id)}
+            onSelect={(opts) => selectSticker(sticker.id, opts)}
+            onGroupDragStart={beginGroupDrag}
             onUpdate={(u) => onStickerUpdate(sticker.id, u)}
             onCommitUndo={onCommitUndo}
             onBringForward={() => onBringForward?.(sticker.id)}
             onSendBack={() => onSendBack?.(sticker.id)}
             onDelete={() => onStickerDelete(sticker.id)} />
         ))}
+
+        {/* Group bounding box — visible only when a multi-selection is active.
+            Provides the dashed outline + 8 resize handles for proportionally scaling
+            every selected sticker as a unit (relative positions preserved). */}
+        {groupBbox && (
+          <div style={{
+            position: 'absolute', left: groupBbox.x, top: groupBbox.y,
+            width: groupBbox.w, height: groupBbox.h,
+            outline: '2px dashed #F28C28', borderRadius: 4,
+            pointerEvents: 'none', zIndex: 9998,
+          }}>
+            {RESIZE_HANDLES.map(h => (
+              <div key={h.c} onMouseDown={e => beginGroupResize(e, h.c)} style={{
+                position: 'absolute', width: 14, height: 14,
+                background: '#fff', border: '2px solid #F28C28', borderRadius: 3,
+                cursor: h.cursor,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                pointerEvents: 'auto',
+                ...h.pos,
+              }} />
+            ))}
+          </div>
+        )}
+
+        {/* Marquee (live drag rectangle while box-selecting). */}
+        {marquee && (() => {
+          const mx = Math.min(marquee.sx, marquee.ex)
+          const my = Math.min(marquee.sy, marquee.ey)
+          const mw = Math.abs(marquee.ex - marquee.sx)
+          const mh = Math.abs(marquee.ey - marquee.sy)
+          return (
+            <div style={{
+              position: 'absolute', left: mx, top: my, width: mw, height: mh,
+              border: '1.5px solid #F28C28', background: 'rgba(242,140,40,0.10)',
+              pointerEvents: 'none', borderRadius: 2, zIndex: 9997,
+            }} />
+          )
+        })()}
 
         {/* Drawing preview while a drawing tool is being dragged */}
         {draft && (() => {
@@ -1005,7 +1273,7 @@ const ROTATE_ZONES = [
   { c: 'br', pos: { bottom: -44, right: -44, width: 32, height: 32 } },
 ]
 
-function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSendBack, onCommitUndo, autoEdit, onSelectionChange, interactive = true }) {
+function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSendBack, onCommitUndo, autoEdit, selected, onSelect, multiSelect, onGroupDragStart, onGroupDragMove, onGroupDragEnd, interactive = true }) {
   const isImage = sticker.kind === 'image' || !sticker.kind
   const isText = sticker.kind === 'text'
   const isRect = sticker.kind === 'rect'
@@ -1013,7 +1281,6 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   const isShape = isRect || isEllipse
   const isArrow = sticker.kind === 'arrow'
 
-  const [selected, setSelected] = useState(!!autoEdit)
   const [editing, setEditing] = useState(!!autoEdit && isText)
   const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate' | 'endpoint'
   const startRef = useRef(null)
@@ -1022,16 +1289,17 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   const latestRef = useRef(sticker)
   latestRef.current = sticker
 
-  // Notify parent when selection changes so it can track the active sticker for shortcuts
-  // (Ctrl+D, Ctrl+], …). Parent reconciles with `selected ? id : null`.
-  useEffect(() => { onSelectionChange?.(selected ? sticker.id : null) }, [selected, sticker.id, onSelectionChange])
-
-  // When the canvas tool switches away from Select, force-deselect so the user doesn't
-  // see lingering handles/toolbars from the previous selection (and so any open inline
-  // editor saves and closes cleanly).
+  // When tool switches away from Select, close any open inline text editor (so it
+  // saves cleanly). Selection itself is owned by the parent (CanvasBoard).
   useEffect(() => {
-    if (!interactive) { setSelected(false); setEditing(false) }
+    if (!interactive) setEditing(false)
   }, [interactive])
+
+  // autoEdit can re-arm after the sticker is first created (text added). The parent
+  // clears it shortly after — entering the inline editor is purely a UX nicety.
+  useEffect(() => {
+    if (autoEdit && isText) setEditing(true)
+  }, [autoEdit, isText])
 
   // Captures the sticker's state BEFORE an interactive action (drag / resize / rotate /
   // endpoint) so we can push a single 'update' undo entry on mouseup — one entry per
@@ -1047,7 +1315,19 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     // mousedown bubble to the canvas — the user wants to pan or draw, not select.
     if (!interactive) return
     if (editing) return
-    e.stopPropagation(); e.preventDefault(); setSelected(true)
+    // Right-click is reserved for panning the canvas; let it bubble.
+    if (e.button === 2) return
+    e.stopPropagation(); e.preventDefault()
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey
+    // Shift/Ctrl click: toggle membership, no drag.
+    if (additive) { onSelect?.({ additive: true }); return }
+    // If the sticker is already part of a multi-selection, drag the whole group.
+    if (multiSelect) {
+      onGroupDragStart?.(e)
+      return
+    }
+    // Otherwise: this is the only selected sticker → standard single drag.
+    onSelect?.({ additive: false })
     const s = latestRef.current
     startRef.current = { mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
     snapshotBefore()
@@ -1165,32 +1445,28 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
   }, [action, scale, onUpdate, onCommitUndo, sticker.id])
 
-  // Deselect on click outside
+  // When the parent removes this sticker from the selection (click on background,
+  // marquee, etc.), close the inline text editor and commit any pending text edit so
+  // we don't drop the user's last keystrokes.
   useEffect(() => {
-    if (!selected) return
-    const onClick = (e) => {
-      if (elRef.current && !elRef.current.contains(e.target)) {
-        // Make sure any pending text edit is committed to the parent before we hide it
-        if (editing && textRef.current) {
-          const next = textRef.current.innerText
-          if (next !== (sticker.text_content || '')) onUpdate({ text_content: next })
-        }
-        setSelected(false); setEditing(false)
-      }
+    if (selected) return
+    if (editing && textRef.current) {
+      const next = textRef.current.innerText
+      if (next !== (sticker.text_content || '')) onUpdate({ text_content: next })
+      setEditing(false)
     }
-    window.addEventListener('mousedown', onClick)
-    return () => window.removeEventListener('mousedown', onClick)
   }, [selected, editing, onUpdate, sticker.text_content])
 
-  // Delete key removes the sticker when selected (and not editing)
+  // Delete key removes the sticker when selected solo (not editing). Multi-selection
+  // delete is handled by CanvasBoard so all selected stickers go together.
   useEffect(() => {
-    if (!selected || editing) return
+    if (!selected || editing || multiSelect) return
     const onKey = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); onDelete() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selected, editing, onDelete])
+  }, [selected, editing, multiSelect, onDelete])
 
   // Sync external text changes (initial mount, realtime updates) into the contenteditable
   // WITHOUT touching it while the user is actively editing (would clobber the caret).
@@ -1213,7 +1489,11 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     sel.removeAllRanges(); sel.addRange(range)
   }, [editing])
 
+  // Show full chrome (resize/rotate handles, toolbars) only when this sticker is the
+  // sole selection. In a multi-selection, only the dashed outline appears — the group
+  // bounding box (rendered by CanvasBoard) provides the unified resize/move affordance.
   const show = selected
+  const showHandles = selected && !multiSelect
 
   // Container box. Arrows may have negative w/h (direction-bearing deltas) so we flip
   // the top-left and use absolute dimensions for the actual rendered box.
@@ -1238,7 +1518,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   return (<>
     <div ref={elRef}
       onMouseDown={beginDrag}
-      onDoubleClick={isText ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
+      onDoubleClick={isText ? (e) => { e.stopPropagation(); onSelect?.({ additive: false }); setEditing(true) } : undefined}
       style={{
         position: 'absolute', left: cx, top: cy, width: cw, height: ch,
         transform: `rotate(${sticker.rotation || 0}deg)`,
@@ -1385,10 +1665,10 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
       transform: `rotate(${sticker.rotation || 0}deg)`,
       zIndex: chromeZ,
       pointerEvents: 'none',
-      outline: !isArrow ? '2px solid #F28C28' : 'none',
+      outline: !isArrow ? `2px ${showHandles ? 'solid' : 'dashed'} #F28C28` : 'none',
       borderRadius: 4,
     }}>
-        {!isArrow && <>
+        {!isArrow && showHandles && <>
           {/* Rotation zones — invisible squares in the outer quadrant of each corner. */}
           {ROTATE_ZONES.map(r => (
             <div key={'rot-' + r.c} onMouseDown={beginRotate} style={{
@@ -1415,7 +1695,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
             ))}
         </>}
 
-        {isArrow && (() => {
+        {isArrow && showHandles && (() => {
           // Endpoint handles at the actual start and end of the arrow within the box.
           const sx = sticker.w < 0 ? Math.abs(sticker.w) : 0
           const sy = sticker.h < 0 ? Math.abs(sticker.h) : 0
@@ -1437,8 +1717,9 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
 
         {/* Actions toolbar — Bring forward / Send back / Delete. Sits inside the box
             top-right for images/text/shapes, near the arrowhead for arrows. The whole
-            toolbar counter-rotates so icons stay upright when the sticker is rotated. */}
-        <div onMouseDown={(e) => e.stopPropagation()} style={{
+            toolbar counter-rotates so icons stay upright when the sticker is rotated.
+            Hidden in multi-selection — group operations live on the marquee chrome. */}
+        {showHandles && <div onMouseDown={(e) => e.stopPropagation()} style={{
           position: 'absolute',
           ...(isArrow
             ? { left: (sticker.w < 0 ? 0 : cw) + 12, top: (sticker.h < 0 ? 0 : ch) + 12 }
@@ -1475,13 +1756,13 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
               <path d="M14 11v6" />
             </svg>
           </button>
-        </div>
+        </div>}
 
         {/* Formatting toolbar: text gets font-size + text + fill colour; arrows get
             stroke-width + stroke colour; shapes get border + opacity + fill (no font
             size since shapes are now pure visual frames). Counter-rotated so its
             content stays upright when the sticker itself is rotated. */}
-        {(isText || isShape || isArrow) && (
+        {showHandles && (isText || isShape || isArrow) && (
           <div onMouseDown={(e) => e.stopPropagation()} style={{
             position: 'absolute', bottom: -56,
             left: isArrow ? Math.min((sticker.w < 0 ? 0 : cw), (sticker.w < 0 ? cw : 0)) : '50%',
