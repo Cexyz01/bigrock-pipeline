@@ -322,8 +322,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                 ))}
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: '#71717a', fontSize: 12, padding: 48 }}>No messages</div>
+                {!projectId ? (
+                  <div style={{ textAlign: 'center', color: '#71717a', fontSize: 12, padding: 48 }}>Seleziona un progetto per usare la chat</div>
+                ) : channels.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: '#71717a', fontSize: 12, padding: 48 }}>Non sei assegnato a nessun reparto in questo progetto</div>
+                ) : messages.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: '#71717a', fontSize: 12, padding: 48 }}>Nessun messaggio</div>
                 ) : messages.map(m => renderMessage(m, false))}
                 <div ref={endRef} />
               </div>
