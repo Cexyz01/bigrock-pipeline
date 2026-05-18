@@ -302,7 +302,7 @@ function ToolIcon({ id, active }) {
   }
 }
 
-function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onBringForward, onSendBack, onUndo, onCreateSticker }) {
+function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onBringForward, onSendBack, onUndo, onCommitUndo, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
   const containerRef = useRef(null)
@@ -890,6 +890,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
             interactive={effectiveTool === 'select'}
             onSelectionChange={(id) => setSelectedId(prev => id ?? (prev === sticker.id ? null : prev))}
             onUpdate={(u) => onStickerUpdate(sticker.id, u)}
+            onCommitUndo={onCommitUndo}
             onBringForward={() => onBringForward?.(sticker.id)}
             onSendBack={() => onSendBack?.(sticker.id)}
             onDelete={() => onStickerDelete(sticker.id)} />
@@ -969,7 +970,7 @@ const ROTATE_ZONES = [
   { c: 'br', pos: { bottom: -44, right: -44, width: 32, height: 32 } },
 ]
 
-function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSendBack, autoEdit, onSelectionChange, interactive = true }) {
+function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSendBack, onCommitUndo, autoEdit, onSelectionChange, interactive = true }) {
   const isImage = sticker.kind === 'image' || !sticker.kind
   const isText = sticker.kind === 'text'
   const isRect = sticker.kind === 'rect'
@@ -997,6 +998,15 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     if (!interactive) { setSelected(false); setEditing(false) }
   }, [interactive])
 
+  // Captures the sticker's state BEFORE an interactive action (drag / resize / rotate /
+  // endpoint) so we can push a single 'update' undo entry on mouseup — one entry per
+  // user gesture, not per pixel.
+  const actionBeforeRef = useRef(null)
+  const snapshotBefore = () => {
+    const s = latestRef.current
+    actionBeforeRef.current = { x: s.x, y: s.y, w: s.w, h: s.h, rotation: s.rotation || 0 }
+  }
+
   const beginDrag = (e) => {
     // If the canvas isn't in select mode (hand / drawing tool / space-to-pan), let the
     // mousedown bubble to the canvas — the user wants to pan or draw, not select.
@@ -1005,6 +1015,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     e.stopPropagation(); e.preventDefault(); setSelected(true)
     const s = latestRef.current
     startRef.current = { mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
+    snapshotBefore()
     setAction('drag')
   }
 
@@ -1012,6 +1023,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     e.stopPropagation(); e.preventDefault()
     const s = latestRef.current
     startRef.current = { handle, mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
+    snapshotBefore()
     setAction('resize')
   }
 
@@ -1025,6 +1037,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     // current rotation. New rotation = startRotation + (cursor angle delta) — no snap.
     const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI)
     startRef.current = { cx, cy, startAngle, startRotation: latestRef.current.rotation || 0 }
+    snapshotBefore()
     setAction('rotate')
   }
 
@@ -1034,6 +1047,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
     e.stopPropagation(); e.preventDefault()
     const s = latestRef.current
     startRef.current = { which, mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
+    snapshotBefore()
     setAction('endpoint')
   }
 
@@ -1101,10 +1115,20 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
         }
       }
     }
-    const onUp = () => setAction(null)
+    const onUp = () => {
+      // One undo entry per gesture: compare end-of-action state vs the snapshot we
+      // took at mousedown, and push 'update' only if anything actually changed.
+      const before = actionBeforeRef.current
+      const s = latestRef.current
+      if (before && s && (before.x !== s.x || before.y !== s.y || before.w !== s.w || before.h !== s.h || (before.rotation || 0) !== (s.rotation || 0))) {
+        onCommitUndo?.({ type: 'update', id: sticker.id, before })
+      }
+      actionBeforeRef.current = null
+      setAction(null)
+    }
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [action, scale, onUpdate])
+  }, [action, scale, onUpdate, onCommitUndo, sticker.id])
 
   // Deselect on click outside
   useEffect(() => {
@@ -1811,8 +1835,12 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
       delete pendingStickerUpdates.current[entry.id]
       setStickers(prev => prev.filter(s => s.id !== entry.id))
       await deleteSticker(entry.id)
+    } else if (entry.type === 'update') {
+      // Restore the pre-gesture geometry/rotation. Goes through the regular
+      // optimistic update path so DB save + realtime reconcile work as usual.
+      handleStickerUpdate(entry.id, entry.before)
     }
-  }, [currentProject?.id, user?.id])
+  }, [currentProject?.id, user?.id, handleStickerUpdate])
 
   // Z-order: bring to front / send to back. Uses the existing optimistic update path
   // (handleStickerUpdate) so the new ordering is rendered immediately and saved with
@@ -2057,7 +2085,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
           onBringForward={handleBringForward} onSendBack={handleSendBack}
-          onUndo={handleUndo}
+          onUndo={handleUndo} onCommitUndo={pushUndo}
           onCreateSticker={handleCreateSticker} />
       ) : (
         <CanvasBoard
@@ -2073,7 +2101,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           autoEditId={autoEditId}
           onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete}
           onBringForward={handleBringForward} onSendBack={handleSendBack}
-          onUndo={handleUndo}
+          onUndo={handleUndo} onCommitUndo={pushUndo}
           onCreateSticker={handleCreateSticker} />
       )}
 
