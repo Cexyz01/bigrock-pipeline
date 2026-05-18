@@ -668,17 +668,17 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     }, 0)
   }, [boardW])
 
-  // Cursor for the canvas surface based on the active tool. In Select mode the canvas
-  // gets the default arrow cursor — that way an empty area looks "inert" and the user
-  // can tell at a glance when they're hovering a sticker (the sticker's own `grab`
-  // cursor takes over and signals "click here drags this").
+  // Cursor for the canvas surface based on the active tool. In Select mode, hovering
+  // the empty board shows a hand cursor — clicking-dragging there pans the view.
+  // Stickers override with their own arrow cursor (set on the sticker container)
+  // so the user can visually tell "this area pans" vs "this area is an object".
   const surfaceCursor = (() => {
     if (dragging) return 'grabbing'
     if (draft) return 'crosshair'
     if (effectiveTool === 'hand') return 'grab'
     if (effectiveTool === 'text') return 'text'
     if (effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') return 'crosshair'
-    return 'default' // select → arrow over empty board
+    return 'grab' // select → hand over empty board (where clicking pans)
   })()
 
   return (
@@ -1241,7 +1241,14 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
       style={{
         position: 'absolute', left: cx, top: cy, width: cw, height: ch,
         transform: `rotate(${sticker.rotation || 0}deg)`,
-        cursor: editing ? 'text' : action === 'drag' ? 'grabbing' : 'grab',
+        // Cursor convention:
+        // - editing text → text caret
+        // - dragging (mouse held) → grabbing (4-arrow "moving" feel)
+        // - hovering an interactive sticker → arrow (default), so the user knows
+        //   "this is an object I can click/drag" — distinct from the canvas hand
+        //   cursor which means "click here to pan"
+        // - hand mode (interactive=false) → grab so it matches the canvas
+        cursor: editing ? 'text' : action === 'drag' ? 'grabbing' : interactive ? 'default' : 'grab',
         zIndex: contentZ,
         borderRadius: 4,
         // For arrows: don't let the rectangular bounding box catch clicks. Only the
@@ -1344,7 +1351,8 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
                 tool is active so panning / drawing isn't blocked by the arrow's hit area. */}
             <line x1={sx} y1={sy} x2={ex} y2={ey}
               stroke="transparent" strokeWidth={Math.max(16, sw * 4)}
-              strokeLinecap="round" style={{ pointerEvents: interactive ? 'stroke' : 'none', cursor: 'grab' }}
+              strokeLinecap="round"
+              style={{ pointerEvents: interactive ? 'stroke' : 'none', cursor: interactive ? 'default' : 'grab' }}
               onMouseDown={beginDrag} />
             {/* Visible arrow */}
             <line x1={sx} y1={sy} x2={ex} y2={ey}
