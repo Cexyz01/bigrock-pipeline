@@ -81,31 +81,18 @@ export default function ReviewPage({
     return () => { cancelled = true }
   }, [reviewTasks.map(t => t.id).join(',')])
 
-  // ── Project progress (mirrors OverviewPage) ──
+  // ── Project progress (task-based, mirrors OverviewPage) ──
   const progress = useMemo(() => {
-    const isDone = st => st === 'approved' || st === 'review'
-    let total = 0, done = 0
-    for (const sh of shots) for (const id of SHOT_DEPT_IDS) {
-      if (!isDeptEnabled(sh, id)) continue
-      total++; if (isDone(sh[`status_${id}`])) done++
-    }
-    for (const a of assets) for (const id of ASSET_DEPT_IDS) {
-      if (!isDeptEnabled(a, id)) continue
-      total++; if (isDone(a[`status_${id}`])) done++
-    }
+    const total = tasks.length
+    const todo = tasks.filter(t => t.status === 'todo').length
+    const wip = tasks.filter(t => t.status === 'wip').length
+    const review = tasks.filter(t => t.status === 'review').length
+    const done = tasks.filter(t => t.status === 'approved').length
     const pct = total > 0 ? Math.round((done / total) * 100) : 0
-    const statusCounts = SHOT_STATUSES.map(st => {
-      let c = 0
-      for (const sh of shots) for (const id of SHOT_DEPT_IDS) {
-        if (isDeptEnabled(sh, id) && sh[`status_${id}`] === st.id) c++
-      }
-      for (const a of assets) for (const id of ASSET_DEPT_IDS) {
-        if (isDeptEnabled(a, id) && a[`status_${id}`] === st.id) c++
-      }
-      return { ...st, count: c }
-    })
+    const byId = { not_started: todo, in_progress: wip + review, approved: done }
+    const statusCounts = SHOT_STATUSES.map(st => ({ ...st, count: byId[st.id] || 0 }))
     return { total, done, pct, statusCounts }
-  }, [shots, assets])
+  }, [tasks])
 
   return (
     <div style={{ background: '#1a1a1a', height: '100%', overflowY: 'auto' }}>
