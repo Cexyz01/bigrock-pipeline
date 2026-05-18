@@ -3,6 +3,7 @@ import { ASSET_DEPTS, ACCENT, isVideoUrl } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import ShotCell from '../shots/ShotCell'
 import { IconEdit, IconCheck, IconX, IconTrash, IconImage } from '../ui/Icons'
+import Img from '../ui/Img'
 
 const iconBtnStyle = {
   background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', opacity: 0.5, padding: 4,
@@ -130,7 +131,7 @@ const AssetRow = React.memo(function AssetRow({
             <input ref={fileRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
             {refImg ? (
               <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#000' }}>
-                <img src={previewUrl(refImg)} alt="Reference" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
+                <Img src={previewUrl(refImg)} alt="Reference" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
                 <button onClick={() => fileRef.current?.click()} disabled={uploading}
                   style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <IconImage size={11} /> {uploading ? '...' : 'Cambia'}
@@ -157,7 +158,7 @@ const AssetRow = React.memo(function AssetRow({
                 {isVideoUrl(outImg) ? (
                   <video src={outImg} style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} controls muted />
                 ) : (
-                  <img src={previewUrl(outImg)} alt="Output" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
+                  <Img src={previewUrl(outImg)} alt="Output" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
                 )}
                 <button onClick={() => outputFileRef.current?.click()} disabled={uploadingOutput}
                   style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -241,7 +242,7 @@ const AssetRow = React.memo(function AssetRow({
         )}
 
         {refThumb && !isMobile && (
-          <img src={refThumb} alt="" style={{ width: 28, height: 28, borderRadius: 5, objectFit: 'cover', flexShrink: 0, border: '1px solid #E2E8F0' }} />
+          <Img src={refThumb} alt="" style={{ width: 28, height: 28, borderRadius: 5, objectFit: 'cover', flexShrink: 0, border: '1px solid #E2E8F0' }} />
         )}
 
         <div style={{ flex: 1, minWidth: 0 }}>

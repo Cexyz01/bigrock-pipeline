@@ -10,6 +10,7 @@ import EmptyState from '../ui/EmptyState'
 import ShotRow from '../shots/ShotRow'
 import AssetRow from '../assets/AssetRow'
 import { IconCamera, IconX } from '../ui/Icons'
+import Img from '../ui/Img'
 
 export default function ShotTrackerPage({
   shots, assets = [], tasks = [], user, canEditShots = true,
@@ -331,7 +332,7 @@ export default function ShotTrackerPage({
             <input ref={refInputRef} type="file" accept="image/*" onChange={handleRefSelect} style={{ display: 'none' }} />
             {refPreview ? (
               <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '2px solid ' + ACCENT }}>
-                <img src={refPreview} alt="Reference" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' }} />
+                <Img src={refPreview} alt="Reference" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' }} />
                 <button
                   onClick={() => { setRefFile(null); setRefPreview(null); if (refInputRef.current) refInputRef.current.value = '' }}
                   style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -388,7 +389,7 @@ export default function ShotTrackerPage({
             <input ref={assetRefInputRef} type="file" accept="image/*" onChange={handleAssetRefSelect} style={{ display: 'none' }} />
             {assetRefPreview ? (
               <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '2px solid ' + ACCENT }}>
-                <img src={assetRefPreview} alt="Reference" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' }} />
+                <Img src={assetRefPreview} alt="Reference" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' }} />
                 <button
                   onClick={() => { setAssetRefFile(null); setAssetRefPreview(null); if (assetRefInputRef.current) assetRefInputRef.current.value = '' }}
                   style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}

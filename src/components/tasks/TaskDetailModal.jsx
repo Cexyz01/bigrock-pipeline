@@ -11,6 +11,7 @@ import ImageLightbox from '../ui/ImageLightbox'
 import { IconX, IconImage, IconSend, IconCheck, IconTrash } from '../ui/Icons'
 import AssigneePicker from './AssigneePicker'
 import { cld } from '../../lib/cld'
+import Img from '../ui/Img'
 
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
@@ -595,7 +596,7 @@ export default function TaskDetailModal({
                         </div>
                       ) : (
                         <div key={imgIdx} onClick={() => setLightboxUrl(imgUrl)} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', cursor: 'pointer', aspectRatio: '1' }}>
-                          <img src={cld(imgUrl, { w: 400, h: 400, fit: 'fill' })} alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          <Img src={imgUrl} w={400} h={400} fit="fill" alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         </div>
                       )
                     ))}
@@ -625,7 +626,7 @@ export default function TaskDetailModal({
                         <span style={{ fontSize: 9, color: '#64748B', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wipFiles[idx]?.name}</span>
                       </div>
                     ) : (
-                      <img src={preview} alt={`WIP ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <Img src={preview} alt={`WIP ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     )}
                     <button onClick={() => handleRemoveFile(idx)} style={{ position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>X</button>
                   </div>

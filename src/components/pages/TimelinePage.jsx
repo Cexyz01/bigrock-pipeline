@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { ACCENT, DEFAULT_FPS, DEFAULT_DURATION_FRAMES, isAudioUrl, isVideoUrl } from '../../lib/constants'
 import { IconTimeline, IconX } from '../ui/Icons'
+import Img from '../ui/Img'
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer'
 
 // ── Helpers ──
@@ -746,7 +747,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                         <td style={{ padding: '8px 12px', textAlign: 'center', fontSize: 14, color: '#94A3B8', fontWeight: 500 }}>{shot.timeline_enabled !== false ? globalIdx : '—'}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                           {thumbSrc ? (
-                            <img src={thumbSrc} alt="" style={{ width: 60, height: 34, objectFit: 'cover', borderRadius: 4, border: '1px solid #334155' }} />
+                            <Img src={thumbSrc} alt="" style={{ width: 60, height: 34, objectFit: 'cover', borderRadius: 4, border: '1px solid #334155' }} />
                           ) : (
                             <div style={{ width: 60, height: 34, background: '#1E293B', borderRadius: 4 }} />
                           )}
@@ -897,7 +898,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
               {(selectedShot.ref_cloud_url || selectedShot.concept_image_url) && (
                 <div>
                   <div style={{ fontSize: 10, color: '#64748B', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase' }}>Reference</div>
-                  <img src={smallThumb(selectedShot.ref_cloud_url || selectedShot.concept_image_url)}
+                  <Img src={smallThumb(selectedShot.ref_cloud_url || selectedShot.concept_image_url)}
                     alt="" style={{ width: '100%', borderRadius: 6, border: '1px solid #1E293B' }} />
                 </div>
               )}
@@ -911,7 +912,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                   if (outputFileRef.current) outputFileRef.current.value = ''
                 }} style={{ display: 'none' }} />
                 {selectedShot.output_cloud_url && !isVideoUrl(selectedShot.output_cloud_url) && (
-                  <img src={smallThumb(selectedShot.output_cloud_url)} alt="" style={{ width: '100%', borderRadius: 6, border: '1px solid #1E293B', marginBottom: 6 }} />
+                  <Img src={smallThumb(selectedShot.output_cloud_url)} alt="" style={{ width: '100%', borderRadius: 6, border: '1px solid #1E293B', marginBottom: 6 }} />
                 )}
                 {selectedShot.output_cloud_url && isVideoUrl(selectedShot.output_cloud_url) && (
                   <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 6, padding: '6px 8px', background: '#1E293B', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1013,7 +1014,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                   }}
                 >
                   {imgUrl && (
-                    <img src={imgUrl} alt="" style={{
+                    <Img src={imgUrl} alt="" style={{
                       position: 'absolute', inset: 0, width: '100%', height: '100%',
                       objectFit: 'cover', opacity: 0.25, pointerEvents: 'none',
                     }} />

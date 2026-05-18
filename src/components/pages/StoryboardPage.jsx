@@ -5,6 +5,7 @@ import { supabase, getStoryboardImages, getStickers, createSticker, updateSticke
 import useIsMobile from '../../hooks/useIsMobile'
 import { IconX, IconSearch, IconLayout, IconTarget } from '../ui/Icons'
 import { cld } from '../../lib/cld'
+import Img from '../ui/Img'
 
 // ── Constants ──
 const STATUS_KEY = dept => `status_${dept === 'compositing' ? 'compositing' : dept}`
@@ -110,7 +111,7 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
           <audio controls src={img.image_url} autoPlay style={{ minWidth: 300 }} />
         </div>
       ) : (
-        <img src={cld(img.image_url, { w: 1920, h: 1920, fit: 'limit' })} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '80vh', borderRadius: 6, objectFit: 'contain', cursor: 'default', boxShadow: '0 8px 60px rgba(0,0,0,0.5)' }} />
+        <Img src={img.image_url} w={1920} h={1920} fit="limit" alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '80vh', borderRadius: 6, objectFit: 'contain', cursor: 'default', boxShadow: '0 8px 60px rgba(0,0,0,0.5)' }} />
       )}
       {images.length > 1 && <>
         <button onClick={e => { e.stopPropagation(); onNav(-1) }} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, backdropFilter: 'blur(4px)' }}>&lsaquo;</button>
@@ -206,7 +207,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     )
     return (
       <div style={{ height: cellH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <img src={thumbUrl(images[0].image_url, 400, 225)} alt="" onClick={() => onClickImage(0)}
+        <Img src={thumbUrl(images[0].image_url, 400, 225)} alt="" onClick={() => onClickImage(0)}
           style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
       </div>
     )
@@ -220,7 +221,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
           {isAudioUrl(img.image_url) ? (
             <AudioMiniPlayer url={img.image_url} />
           ) : (
-            <img src={thumbUrl(img.image_url, 280, 158)} alt="" onClick={() => onClickImage(i)}
+            <Img src={thumbUrl(img.image_url, 280, 158)} alt="" onClick={() => onClickImage(i)}
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
           )}
         </div>
@@ -242,7 +243,7 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
   return (
     <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ height: cellH, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '1px solid #E8ECF1', background: '#fff', transition: 'all 0.15s ease', transform: hov ? 'translateY(-1px)' : 'none', boxShadow: hov ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <img src={refThumbUrl(url, 400, 225)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+      <Img src={refThumbUrl(url, 400, 225)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
     </div>
   )
 })
@@ -1258,8 +1259,11 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
         pointerEvents: isArrow ? 'none' : undefined,
       }}>
       {isImage && (
-        <img
-          src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })}
+        <Img
+          src={sticker.image_url}
+          w={600}
+          h={600}
+          fit="limit"
           alt=""
           draggable={false}
           onLoad={(e) => {

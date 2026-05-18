@@ -10,6 +10,7 @@ import StatusBadge from '../ui/StatusBadge'
 import ImageLightbox from '../ui/ImageLightbox'
 import { IconX } from '../ui/Icons'
 import { cld } from '../../lib/cld'
+import Img from '../ui/Img'
 
 export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate, currentProject }) {
   const isMobile = useIsMobile()
@@ -439,7 +440,7 @@ function WipCard({ wip, green, onImageClick }) {
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {wip.images.map((url, i) => (
             <div key={i} onClick={() => onImageClick?.(url)} style={{ cursor: 'pointer' }}>
-              <img src={cld(url, { w: 120, h: 120, fit: 'fill' })} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: `1px solid ${imgBorder}` }} />
+              <Img src={url} w={120} h={120} fit="fill" alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: `1px solid ${imgBorder}` }} />
             </div>
           ))}
         </div>

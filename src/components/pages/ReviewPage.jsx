@@ -4,6 +4,7 @@ import { getWipUpdates } from '../../lib/supabase'
 import Av from '../ui/Av'
 import EmptyState from '../ui/EmptyState'
 import { IconEye } from '../ui/Icons'
+import Img from '../ui/Img'
 
 // ── date helpers (local-time, no UTC drift) ──
 const MS_DAY = 86400000
@@ -456,7 +457,7 @@ function WipBlock({ wip }) {
           }}>
             {images.map((src, i) => (
               <a key={i} href={src} target="_blank" rel="noopener noreferrer" style={{ display: 'block', borderRadius: 12, overflow: 'hidden', background: '#000', border: '1px solid #E8ECF1' }}>
-                <img src={src} alt="" style={{
+                <Img src={src} alt="" style={{
                   width: '100%', maxHeight: images.length === 1 ? 480 : 320, objectFit: 'contain',
                   display: 'block', background: '#000',
                 }} />
