@@ -27,6 +27,40 @@ function thumbUrl(url, w = 300, h = 260) {
   return url
 }
 
+// Canvas-based text wrap measurement so we can grow rows to fit the description.
+let _measureCtx = null
+function getMeasureCtx() {
+  if (_measureCtx) return _measureCtx
+  if (typeof document === 'undefined') return null
+  const c = document.createElement('canvas')
+  _measureCtx = c.getContext('2d')
+  return _measureCtx
+}
+
+function measureDescH(text, maxW, fontSize = 12, lineH = 18, padV = 24) {
+  if (!text) return padV + lineH
+  const ctx = getMeasureCtx()
+  if (!ctx) return padV + Math.ceil(String(text).length / 38) * lineH
+  ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+  let lines = 0
+  for (const paragraph of String(text).split('\n')) {
+    if (!paragraph) { lines += 1; continue }
+    const words = paragraph.split(/\s+/)
+    let line = ''
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w
+      if (ctx.measureText(test).width > maxW && line) {
+        lines += 1
+        line = w
+      } else {
+        line = test
+      }
+    }
+    if (line) lines += 1
+  }
+  return Math.max(1, lines) * lineH + padV
+}
+
 // ══════════════════════════════════════════════════
 // LIGHTBOX
 // ══════════════════════════════════════════════════
@@ -208,8 +242,8 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
   )
 })
 
-// Row height: base 240px, grows only when multiple images need grid rows
-function computeRowH(item, imageMap, depts) {
+// Row height: base 240px, grows to fit multi-image grids AND the full description text.
+function computeRowH(item, imageMap, depts, description) {
   const BASE = 240
   let maxGridH = 0
 
@@ -222,22 +256,117 @@ function computeRowH(item, imageMap, depts) {
     maxGridH = Math.max(maxGridH, gridH)
   }
 
-  return Math.max(BASE, maxGridH)
+  // Description text must always be fully visible — width is B_DESC_W minus 28px horizontal padding.
+  const descH = measureDescH(description, B_DESC_W - 28) + 8
+
+  return Math.max(BASE, maxGridH, descH)
 }
 
 // ══════════════════════════════════════════════════
 // CANVAS / BOARD VIEW — pan & zoom whiteboard
 // ══════════════════════════════════════════════════
 
-function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, openCellImage, openRef, funMode, stickers, onStickerUpdate, onStickerDelete, onStickerDrop }) {
+function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
   const containerRef = useRef(null)
+  const fileInputRef = useRef(null)
   const [scale, setScale] = useState(0.55)
   const [pan, setPan] = useState(null) // null = needs centering
   const [dragging, setDragging] = useState(false)
   const [dropHighlight, setDropHighlight] = useState(false)
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
+
+  // Convert screen coordinates to board coordinates (inverse of the pan+scale transform)
+  const screenToBoard = useCallback((clientX, clientY) => {
+    const el = containerRef.current
+    if (!el) return { x: 200, y: 200 }
+    const rect = el.getBoundingClientRect()
+    const ap = pan || { x: 40, y: 20 }
+    return {
+      x: Math.round((clientX - rect.left - ap.x) / scale),
+      y: Math.round((clientY - rect.top - ap.y) / scale),
+    }
+  }, [pan, scale])
+
+  // Board coords for the center of the currently visible viewport (used by toolbar adds)
+  const viewportCenterBoard = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return { x: 300, y: 300 }
+    return screenToBoard(el.getBoundingClientRect().left + el.clientWidth / 2,
+                         el.getBoundingClientRect().top + el.clientHeight / 2)
+  }, [screenToBoard])
+
+  // Robust drop: files, URL drags, plain text — all map to a sticker.
+  const handleDrop = useCallback(async (e) => {
+    if (!creativeMode) return
+    e.preventDefault(); e.stopPropagation(); setDropHighlight(false)
+    const { x: bx, y: by } = screenToBoard(e.clientX, e.clientY)
+    const cx = bx - 100, cy = by - 100
+
+    const dt = e.dataTransfer
+    const files = dt?.files
+    if (files && files.length) {
+      let i = 0
+      for (const f of files) {
+        if (f.type.startsWith('image/')) {
+          onCreateSticker({ kind: 'image', file: f, x: cx + i * 24, y: cy + i * 24 })
+          i++
+        }
+      }
+      if (i > 0) return
+    }
+
+    const uri = dt?.getData('text/uri-list') || ''
+    const plain = dt?.getData('text/plain') || ''
+    const candidate = uri || plain
+    if (candidate && /^(https?:|data:image\/)/i.test(candidate.trim())) {
+      try {
+        const r = await fetch(candidate.trim())
+        const b = await r.blob()
+        if (b.type.startsWith('image/')) {
+          const ext = (b.type.split('/')[1] || 'png').split('+')[0]
+          const f = new File([b], `dropped.${ext}`, { type: b.type })
+          onCreateSticker({ kind: 'image', file: f, x: cx, y: cy })
+          return
+        }
+      } catch {}
+    }
+
+    if (plain && plain.trim()) {
+      onCreateSticker({ kind: 'text', text: plain.trim(), x: cx, y: cy })
+    }
+  }, [creativeMode, screenToBoard, onCreateSticker])
+
+  const handleDragOver = useCallback((e) => {
+    if (!creativeMode) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    setDropHighlight(true)
+  }, [creativeMode])
+
+  const handleDragLeave = useCallback((e) => {
+    if (!creativeMode) return
+    // Only clear when leaving the container (not its children)
+    if (e.currentTarget === e.target) setDropHighlight(false)
+  }, [creativeMode])
+
+  const onFilesPicked = useCallback((e) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    const c = viewportCenterBoard()
+    files.forEach((f, i) => {
+      if (f.type.startsWith('image/')) {
+        onCreateSticker({ kind: 'image', file: f, x: c.x - 100 + i * 24, y: c.y - 100 + i * 24 })
+      }
+    })
+    e.target.value = ''
+  }, [viewportCenterBoard, onCreateSticker])
+
+  const handleAddText = useCallback(() => {
+    const c = viewportCenterBoard()
+    onCreateSticker({ kind: 'text', text: '', x: c.x - 120, y: c.y - 30, w: 240, h: 60 })
+  }, [viewportCenterBoard, onCreateSticker])
 
   // Zoom toward cursor
   useEffect(() => {
@@ -310,7 +439,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     rowPositions.push({ type: 'seq', seq, y: currentY, count: seqItems.length })
     currentY += B_SEQ_H + B_GAP
     for (const item of seqItems) {
-      const cellH = computeRowH(item, imageMap, depts)
+      const cellH = computeRowH(item, imageMap, depts, getDescription(item))
       rowPositions.push({ type: 'shot', shot: item, y: currentY, cellH })
       currentY += cellH + B_GAP
     }
@@ -361,19 +490,10 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 
   return (
     <div ref={containerRef} onMouseDown={handleMouseDown} onAuxClick={e => e.preventDefault()}
-      onDragOver={funMode ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropHighlight(true) } : undefined}
-      onDragLeave={funMode ? () => setDropHighlight(false) : undefined}
-      onDrop={funMode ? (e) => {
-        e.preventDefault(); setDropHighlight(false)
-        const file = e.dataTransfer.files?.[0]
-        if (!file || !file.type.startsWith('image/')) return
-        // Convert screen coords to board coords
-        const rect = containerRef.current.getBoundingClientRect()
-        const ap = pan || { x: 40, y: 20 }
-        const boardX = (e.clientX - rect.left - ap.x) / scale
-        const boardY = (e.clientY - rect.top - ap.y) / scale
-        onStickerDrop(file, Math.round(boardX - 100), Math.round(boardY - 100))
-      } : undefined}
+      onDragEnter={creativeMode ? handleDragOver : undefined}
+      onDragOver={creativeMode ? handleDragOver : undefined}
+      onDragLeave={creativeMode ? handleDragLeave : undefined}
+      onDrop={creativeMode ? handleDrop : undefined}
       style={{
         flex: 1, overflow: 'hidden', position: 'relative',
         cursor: dragging ? 'grabbing' : 'grab',
@@ -390,6 +510,30 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         <button onClick={() => setScale(s => Math.max(0.1, s * 0.8))} style={zoomBtnStyle}>&minus;</button>
         <button onClick={resetView} title="Reset view" style={{ ...zoomBtnStyle, fontSize: 11 }}><IconTarget size={14} /></button>
       </div>
+
+      {/* Creative-mode quick-add toolbar */}
+      {creativeMode && (
+        <div style={{
+          position: 'absolute', top: 16, left: 16, zIndex: 20,
+          display: 'flex', gap: 6, padding: 6, borderRadius: 12,
+          background: 'rgba(255,255,255,0.95)', border: '1px solid #E2E8F0',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.08)', backdropFilter: 'blur(8px)',
+        }}>
+          <button onClick={handleAddText} style={toolbarBtnStyle}>
+            <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>T</span>
+            <span>Testo</span>
+          </button>
+          <button onClick={() => fileInputRef.current?.click()} style={toolbarBtnStyle}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>＋</span>
+            <span>Immagine</span>
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple
+            style={{ display: 'none' }} onChange={onFilesPicked} />
+          <div style={{ alignSelf: 'center', fontSize: 10, color: '#94A3B8', marginLeft: 4, maxWidth: 160, lineHeight: 1.3 }}>
+            Trascina file o incolla (Ctrl/⌘+V)
+          </div>
+        </div>
+      )}
 
       {/* Transformed board surface */}
       <div style={{
@@ -463,8 +607,10 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
                 position: 'absolute', left: colX(2), top: 0,
                 width: B_DESC_W, height: cellH,
                 background: '#fff', borderRadius: 10, border: '1px solid #E8ECF1',
-                padding: '12px 14px', overflow: 'hidden',
+                padding: '12px 14px',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                boxSizing: 'border-box',
               }}>
                 {description ? (
                   <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>{description}</span>
@@ -491,8 +637,9 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         })}
 
         {/* Sticker layer */}
-        {funMode && stickers.map(sticker => (
+        {creativeMode && stickers.map(sticker => (
           <StickerItem key={sticker.id} sticker={sticker} scale={scale}
+            autoEdit={sticker.id === autoEditId}
             onUpdate={(u) => onStickerUpdate(sticker.id, u)}
             onDelete={() => onStickerDelete(sticker.id)} />
         ))}
@@ -502,18 +649,25 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 }
 
 // ══════════════════════════════════════════════════
-// STICKER ITEM — draggable, resizable, rotatable
+// STICKER ITEM — draggable, resizable, rotatable (image or text)
 // ══════════════════════════════════════════════════
 
-function StickerItem({ sticker, scale, onUpdate, onDelete }) {
-  const [selected, setSelected] = useState(false)
-  const [action, setAction] = useState(null) // 'drag' | 'resize_XX' | 'rotate'
+const TEXT_COLOR_SWATCHES = ['#1a1a1a', '#ffffff', '#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899']
+const TEXT_BG_SWATCHES = ['transparent', '#FEF3C7', '#FECACA', '#BBF7D0', '#BFDBFE', '#DDD6FE', '#FBCFE8', '#1F2937']
+
+function StickerItem({ sticker, scale, onUpdate, onDelete, autoEdit }) {
+  const isText = sticker.kind === 'text'
+  const [selected, setSelected] = useState(!!autoEdit)
+  const [editing, setEditing] = useState(!!autoEdit && isText)
+  const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate'
   const startRef = useRef(null)
   const elRef = useRef(null)
+  const textRef = useRef(null)
   const latestRef = useRef(sticker)
   latestRef.current = sticker
 
   const beginDrag = (e) => {
+    if (editing) return
     e.stopPropagation(); e.preventDefault(); setSelected(true)
     const s = latestRef.current
     startRef.current = { mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h }
@@ -523,7 +677,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete }) {
   const beginResize = (e, corner) => {
     e.stopPropagation(); e.preventDefault()
     const s = latestRef.current
-    const aspect = s.w / Math.max(s.h, 1)
+    const aspect = isText ? null : s.w / Math.max(s.h, 1)
     startRef.current = { corner, mx: e.clientX, my: e.clientY, x: s.x, y: s.y, w: s.w, h: s.h, aspect }
     setAction('resize')
   }
@@ -545,13 +699,22 @@ function StickerItem({ sticker, scale, onUpdate, onDelete }) {
         onUpdate({ x: Math.round(st.x + dx), y: Math.round(st.y + dy) })
       } else if (action === 'resize') {
         const dx = (e.clientX - st.mx) / scale, dy = (e.clientY - st.my) / scale
-        const c = st.corner, ar = st.aspect || 1
+        const c = st.corner, ar = st.aspect
         let nx = st.x, ny = st.y, nw = st.w, nh = st.h
-        if (c === 'br') { nw = st.w + dx; nh = nw / ar }
-        else if (c === 'bl') { nw = st.w - dx; nh = nw / ar; nx = st.x + st.w - nw }
-        else if (c === 'tr') { nw = st.w + dx; nh = nw / ar; ny = st.y + st.h - nh }
-        else if (c === 'tl') { nw = st.w - dx; nh = nw / ar; nx = st.x + st.w - nw; ny = st.y + st.h - nh }
-        nw = Math.max(40, nw); nh = Math.max(40, nh)
+        if (ar) {
+          // Image: aspect-locked from the dragged corner
+          if (c === 'br') { nw = st.w + dx; nh = nw / ar }
+          else if (c === 'bl') { nw = st.w - dx; nh = nw / ar; nx = st.x + st.w - nw }
+          else if (c === 'tr') { nw = st.w + dx; nh = nw / ar; ny = st.y + st.h - nh }
+          else if (c === 'tl') { nw = st.w - dx; nh = nw / ar; nx = st.x + st.w - nw; ny = st.y + st.h - nh }
+        } else {
+          // Text: free resize
+          if (c === 'br') { nw = st.w + dx; nh = st.h + dy }
+          else if (c === 'bl') { nw = st.w - dx; nh = st.h + dy; nx = st.x + st.w - nw }
+          else if (c === 'tr') { nw = st.w + dx; nh = st.h - dy; ny = st.y + st.h - nh }
+          else if (c === 'tl') { nw = st.w - dx; nh = st.h - dy; nx = st.x + st.w - nw; ny = st.y + st.h - nh }
+        }
+        nw = Math.max(40, nw); nh = Math.max(28, nh)
         onUpdate({ x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) })
       } else if (action === 'rotate') {
         const deg = Math.round(Math.atan2(e.clientY - st.cy, e.clientX - st.cx) * (180 / Math.PI) + 90)
@@ -566,26 +729,81 @@ function StickerItem({ sticker, scale, onUpdate, onDelete }) {
   // Deselect on click outside
   useEffect(() => {
     if (!selected) return
-    const onClick = (e) => { if (elRef.current && !elRef.current.contains(e.target)) setSelected(false) }
+    const onClick = (e) => {
+      if (elRef.current && !elRef.current.contains(e.target)) {
+        setSelected(false); setEditing(false)
+      }
+    }
     window.addEventListener('mousedown', onClick)
     return () => window.removeEventListener('mousedown', onClick)
   }, [selected])
 
-  const show = selected // always show handles when selected
+  // Delete key removes the sticker when selected (and not editing)
+  useEffect(() => {
+    if (!selected || editing) return
+    const onKey = (e) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); onDelete() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, editing, onDelete])
+
+  // Autofocus the text area on entering edit mode
+  useEffect(() => {
+    if (editing && textRef.current) {
+      textRef.current.focus()
+      // place caret at end
+      const sel = window.getSelection()
+      const range = document.createRange()
+      range.selectNodeContents(textRef.current)
+      range.collapse(false)
+      sel.removeAllRanges(); sel.addRange(range)
+    }
+  }, [editing])
+
+  const show = selected
 
   return (
     <div ref={elRef}
       onMouseDown={beginDrag}
+      onDoubleClick={isText ? (e) => { e.stopPropagation(); setSelected(true); setEditing(true) } : undefined}
       style={{
         position: 'absolute', left: sticker.x, top: sticker.y, width: sticker.w, height: sticker.h,
         transform: `rotate(${sticker.rotation || 0}deg)`,
-        cursor: action === 'drag' ? 'grabbing' : 'grab',
+        cursor: editing ? 'text' : action === 'drag' ? 'grabbing' : 'grab',
         zIndex: 1000 + (sticker.z_index || 0),
         outline: show ? '2px solid #F28C28' : 'none',
         borderRadius: 4,
       }}>
-      <img src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })} alt="" draggable={false}
-        style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none', userSelect: 'none' }} />
+      {isText ? (
+        <div
+          ref={textRef}
+          contentEditable={editing}
+          suppressContentEditableWarning
+          onBlur={(e) => {
+            const next = e.currentTarget.innerText
+            setEditing(false)
+            if (next !== sticker.text_content) onUpdate({ text_content: next })
+          }}
+          onMouseDown={editing ? (e) => e.stopPropagation() : undefined}
+          style={{
+            width: '100%', height: '100%',
+            background: sticker.bg_color || 'transparent',
+            color: sticker.text_color || '#1a1a1a',
+            fontSize: sticker.font_size || 18, lineHeight: 1.35,
+            fontWeight: 600, padding: '8px 12px', boxSizing: 'border-box',
+            borderRadius: 8, outline: editing ? '2px solid #F28C28' : 'none',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            overflow: 'hidden', userSelect: editing ? 'text' : 'none',
+            cursor: editing ? 'text' : 'inherit',
+            boxShadow: (sticker.bg_color && sticker.bg_color !== 'transparent') ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
+          }}>
+          {sticker.text_content || ''}
+        </div>
+      ) : (
+        <img src={cld(sticker.image_url, { w: 600, h: 600, fit: 'limit' })} alt="" draggable={false}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none', userSelect: 'none' }} />
+      )}
 
       {show && <>
         {/* Delete */}
@@ -615,11 +833,53 @@ function StickerItem({ sticker, scale, onUpdate, onDelete }) {
           cursor: 'crosshair', boxShadow: '0 2px 6px rgba(0,0,0,0.2)', zIndex: 10,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12,
         }}>↻</div>
-        {/* Line from rotate handle to sticker */}
         <div style={{ position: 'absolute', top: -20, left: '50%', width: 1, height: 20, background: '#10B981', pointerEvents: 'none' }} />
+
+        {/* Text formatting toolbar */}
+        {isText && (
+          <div onMouseDown={(e) => e.stopPropagation()} style={{
+            position: 'absolute', bottom: -56, left: '50%', transform: 'translateX(-50%)',
+            background: '#fff', borderRadius: 10, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', zIndex: 12,
+            whiteSpace: 'nowrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={() => onUpdate({ font_size: Math.max(10, (sticker.font_size || 18) - 2) })}
+                style={miniBtn}>A−</button>
+              <span style={{ fontSize: 11, color: '#64748B', minWidth: 18, textAlign: 'center' }}>{sticker.font_size || 18}</span>
+              <button onClick={() => onUpdate({ font_size: Math.min(96, (sticker.font_size || 18) + 2) })}
+                style={miniBtn}>A+</button>
+            </div>
+            <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+            <div style={{ display: 'flex', gap: 3 }} title="Colore testo">
+              {TEXT_COLOR_SWATCHES.map(c => (
+                <button key={c} onClick={() => onUpdate({ text_color: c })} style={{
+                  width: 14, height: 14, borderRadius: '50%', background: c, cursor: 'pointer',
+                  border: (sticker.text_color || '#1a1a1a') === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
+                }} />
+              ))}
+            </div>
+            <div style={{ width: 1, height: 18, background: '#E2E8F0' }} />
+            <div style={{ display: 'flex', gap: 3 }} title="Sfondo">
+              {TEXT_BG_SWATCHES.map(c => (
+                <button key={c} onClick={() => onUpdate({ bg_color: c })} style={{
+                  width: 14, height: 14, borderRadius: 4,
+                  background: c === 'transparent' ? 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 8px 8px' : c,
+                  cursor: 'pointer',
+                  border: (sticker.bg_color || 'transparent') === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
+                }} />
+              ))}
+            </div>
+          </div>
+        )}
       </>}
     </div>
   )
+}
+
+const miniBtn = {
+  border: '1px solid #E2E8F0', background: '#F8FAFC', borderRadius: 6,
+  padding: '2px 6px', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer',
 }
 
 const zoomBtnStyle = {
@@ -627,6 +887,13 @@ const zoomBtnStyle = {
   background: '#fff', color: '#475569', fontSize: 18, fontWeight: 600,
   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
   boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+}
+
+const toolbarBtnStyle = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  padding: '6px 12px', borderRadius: 8, border: '1px solid #E2E8F0',
+  background: '#fff', color: '#1a1a1a', fontSize: 13, fontWeight: 600,
+  cursor: 'pointer', transition: 'all 0.12s ease',
 }
 
 // ══════════════════════════════════════════════════
@@ -645,15 +912,20 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   const [filterSeq, setFilterSeq] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [lightbox, setLightbox] = useState(null)
-  const [funMode, setFunMode] = useState(() => localStorage.getItem('storyboard_fun') === 'true')
+  const [creativeMode, setCreativeMode] = useState(() => {
+    const v = localStorage.getItem('storyboard_creative')
+    if (v !== null) return v === 'true'
+    return localStorage.getItem('storyboard_fun') === 'true' // legacy key
+  })
   const [stickers, setStickers] = useState([])
   const [uploadingSticker, setUploadingSticker] = useState(false)
   const [activeTab, setActiveTab] = useState('shots')
+  const [autoEditId, setAutoEditId] = useState(null)
 
-  const toggleFun = () => {
-    const next = !funMode
-    setFunMode(next)
-    localStorage.setItem('storyboard_fun', next)
+  const toggleCreative = () => {
+    const next = !creativeMode
+    setCreativeMode(next)
+    localStorage.setItem('storyboard_creative', next)
   }
 
   const loadImages = useCallback(async () => {
@@ -703,15 +975,122 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     return () => { supabase.removeChannel(ch1); supabase.removeChannel(ch2) }
   }, [currentProject?.id, loadImages, loadStickers])
 
-  // Drop image file onto storyboard to create sticker
-  const handleStickerDrop = useCallback(async (file, dropX, dropY) => {
-    if (!file || !currentProject?.id || !funMode) return
-    setUploadingSticker(true)
-    const { url, error } = await uploadStickerImage(currentProject.id, file)
-    if (error) { addToast?.('Upload error: ' + error.message, 'danger'); setUploadingSticker(false); return }
-    await createSticker({ project_id: currentProject.id, user_id: user.id, image_url: url, x: dropX || 300, y: dropY || 300, w: 200, h: 200, rotation: 0, z_index: stickers.length })
-    setUploadingSticker(false)
-  }, [currentProject?.id, funMode, user?.id, stickers.length])
+  // Page focus refetch: if a tab has been idle (sleep, background), the Realtime
+  // channel can miss DELETEs. A focus/visibility refetch keeps the local state honest
+  // (the "broken-image '?' icon after a remote delete" scenario).
+  useEffect(() => {
+    if (!currentProject?.id) return
+    const onWake = () => {
+      if (document.visibilityState === 'visible') { loadImages(); loadStickers() }
+    }
+    window.addEventListener('focus', onWake)
+    document.addEventListener('visibilitychange', onWake)
+    return () => {
+      window.removeEventListener('focus', onWake)
+      document.removeEventListener('visibilitychange', onWake)
+    }
+  }, [currentProject?.id, loadImages, loadStickers])
+
+  // Creative mode: window-level fallbacks so external drops/pastes always work,
+  // even if the canvas didn't get the native event (Mac/Safari quirks, drop outside the surface).
+  useEffect(() => {
+    if (!creativeMode || !currentProject?.id) return
+
+    const onWinDragOver = (e) => {
+      // Prevent the browser from opening the dropped file as a new page.
+      if (e.dataTransfer?.types?.length) e.preventDefault()
+    }
+    const onWinDrop = async (e) => {
+      // If the canvas already handled it, defaultPrevented is true — bail out.
+      if (e.defaultPrevented) return
+      const dt = e.dataTransfer
+      if (!dt) return
+      e.preventDefault()
+      const files = dt.files
+      if (files && files.length) {
+        for (const f of files) {
+          if (f.type.startsWith('image/')) {
+            await handleCreateSticker({ kind: 'image', file: f, x: 300, y: 300 })
+          }
+        }
+        return
+      }
+      const txt = dt.getData('text/plain')
+      if (txt && txt.trim()) await handleCreateSticker({ kind: 'text', text: txt.trim(), x: 300, y: 300 })
+    }
+    const onPaste = async (e) => {
+      // Don't intercept paste happening inside an editable field
+      const t = e.target
+      if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      const items = e.clipboardData?.items
+      if (!items || !items.length) return
+      for (const item of items) {
+        if (item.type && item.type.startsWith('image/')) {
+          const f = item.getAsFile()
+          if (f) {
+            e.preventDefault()
+            await handleCreateSticker({ kind: 'image', file: f, x: 300, y: 300 })
+            return
+          }
+        }
+      }
+      // Plain text paste → text sticker
+      const txt = e.clipboardData?.getData('text/plain')
+      if (txt && txt.trim()) {
+        e.preventDefault()
+        await handleCreateSticker({ kind: 'text', text: txt.trim(), x: 300, y: 300 })
+      }
+    }
+
+    window.addEventListener('dragover', onWinDragOver)
+    window.addEventListener('drop', onWinDrop)
+    window.addEventListener('paste', onPaste)
+    return () => {
+      window.removeEventListener('dragover', onWinDragOver)
+      window.removeEventListener('drop', onWinDrop)
+      window.removeEventListener('paste', onPaste)
+    }
+  }, [creativeMode, currentProject?.id, handleCreateSticker])
+
+  // Unified sticker creator — handles image files (upload to Cloudinary) and plain text.
+  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h }) => {
+    if (!currentProject?.id || !creativeMode) return
+    const baseX = Math.round(x ?? 300), baseY = Math.round(y ?? 300)
+    const z = stickers.length
+
+    if (kind === 'image') {
+      if (!file) return
+      setUploadingSticker(true)
+      const { url, error } = await uploadStickerImage(currentProject.id, file)
+      setUploadingSticker(false)
+      if (error) { addToast?.('Upload error: ' + error.message, 'danger'); return }
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id,
+        kind: 'image', image_url: url,
+        x: baseX, y: baseY, w: w || 220, h: h || 220, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        // Optimistic insert (realtime will reconcile)
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+      }
+      return
+    }
+
+    if (kind === 'text') {
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id,
+        kind: 'text', text_content: text || '',
+        text_color: '#1a1a1a', bg_color: '#FEF3C7', font_size: 18,
+        x: baseX, y: baseY, w: w || 240, h: h || 80, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        setAutoEditId(data.id)
+        // Clear the auto-edit marker shortly after so future mounts don't re-trigger it.
+        setTimeout(() => setAutoEditId(curr => curr === data.id ? null : curr), 1500)
+      }
+    }
+  }, [currentProject?.id, creativeMode, user?.id, stickers.length, addToast])
 
   const stickerSaveTimers = useRef({})
   const handleStickerUpdate = useCallback((id, updates) => {
@@ -849,17 +1228,31 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Fun/Serious toggle */}
-            <button onClick={toggleFun} style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 20,
-              border: funMode ? '2px solid #F59E0B' : '1px solid #E2E8F0',
-              background: funMode ? '#FFFBEB' : '#F8FAFC', fontSize: 12, fontWeight: 600,
-              color: funMode ? '#D97706' : '#94A3B8', cursor: 'pointer', transition: 'all 0.2s',
+            {/* Clean / Creative mode toggle */}
+            <div role="tablist" aria-label="Storyboard mode" style={{
+              display: 'inline-flex', background: '#F1F5F9', borderRadius: 999, padding: 3, gap: 2,
+              border: creativeMode ? '1px solid #FCD34D' : '1px solid transparent',
+              transition: 'border-color 0.15s',
             }}>
-              {funMode ? '🎉 Fun' : '📋 Serious'}
-            </button>
-            {funMode && uploadingSticker && (
-              <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Uploading...</span>
+              {[
+                { id: 'clean', label: 'Clean' },
+                { id: 'creative', label: 'Creative' },
+              ].map(opt => {
+                const active = (opt.id === 'creative') === creativeMode
+                return (
+                  <button key={opt.id} onClick={() => { const wantCreative = opt.id === 'creative'; if (wantCreative !== creativeMode) toggleCreative() }} style={{
+                    padding: '5px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600,
+                    background: active ? '#fff' : 'transparent',
+                    color: active ? (opt.id === 'creative' ? '#D97706' : ACCENT) : '#64748B',
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s',
+                  }}>{opt.label}</button>
+                )
+              })}
+            </div>
+            {creativeMode && uploadingSticker && (
+              <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Caricamento...</span>
             )}
             <div style={{ position: 'relative', minWidth: isMobile ? 120 : 180 }}>
               <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex' }}><IconSearch size={14} color="#94A3B8" /></div>
@@ -895,8 +1288,8 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getDeptStatus={(s, dId) => s[STATUS_KEY(dId)]}
           getDeptDisabled={(s, dId) => !isDeptEnabled(s, dId)}
           openCellImage={openShotCellImage} openRef={openShotRef}
-          funMode={funMode} stickers={stickers}
-          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onStickerDrop={handleStickerDrop} />
+          creativeMode={creativeMode} stickers={stickers} autoEditId={autoEditId}
+          onStickerUpdate={handleStickerUpdate} onStickerDelete={handleStickerDelete} onCreateSticker={handleCreateSticker} />
       ) : (
         <CanvasBoard
           sequences={assetSequences} imageMap={assetImageMap} depts={ASSET_DEPTS}
@@ -905,8 +1298,8 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
           getDescription={a => a.description}
           getDeptStatus={(a, dId) => a[STATUS_KEY(dId)]}
           openCellImage={openAssetCellImage} openRef={openAssetRef}
-          funMode={false} stickers={[]}
-          onStickerUpdate={() => {}} onStickerDelete={() => {}} onStickerDrop={() => {}} />
+          creativeMode={false} stickers={[]} autoEditId={null}
+          onStickerUpdate={() => {}} onStickerDelete={() => {}} onCreateSticker={() => {}} />
       )}
 
       {lightbox && <GalleryLightbox images={lightbox.images} index={lightbox.index} shotCode={lightbox.shotCode} deptLabel={lightbox.deptLabel} statusObj={lightbox.statusObj} onClose={() => setLightbox(null)} onNav={handleNav} />}
