@@ -365,6 +365,26 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   const [strokeGroupAction, setStrokeGroupAction] = useState(null) // { mx, my, snaps: Map<id, {x,y}> }
   const selectedStrokeIdsRef = useRef(selectedStrokeIds)
   selectedStrokeIdsRef.current = selectedStrokeIds
+
+  // Union bbox of every currently selected stroke. Lives in board space, used to
+  // both render the dashed selection outline and to hit-test the cursor inside it
+  // (= start a group drag) vs. outside it (= start a new marquee). Declared here
+  // — before any useCallback that closes over it — so that the dep arrays of
+  // those callbacks don't reference it during the TDZ window.
+  const strokeGroupBbox = useMemo(() => {
+    if (selectedStrokeIds.size === 0) return null
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const id of selectedStrokeIds) {
+      const s = stickers.find(x => x.id === id)
+      if (!s || s.kind !== 'stroke') continue
+      if (s.x < minX) minX = s.x
+      if (s.y < minY) minY = s.y
+      if (s.x + s.w > maxX) maxX = s.x + s.w
+      if (s.y + s.h > maxY) maxY = s.y + s.h
+    }
+    if (!Number.isFinite(minX)) return null
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+  }, [selectedStrokeIds, stickers])
   // Group manipulation. While active, mousemove on window applies the captured deltas
   // to every selected sticker via handleStickerUpdate. We snapshot the starting geometry
   // for every selected sticker once on mousedown so resizes / drags scale relative to
@@ -959,24 +979,6 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       }).filter(Boolean),
     })
   }, [stickers])
-
-  // Union bbox of every currently selected stroke. Lives in board space, used to
-  // both render the dashed selection outline and to hit-test the cursor inside it
-  // (= start a group drag) vs. outside it (= start a new marquee).
-  const strokeGroupBbox = useMemo(() => {
-    if (selectedStrokeIds.size === 0) return null
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    for (const id of selectedStrokeIds) {
-      const s = stickers.find(x => x.id === id)
-      if (!s || s.kind !== 'stroke') continue
-      if (s.x < minX) minX = s.x
-      if (s.y < minY) minY = s.y
-      if (s.x + s.w > maxX) maxX = s.x + s.w
-      if (s.y + s.h > maxY) maxY = s.y + s.h
-    }
-    if (!Number.isFinite(minX)) return null
-    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
-  }, [selectedStrokeIds, stickers])
 
   // Group bbox in board coordinates — derived from all currently selected stickers.
   // Returns null when fewer than 2 are selected (single-selection has its own chrome).
