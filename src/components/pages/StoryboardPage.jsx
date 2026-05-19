@@ -278,14 +278,19 @@ function computeRowH(item, imageMap, depts, description, descHeights) {
 // ══════════════════════════════════════════════════
 
 // Tool palette definition. Shortcuts intentionally mirror Figma/Miro defaults.
+// Hotkey assignments are deliberately scoped to tools the user reaches by
+// keyboard often (selection, hand, drawing). Shape tools (rect/ellipse/arrow)
+// stay click-only — their keys (R/O/A/L) were never used in practice and were
+// stepping on shortcuts that matter (E for eraser etc.). Shortcuts work the
+// same on Mac and Windows; modifier handling below uses ctrlKey || metaKey so
+// Cmd on macOS behaves identically to Ctrl on Windows.
 const TOOLS = [
   { id: 'select',  label: 'Seleziona',  shortcut: 'V' },
   { id: 'hand',    label: 'Mano',       shortcut: 'H' },
   { id: 'text',    label: 'Testo',      shortcut: 'T' },
-  { id: 'rect',    label: 'Rettangolo', shortcut: 'R' },
-  // Ellipse moved off E — that key now belongs to the eraser. O for "oval".
-  { id: 'ellipse', label: 'Ellisse',    shortcut: 'O' },
-  { id: 'arrow',   label: 'Freccia',    shortcut: 'A' },
+  { id: 'rect',    label: 'Rettangolo' },
+  { id: 'ellipse', label: 'Ellisse' },
+  { id: 'arrow',   label: 'Freccia' },
   { id: 'pen',     label: 'Pennarello', shortcut: 'B' },
   { id: 'eraser',  label: 'Gomma',      shortcut: 'E' },
   { id: 'strokemove', label: 'Sposta disegno', shortcut: 'W' },
@@ -1150,16 +1155,16 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         return
       }
       // Tool shortcuts
-      // New layout: B = pen, E = eraser, W = stroke marquee, O = ellipse (moved
-      // off E to free that key). P / X / M kept as legacy aliases so muscle memory
-      // from older builds isn't punished. L still aliases A for arrow.
+      // Only the tools the user actually reaches by keyboard get a binding.
+      // Shape tools (rect/ellipse/arrow) are click-only by design so we never
+      // collide with the ones that matter (B/E/W especially).
+      // Keys are matched on `e.key` which is locale- and OS-agnostic for ASCII
+      // letters — same string on Mac and Windows.
       const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
-        t: 'text', T: 'text', r: 'rect', R: 'rect',
-        o: 'ellipse', O: 'ellipse',
-        a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow',
-        b: 'pen', B: 'pen', p: 'pen', P: 'pen',
-        e: 'eraser', E: 'eraser', x: 'eraser', X: 'eraser',
-        w: 'strokemove', W: 'strokemove', m: 'strokemove', M: 'strokemove' }
+        t: 'text', T: 'text',
+        b: 'pen', B: 'pen',
+        e: 'eraser', E: 'eraser',
+        w: 'strokemove', W: 'strokemove' }
       if (toolKeys[k] && !mod) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
     }
     const onKeyUp = (e) => { if (e.key === ' ') setSpaceHeld(false) }
@@ -1284,7 +1289,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           boxShadow: '0 6px 20px rgba(0,0,0,0.12)', backdropFilter: 'blur(8px)',
         }}>
           {TOOLS.map(t => (
-            <button key={t.id} onClick={() => setActiveTool(t.id)} title={`${t.label} (${t.shortcut})`}
+            <button key={t.id} onClick={() => setActiveTool(t.id)} title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
               style={{
                 width: 36, height: 36, borderRadius: 8, padding: 0,
                 border: '1px solid transparent',
@@ -2015,13 +2020,19 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
 
   // When the parent removes this sticker from the selection (click on background,
   // marquee, etc.), close the inline text editor and commit any pending text edit so
-  // we don't drop the user's last keystrokes.
+  // we don't drop the user's last keystrokes. We ALSO explicitly blur the
+  // contenteditable — otherwise document.activeElement keeps pointing at it after
+  // contentEditable flips false, and on macOS that hijacks Cmd+Z as "undo typing"
+  // (the browser's native edit-menu shortcut takes precedence over our handler).
   useEffect(() => {
     if (selected) return
     if (editing && textRef.current) {
       const next = textRef.current.innerText
       if (next !== (sticker.text_content || '')) onUpdate({ text_content: next })
       setEditing(false)
+    }
+    if (textRef.current && document.activeElement === textRef.current) {
+      textRef.current.blur()
     }
   }, [selected, editing, onUpdate, sticker.text_content])
 
