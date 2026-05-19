@@ -283,11 +283,12 @@ const TOOLS = [
   { id: 'hand',    label: 'Mano',       shortcut: 'H' },
   { id: 'text',    label: 'Testo',      shortcut: 'T' },
   { id: 'rect',    label: 'Rettangolo', shortcut: 'R' },
-  { id: 'ellipse', label: 'Ellisse',    shortcut: 'E' },
+  // Ellipse moved off E — that key now belongs to the eraser. O for "oval".
+  { id: 'ellipse', label: 'Ellisse',    shortcut: 'O' },
   { id: 'arrow',   label: 'Freccia',    shortcut: 'A' },
-  { id: 'pen',     label: 'Pennarello', shortcut: 'P' },
-  { id: 'eraser',  label: 'Gomma',      shortcut: 'X' },
-  { id: 'strokemove', label: 'Sposta disegno', shortcut: 'M' },
+  { id: 'pen',     label: 'Pennarello', shortcut: 'B' },
+  { id: 'eraser',  label: 'Gomma',      shortcut: 'E' },
+  { id: 'strokemove', label: 'Sposta disegno', shortcut: 'W' },
 ]
 
 function ToolIcon({ id, active }) {
@@ -1147,11 +1148,16 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         return
       }
       // Tool shortcuts
+      // New layout: B = pen, E = eraser, W = stroke marquee, O = ellipse (moved
+      // off E to free that key). P / X / M kept as legacy aliases so muscle memory
+      // from older builds isn't punished. L still aliases A for arrow.
       const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
-        t: 'text', T: 'text', r: 'rect', R: 'rect', e: 'ellipse', E: 'ellipse',
+        t: 'text', T: 'text', r: 'rect', R: 'rect',
+        o: 'ellipse', O: 'ellipse',
         a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow',
-        p: 'pen', P: 'pen', x: 'eraser', X: 'eraser',
-        m: 'strokemove', M: 'strokemove' }
+        b: 'pen', B: 'pen', p: 'pen', P: 'pen',
+        e: 'eraser', E: 'eraser', x: 'eraser', X: 'eraser',
+        w: 'strokemove', W: 'strokemove', m: 'strokemove', M: 'strokemove' }
       if (toolKeys[k] && !mod) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
     }
     const onKeyUp = (e) => { if (e.key === ' ') setSpaceHeld(false) }
@@ -1235,7 +1241,10 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     if (effectiveTool === 'pen') return 'crosshair'
     if (effectiveTool === 'eraser') return 'none' // a custom circle is drawn instead
     if (effectiveTool === 'strokemove') return strokeGroupAction ? 'grabbing' : 'crosshair'
-    return 'grab' // select → hand over empty board (where clicking pans)
+    // Select mode: the regular OS arrow — same cursor Windows/macOS show for
+    // standard box-selection on a file explorer / desktop. Left-drag spawns the
+    // marquee, right-drag pans, so the "grab" hand from earlier was misleading.
+    return 'default'
   })()
 
   return (
