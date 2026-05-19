@@ -285,6 +285,8 @@ const TOOLS = [
   { id: 'rect',    label: 'Rettangolo', shortcut: 'R' },
   { id: 'ellipse', label: 'Ellisse',    shortcut: 'E' },
   { id: 'arrow',   label: 'Freccia',    shortcut: 'A' },
+  { id: 'pen',     label: 'Pennarello', shortcut: 'P' },
+  { id: 'eraser',  label: 'Gomma',      shortcut: 'X' },
 ]
 
 function ToolIcon({ id, active }) {
@@ -299,6 +301,8 @@ function ToolIcon({ id, active }) {
     case 'ellipse': return <svg {...common}><ellipse cx="12" cy="12" rx="8" ry="6" /></svg>
     case 'arrow':   return <svg {...common}><path d="M4 12h15" /><path d="M14 6l5 6-5 6" /></svg>
     case 'image':   return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M5 19l5-5 4 4 3-3 3 3" /></svg>
+    case 'pen':     return <svg {...common}><path d="M3 21l3-1 11-11-2-2L4 18l-1 3z" /><path d="M14 7l3 3" /></svg>
+    case 'eraser':  return <svg {...common}><path d="M16 3l5 5L9 20H4v-5L16 3z" /><path d="M11 8l5 5" /></svg>
     default: return null
   }
 }
@@ -332,6 +336,16 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   // Marquee (left-drag on empty canvas while in Select mode). Coordinates are stored
   // in board space so the rectangle stays anchored to the world as the user pans/zooms.
   const [marquee, setMarquee] = useState(null) // { sx, sy, ex, ey } in board coords
+  // Pen / eraser state. Live path stores the points being drawn this stroke; brush
+  // settings persist across strokes. Eraser tracks the screen-space cursor so we can
+  // render a preview circle while the user moves it around.
+  const [penColor, setPenColor] = useState('#1a1a1a')
+  const [penSize, setPenSize] = useState(4)
+  const [eraserSize, setEraserSize] = useState(24)
+  const [livePath, setLivePath] = useState(null) // { points: [[x,y],...] } in board coords
+  const [erasing, setErasing] = useState(false)
+  const [eraserPos, setEraserPos] = useState(null) // { x, y } in screen coords (preview)
+  const erasedThisGesture = useRef(new Set()) // ids removed during the current eraser drag
   // Group manipulation. While active, mousemove on window applies the captured deltas
   // to every selected sticker via handleStickerUpdate. We snapshot the starting geometry
   // for every selected sticker once on mousedown so resizes / drags scale relative to
@@ -498,6 +512,40 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
+  // Eraser hit-test: remove any 'stroke' sticker whose path passes within (eraser
+  // radius + half stroke thickness) of the cursor. We only target strokes — other
+  // stickers (text, shapes, images) are intentionally NOT erasable so the user can't
+  // accidentally wipe a reference image with the eraser. Each removed stroke goes
+  // through onStickerDelete which pushes its own undo entry; gestures use the local
+  // erasedThisGesture Set so we don't double-delete the same stroke while the cursor
+  // dwells on it for multiple frames.
+  const eraseAt = useCallback((clientX, clientY) => {
+    const b = screenToBoard(clientX, clientY)
+    const radius = eraserSize / 2
+    for (const s of stickers) {
+      if (s.kind !== 'stroke') continue
+      if (erasedThisGesture.current.has(s.id)) continue
+      // Quick AABB reject before the per-point check.
+      const r = radius + (s.font_size || 4) / 2
+      const sx = s.x, sy = s.y, sw = s.w, sh = s.h
+      if (b.x + r < sx || b.x - r > sx + sw || b.y + r < sy || b.y - r > sy + sh) continue
+      // Per-point distance check against the local-space points stored in text_content.
+      let pts
+      try { pts = JSON.parse(s.text_content || '[]') } catch { pts = [] }
+      const hitR2 = r * r
+      let hit = false
+      for (const [px, py] of pts) {
+        const dx = (sx + px) - b.x
+        const dy = (sy + py) - b.y
+        if (dx * dx + dy * dy <= hitR2) { hit = true; break }
+      }
+      if (hit) {
+        erasedThisGesture.current.add(s.id)
+        onStickerDelete?.(s.id)
+      }
+    }
+  }, [stickers, eraserSize, screenToBoard, onStickerDelete])
+
   // Mouse buttons & tools matrix:
   //   middle / right click  → pan (any tool)
   //   left + Hand tool       → pan
@@ -526,6 +574,26 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
 
+    // Pen: start a fresh stroke. Points are sampled in board coordinates so the
+    // stroke remains crisp when the user later pans / zooms. We commit one sticker
+    // per gesture on mouseup → one stroke = one undo entry.
+    if (creativeMode && effectiveTool === 'pen') {
+      e.preventDefault()
+      const b = screenToBoard(e.clientX, e.clientY)
+      setLivePath({ points: [[b.x, b.y]] })
+      return
+    }
+
+    // Eraser: begin a gesture. We reset the per-gesture deduplication set and then
+    // run one hit-test immediately so a quick tap also erases what's under the cursor.
+    if (creativeMode && effectiveTool === 'eraser') {
+      e.preventDefault()
+      erasedThisGesture.current = new Set()
+      setErasing(true)
+      eraseAt(e.clientX, e.clientY)
+      return
+    }
+
     // Select tool + left click on empty board → marquee. Unless Shift/Ctrl held (then
     // the marquee adds to the existing selection on release).
     if (creativeMode && effectiveTool === 'select') {
@@ -539,9 +607,25 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     // Hand tool (or fallback) with left button → pan.
     setDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
-  }, [pan, creativeMode, effectiveTool, screenToBoard])
+  }, [pan, creativeMode, effectiveTool, screenToBoard, eraseAt])
 
   const handleMouseMove = useCallback((e) => {
+    if (livePath) {
+      const b = screenToBoard(e.clientX, e.clientY)
+      setLivePath(p => {
+        if (!p) return p
+        // Skip duplicate samples (the browser fires move events even when the cursor
+        // hasn't actually moved). Cheap optimisation: compare against the last point.
+        const last = p.points[p.points.length - 1]
+        if (last && last[0] === b.x && last[1] === b.y) return p
+        return { points: [...p.points, [b.x, b.y]] }
+      })
+      return
+    }
+    if (erasing) {
+      eraseAt(e.clientX, e.clientY)
+      return
+    }
     if (draft) {
       const b = screenToBoard(e.clientX, e.clientY)
       setDraft(d => d ? { ...d, ex: b.x, ey: b.y } : d)
@@ -556,9 +640,41 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy })
-  }, [dragging, draft, marquee, screenToBoard])
+  }, [dragging, draft, marquee, livePath, erasing, eraseAt, screenToBoard])
 
   const handleMouseUp = useCallback(() => {
+    if (livePath) {
+      // Need at least 2 points (a real stroke). A bare click without movement is
+      // silently dropped — most users tap accidentally while reaching for another tool.
+      if (livePath.points.length >= 2) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        for (const [x, y] of livePath.points) {
+          if (x < minX) minX = x; if (y < minY) minY = y
+          if (x > maxX) maxX = x; if (y > maxY) maxY = y
+        }
+        const pad = Math.max(2, penSize) // ensures stroke caps don't get clipped
+        minX -= pad; minY -= pad; maxX += pad; maxY += pad
+        // Convert absolute board points → coords local to the new sticker's top-left.
+        // Storing local coords means moving / duplicating the sticker doesn't require
+        // re-baselining the path — just translate the sticker's (x, y).
+        const rel = livePath.points.map(([x, y]) => [Math.round(x - minX), Math.round(y - minY)])
+        onCreateSticker({
+          kind: 'stroke',
+          x: Math.round(minX), y: Math.round(minY),
+          w: Math.round(maxX - minX), h: Math.round(maxY - minY),
+          text: JSON.stringify(rel),
+          text_color: penColor,
+          font_size: penSize,
+        })
+      }
+      setLivePath(null)
+      return
+    }
+    if (erasing) {
+      setErasing(false)
+      erasedThisGesture.current = new Set()
+      return
+    }
     if (marquee) {
       const x1 = Math.min(marquee.sx, marquee.ex), x2 = Math.max(marquee.sx, marquee.ex)
       const y1 = Math.min(marquee.sy, marquee.ey), y2 = Math.max(marquee.sy, marquee.ey)
@@ -616,10 +732,29 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
     setDragging(false)
-  }, [draft, marquee, stickers, onCreateSticker])
+  }, [draft, marquee, stickers, livePath, erasing, penColor, penSize, onCreateSticker])
+
+  // Track the cursor while the eraser tool is active so we can render a small
+  // preview circle showing the brush radius. Only attached when the tool is armed.
+  useEffect(() => {
+    if (!creativeMode || effectiveTool !== 'eraser') { setEraserPos(null); return }
+    const el = containerRef.current
+    if (!el) return
+    const onMove = (e) => {
+      const rect = el.getBoundingClientRect()
+      setEraserPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+    }
+    const onLeave = () => setEraserPos(null)
+    el.addEventListener('mousemove', onMove)
+    el.addEventListener('mouseleave', onLeave)
+    return () => {
+      el.removeEventListener('mousemove', onMove)
+      el.removeEventListener('mouseleave', onLeave)
+    }
+  }, [creativeMode, effectiveTool])
 
   useEffect(() => {
-    if (dragging || draft || marquee) {
+    if (dragging || draft || marquee || livePath || erasing) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -627,7 +762,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         window.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [dragging, draft, marquee, handleMouseMove, handleMouseUp])
+  }, [dragging, draft, marquee, livePath, erasing, handleMouseMove, handleMouseUp])
 
   // Selection helper passed to each StickerItem. Sticker calls this on mousedown:
   //   additive=true (Shift/Ctrl) → toggle membership without losing the rest.
@@ -824,7 +959,8 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       // Tool shortcuts
       const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
         t: 'text', T: 'text', r: 'rect', R: 'rect', e: 'ellipse', E: 'ellipse',
-        a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow' }
+        a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow',
+        p: 'pen', P: 'pen', x: 'eraser', X: 'eraser' }
       if (toolKeys[k] && !mod) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
     }
     const onKeyUp = (e) => { if (e.key === ' ') setSpaceHeld(false) }
@@ -905,6 +1041,8 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     if (effectiveTool === 'hand') return 'grab'
     if (effectiveTool === 'text') return 'text'
     if (effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') return 'crosshair'
+    if (effectiveTool === 'pen') return 'crosshair'
+    if (effectiveTool === 'eraser') return 'none' // a custom circle is drawn instead
     return 'grab' // select → hand over empty board (where clicking pans)
   })()
 
@@ -979,6 +1117,89 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         }}>
           Trascina per disegnare · <kbd style={{ fontFamily: 'inherit', opacity: 0.7 }}>Esc</kbd> per annullare
         </div>
+      )}
+
+      {/* Pen options popover — size slider + colour swatches. Anchored just below
+          the toolbar; pinned in screen-space so it doesn't pan with the board. */}
+      {creativeMode && effectiveTool === 'pen' && (
+        <div onMouseDown={e => e.stopPropagation()} style={{
+          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 19,
+          padding: '8px 12px', background: 'rgba(255,255,255,0.97)', borderRadius: 12,
+          border: '1px solid #E2E8F0', boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          {/* Visual preview of the current brush — diameter scales with penSize. */}
+          <div title={`Spessore ${penSize}px`} style={{
+            width: 30, height: 30, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: '#F1F5F9', flexShrink: 0,
+          }}>
+            <div style={{ width: Math.max(2, Math.min(28, penSize)), height: Math.max(2, Math.min(28, penSize)), borderRadius: '50%', background: penColor }} />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#475569' }}>
+            Spessore
+            <input type="range" min={1} max={40} step={1} value={penSize}
+              onChange={e => setPenSize(Number(e.target.value))}
+              style={{ width: 100, accentColor: '#F28C28' }} />
+            <span style={{ fontSize: 11, color: '#64748B', minWidth: 22, textAlign: 'right' }}>{penSize}</span>
+          </label>
+          <div style={{ width: 1, height: 22, background: '#E2E8F0' }} />
+          <div title="Colore pennarello" style={{
+            display: 'grid', gridTemplateColumns: 'repeat(7, 16px)', gap: 4,
+          }}>
+            {TEXT_COLOR_SWATCHES.map(c => (
+              <button key={c} onClick={() => setPenColor(c)} style={{
+                width: 16, height: 16, borderRadius: '50%', padding: 0,
+                background: c, cursor: 'pointer',
+                border: penColor === c ? '2px solid #F28C28' : '1px solid #CBD5E1',
+              }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Eraser options popover — just the brush size. */}
+      {creativeMode && effectiveTool === 'eraser' && (
+        <div onMouseDown={e => e.stopPropagation()} style={{
+          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 19,
+          padding: '8px 12px', background: 'rgba(255,255,255,0.97)', borderRadius: 12,
+          border: '1px solid #E2E8F0', boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div title={`Diametro ${eraserSize}px`} style={{
+            width: 30, height: 30, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: '#F1F5F9', flexShrink: 0,
+          }}>
+            <div style={{
+              width: Math.max(4, Math.min(28, eraserSize / 2)),
+              height: Math.max(4, Math.min(28, eraserSize / 2)),
+              borderRadius: '50%', background: '#fff', border: '1.5px solid #64748B',
+            }} />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#475569' }}>
+            Diametro
+            <input type="range" min={6} max={80} step={2} value={eraserSize}
+              onChange={e => setEraserSize(Number(e.target.value))}
+              style={{ width: 120, accentColor: '#F28C28' }} />
+            <span style={{ fontSize: 11, color: '#64748B', minWidth: 24, textAlign: 'right' }}>{eraserSize}</span>
+          </label>
+        </div>
+      )}
+
+      {/* Eraser cursor preview — rendered in screen coords so the circle stays a
+          constant diameter visually regardless of zoom. */}
+      {creativeMode && effectiveTool === 'eraser' && eraserPos && (
+        <div style={{
+          position: 'absolute',
+          left: eraserPos.x - (eraserSize * scale) / 2,
+          top: eraserPos.y - (eraserSize * scale) / 2,
+          width: eraserSize * scale, height: eraserSize * scale,
+          borderRadius: '50%',
+          border: '1.5px solid #475569', background: 'rgba(255,255,255,0.45)',
+          pointerEvents: 'none', zIndex: 25,
+          boxShadow: '0 0 0 1px rgba(255,255,255,0.6)',
+        }} />
       )}
 
       {/* Transformed board surface */}
@@ -1173,6 +1394,28 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           )
         })()}
 
+        {/* Live pen stroke preview while the user is drawing. Rendered as a single
+            polyline so it stays a continuous line even on fast cursor moves. */}
+        {livePath && livePath.points.length > 0 && (() => {
+          // Bbox + padding so the SVG doesn't get clipped by its own viewBox.
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          for (const [x, y] of livePath.points) {
+            if (x < minX) minX = x; if (y < minY) minY = y
+            if (x > maxX) maxX = x; if (y > maxY) maxY = y
+          }
+          const pad = Math.max(2, penSize)
+          minX -= pad; minY -= pad; maxX += pad; maxY += pad
+          const w = maxX - minX, h = maxY - minY
+          const pts = livePath.points.map(([x, y]) => `${x - minX},${y - minY}`).join(' ')
+          return (
+            <svg style={{ position: 'absolute', left: minX, top: minY, pointerEvents: 'none', zIndex: 9990 }}
+              width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+              <polyline points={pts} fill="none" stroke={penColor}
+                strokeWidth={penSize} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )
+        })()}
+
         {/* Drawing preview while a drawing tool is being dragged */}
         {draft && (() => {
           const x = Math.min(draft.sx, draft.ex), y = Math.min(draft.sy, draft.ey)
@@ -1280,6 +1523,7 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   const isEllipse = sticker.kind === 'ellipse'
   const isShape = isRect || isEllipse
   const isArrow = sticker.kind === 'arrow'
+  const isStroke = sticker.kind === 'stroke'
 
   const [editing, setEditing] = useState(!!autoEdit && isText)
   const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate' | 'endpoint'
@@ -1592,6 +1836,35 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
           }}
         />
       )}
+
+      {isStroke && (() => {
+        // Pen stroke — stored points are LOCAL to the sticker's top-left corner so
+        // moving the sticker just translates (x, y). Resizing the bounding box
+        // proportionally scales the rendered stroke via SVG viewBox (the viewBox is
+        // pinned to the points' NATURAL extent, not the current bbox, so the path
+        // is never warped). vectorEffect="non-scaling-stroke" keeps the line crisp
+        // at any zoom — the brush thickness is interpreted in screen px after the
+        // scale transform.
+        let pts
+        try { pts = JSON.parse(sticker.text_content || '[]') } catch { pts = [] }
+        if (pts.length < 2) return null
+        let maxX = 0, maxY = 0
+        for (const [px, py] of pts) { if (px > maxX) maxX = px; if (py > maxY) maxY = py }
+        const naturalW = maxX || 1
+        const naturalH = maxY || 1
+        const pointsStr = pts.map(([px, py]) => `${px},${py}`).join(' ')
+        return (
+          <svg width={cw} height={ch} viewBox={`0 0 ${naturalW} ${naturalH}`}
+            preserveAspectRatio="none"
+            style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}>
+            <polyline points={pointsStr} fill="none"
+              stroke={sticker.text_color || '#1a1a1a'}
+              strokeWidth={sticker.font_size || 4}
+              strokeLinecap="round" strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke" />
+          </svg>
+        )
+      })()}
 
       {isShape && (
         // Pure visual frame: fill + border + soft outer shadow. No text — the user
@@ -1977,7 +2250,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
 
   // Unified item creator — handles image files (upload to Cloudinary) and plain text.
   // Declared BEFORE the effects that depend on it to avoid TDZ during render.
-  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h }) => {
+  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h, text_color, font_size }) => {
     if (!currentProject?.id || !creativeModeRef.current) return
     const baseX = Math.round(x ?? 300), baseY = Math.round(y ?? 300)
     const board = activeTabRef.current // 'shots' | 'assets'
@@ -2063,6 +2336,26 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
         kind: 'arrow', text_content: null,
         text_color: '#1a1a1a', bg_color: null, font_size: 3,
         x: baseX, y: baseY, w: ww, h: hh, rotation: 0, z_index: z,
+      })
+      if (data?.id) {
+        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        pushUndo({ type: 'create', id: data.id })
+      }
+      return
+    }
+
+    if (kind === 'stroke') {
+      // Pen stroke. Points come in `text` as a JSON-serialised list of [x, y] pairs
+      // local to the sticker's top-left. text_color = stroke colour, font_size =
+      // brush thickness in px. We persist via the existing sticker schema — no DB
+      // migration needed — and the realtime channel will broadcast new strokes to
+      // anyone else viewing the same project.
+      const { data } = await createSticker({
+        project_id: currentProject.id, user_id: user.id, board,
+        kind: 'stroke', text_content: text || '[]',
+        text_color: text_color || '#1a1a1a', bg_color: null,
+        font_size: typeof font_size === 'number' ? font_size : 4,
+        x: baseX, y: baseY, w: w || 1, h: h || 1, rotation: 0, z_index: z,
       })
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
