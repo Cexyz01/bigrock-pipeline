@@ -739,8 +739,11 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       }
       // Bounding-box intersection — fast and matches user expectation (Figma-style).
       // Arrows have signed w/h so we normalise to an absolute box just for hit-testing.
+      // Strokes are deliberately skipped: they belong to the drawing-layer overlay
+      // and aren't supposed to participate in pointer selection at all.
       const hits = []
       for (const s of stickers) {
+        if (s.kind === 'stroke') continue
         const sx = s.w < 0 ? s.x + s.w : s.x
         const sy = s.h < 0 ? s.y + s.h : s.y
         const sw = Math.abs(s.w), sh = Math.abs(s.h)
@@ -987,10 +990,11 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         for (const id of selectedIdsRef.current) onSendBack?.(id)
         return
       }
-      // Select all stickers on the current board (Ctrl/⌘+A).
+      // Select all stickers on the current board (Ctrl/⌘+A). Strokes excluded —
+      // they belong to the drawing layer, not the selection model.
       if (mod && (k === 'a' || k === 'A')) {
         e.preventDefault()
-        setSelectedIds(new Set(stickers.map(s => s.id)))
+        setSelectedIds(new Set(stickers.filter(s => s.kind !== 'stroke').map(s => s.id)))
         return
       }
       // Group delete — when 2+ stickers are selected. (Single selection already
@@ -1395,8 +1399,10 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           )
         })}
 
-        {/* Sticker layer */}
-        {creativeMode && stickers.map(sticker => (
+        {/* Sticker layer — every kind EXCEPT strokes. Strokes live on a dedicated
+            drawing-layer overlay (below) so they always sit on top of the rest of
+            the board and aren't part of normal selection / chrome flows. */}
+        {creativeMode && stickers.filter(s => s.kind !== 'stroke').map(sticker => (
           <StickerItem key={sticker.id} sticker={sticker} scale={scale}
             autoEdit={sticker.id === autoEditId}
             interactive={effectiveTool === 'select'}
@@ -1449,27 +1455,47 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           )
         })()}
 
-        {/* Live pen stroke preview while the user is drawing. Rendered as a single
-            polyline so it stays a continuous line even on fast cursor moves. */}
-        {livePath && livePath.points.length > 0 && (() => {
-          // Bbox + padding so the SVG doesn't get clipped by its own viewBox.
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-          for (const [x, y] of livePath.points) {
-            if (x < minX) minX = x; if (y < minY) minY = y
-            if (x > maxX) maxX = x; if (y > maxY) maxY = y
-          }
-          const pad = Math.max(2, penSize)
-          minX -= pad; minY -= pad; maxX += pad; maxY += pad
-          const w = maxX - minX, h = maxY - minY
-          const pts = livePath.points.map(([x, y]) => `${x - minX},${y - minY}`).join(' ')
-          return (
-            <svg style={{ position: 'absolute', left: minX, top: minY, pointerEvents: 'none', zIndex: 9990 }}
-              width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
-              <polyline points={pts} fill="none" stroke={penColor}
-                strokeWidth={penSize} strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )
-        })()}
+        {/* Drawing layer — ONE big SVG overlay that holds every pen stroke on the
+            board plus the live preview. Always rendered above every sticker so the
+            ink behaves like marks on a single transparent sheet stretched over the
+            whole board. pointerEvents: none so it never intercepts clicks — strokes
+            are intentionally not selectable, they're modified exclusively by the
+            pen (which appends) and the eraser (which cuts points). */}
+        {creativeMode && (
+          <svg width={boardW} height={boardH} viewBox={`0 0 ${boardW} ${boardH}`}
+            style={{
+              position: 'absolute', left: 0, top: 0,
+              pointerEvents: 'none', zIndex: 99999, overflow: 'visible',
+            }}>
+            {stickers.filter(s => s.kind === 'stroke').map(s => {
+              const data = parseStroke(s.text_content)
+              if (!data || data.segments.length === 0) return null
+              // If the user has resized the underlying sticker (unlikely now that
+              // strokes aren't directly selectable, but legacy data may exist),
+              // scale the points into the current bbox.
+              const sxScale = s.w / Math.max(data.w, 1)
+              const syScale = s.h / Math.max(data.h, 1)
+              return data.segments.map((seg, i) => {
+                const absPts = seg.map(([x, y]) => [s.x + x * sxScale, s.y + y * syScale])
+                return (
+                  <path key={`${s.id}-${i}`} d={smoothPath(absPts)}
+                    fill="none"
+                    stroke={s.text_color || '#1a1a1a'}
+                    strokeWidth={s.font_size || 4}
+                    strokeLinecap="round" strokeLinejoin="round" />
+                )
+              })
+            })}
+            {/* Live pen stroke: same layer, same smoothing, so the moment the
+                user releases the pen the preview line BECOMES the persisted
+                sticker without any visual swap. */}
+            {livePath && livePath.points.length > 0 && (
+              <path d={smoothPath(livePath.points)} fill="none"
+                stroke={penColor} strokeWidth={penSize}
+                strokeLinecap="round" strokeLinejoin="round" />
+            )}
+          </svg>
+        )}
 
         {/* Drawing preview while a drawing tool is being dragged */}
         {draft && (() => {
@@ -1565,6 +1591,28 @@ function parseStroke(text) {
     if (x > maxX) maxX = x; if (y > maxY) maxY = y
   }
   return { w: maxX || 1, h: maxY || 1, segments }
+}
+
+// Convert a polyline (sampled points) into a smooth SVG path using quadratic
+// Bezier curves through midpoints. Each segment's control point IS the original
+// sample — the curve passes through midpoints between successive samples so the
+// result is C¹-continuous (no visible kinks) and rounds out the staircase pattern
+// you get from raw mousemove samples. Returns a `d` attribute string.
+function smoothPath(points) {
+  if (!points || points.length < 2) return ''
+  if (points.length === 2) {
+    return `M${points[0][0]},${points[0][1]} L${points[1][0]},${points[1][1]}`
+  }
+  let d = `M${points[0][0]},${points[0][1]}`
+  for (let i = 1; i < points.length - 1; i++) {
+    const cx = points[i][0], cy = points[i][1]
+    const mx = (cx + points[i + 1][0]) / 2
+    const my = (cy + points[i + 1][1]) / 2
+    d += ` Q${cx},${cy} ${mx},${my}`
+  }
+  const last = points[points.length - 1]
+  d += ` L${last[0]},${last[1]}`
+  return d
 }
 
 // Split a stroke's sub-polylines wherever a point falls within the eraser disc.
