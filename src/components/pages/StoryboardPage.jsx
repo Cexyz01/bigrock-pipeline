@@ -2347,16 +2347,24 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     if (kind === 'stroke') {
       // Pen stroke. Points come in `text` as a JSON-serialised list of [x, y] pairs
       // local to the sticker's top-left. text_color = stroke colour, font_size =
-      // brush thickness in px. We persist via the existing sticker schema — no DB
-      // migration needed — and the realtime channel will broadcast new strokes to
-      // anyone else viewing the same project.
-      const { data } = await createSticker({
+      // brush thickness in px. We persist via the existing sticker schema and the
+      // realtime channel broadcasts new strokes to anyone else viewing the project.
+      // (Migration 060 added 'stroke' to the kind CHECK constraint.)
+      const { data, error } = await createSticker({
         project_id: currentProject.id, user_id: user.id, board,
         kind: 'stroke', text_content: text || '[]',
         text_color: text_color || '#1a1a1a', bg_color: null,
         font_size: typeof font_size === 'number' ? font_size : 4,
         x: baseX, y: baseY, w: w || 1, h: h || 1, rotation: 0, z_index: z,
       })
+      // Surface insert failures explicitly — a silent fail (e.g. a future CHECK
+      // constraint mismatch) used to make the stroke "disappear on release" with
+      // no UI feedback at all.
+      if (error) {
+        console.warn('[stroke create] failed:', error.message)
+        addToast?.('Errore salvataggio tratto: ' + error.message, 'danger')
+        return
+      }
       if (data?.id) {
         setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
         pushUndo({ type: 'create', id: data.id })
