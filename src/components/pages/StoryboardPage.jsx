@@ -302,7 +302,10 @@ function ToolIcon({ id, active }) {
     case 'arrow':   return <svg {...common}><path d="M4 12h15" /><path d="M14 6l5 6-5 6" /></svg>
     case 'image':   return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M5 19l5-5 4 4 3-3 3 3" /></svg>
     case 'pen':     return <svg {...common}><path d="M3 21l3-1 11-11-2-2L4 18l-1 3z" /><path d="M14 7l3 3" /></svg>
-    case 'eraser':  return <svg {...common}><path d="M16 3l5 5L9 20H4v-5L16 3z" /><path d="M11 8l5 5" /></svg>
+    // Eraser — Lucide-style: angled rubber block with a baseline so it doesn't
+    // get confused with the pen (which has the same diagonal axis). The bottom
+    // horizontal line is the floor that gives the icon a clear "rubber" identity.
+    case 'eraser':  return <svg {...common}><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
     default: return null
   }
 }
@@ -345,7 +348,11 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   const [livePath, setLivePath] = useState(null) // { points: [[x,y],...] } in board coords
   const [erasing, setErasing] = useState(false)
   const [eraserPos, setEraserPos] = useState(null) // { x, y } in screen coords (preview)
-  const erasedThisGesture = useRef(new Set()) // ids removed during the current eraser drag
+  // Per-gesture snapshot of every stroke at mousedown. On mouseup we diff against
+  // the current state to emit one batched undo entry that restores all the
+  // strokes the eraser touched during this drag — including ones that ended up
+  // fully erased (removed entirely).
+  const eraseSnapshot = useRef(new Map())
   // Group manipulation. While active, mousemove on window applies the captured deltas
   // to every selected sticker via handleStickerUpdate. We snapshot the starting geometry
   // for every selected sticker once on mousedown so resizes / drags scale relative to
@@ -512,39 +519,50 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  // Eraser hit-test: remove any 'stroke' sticker whose path passes within (eraser
-  // radius + half stroke thickness) of the cursor. We only target strokes — other
-  // stickers (text, shapes, images) are intentionally NOT erasable so the user can't
-  // accidentally wipe a reference image with the eraser. Each removed stroke goes
-  // through onStickerDelete which pushes its own undo entry; gestures use the local
-  // erasedThisGesture Set so we don't double-delete the same stroke while the cursor
-  // dwells on it for multiple frames.
+  // Eraser hit-test: erase the portion of any 'stroke' sticker whose path passes
+  // within (eraser radius + half stroke thickness) of the cursor. We only target
+  // strokes — text, shapes, images are intentionally protected so the user can't
+  // accidentally wipe a reference with the eraser.
+  //
+  // Behaviour is "draw by erasing": for every frame the cursor is held down, we
+  // remove individual points from each touched stroke's sub-polylines, splitting
+  // them where there's a gap. The sticker stays alive until ALL its sub-polylines
+  // are gone — only then do we remove it from local state (DB cleanup happens at
+  // mouseup so a single eraser gesture only takes one undo to revert).
   const eraseAt = useCallback((clientX, clientY) => {
     const b = screenToBoard(clientX, clientY)
     const radius = eraserSize / 2
     for (const s of stickers) {
       if (s.kind !== 'stroke') continue
-      if (erasedThisGesture.current.has(s.id)) continue
-      // Quick AABB reject before the per-point check.
+      // Quick AABB reject — strokes that aren't anywhere near the cursor are
+      // skipped without parsing their points.
       const r = radius + (s.font_size || 4) / 2
-      const sx = s.x, sy = s.y, sw = s.w, sh = s.h
-      if (b.x + r < sx || b.x - r > sx + sw || b.y + r < sy || b.y - r > sy + sh) continue
-      // Per-point distance check against the local-space points stored in text_content.
-      let pts
-      try { pts = JSON.parse(s.text_content || '[]') } catch { pts = [] }
+      if (b.x + r < s.x || b.x - r > s.x + s.w || b.y + r < s.y || b.y - r > s.y + s.h) continue
+      const data = parseStroke(s.text_content)
+      if (!data || data.segments.length === 0) continue
       const hitR2 = r * r
-      let hit = false
-      for (const [px, py] of pts) {
-        const dx = (sx + px) - b.x
-        const dy = (sy + py) - b.y
-        if (dx * dx + dy * dy <= hitR2) { hit = true; break }
+      // Point hit-test in stroke-local coordinate space. The points are stored
+      // relative to the sticker's top-left in the stroke's natural (viewBox)
+      // space, so we map the cursor into that same space before comparing —
+      // the stored viewBox dimensions (data.w/h) may differ from the current
+      // sticker w/h if the stroke has been resized.
+      const sxScale = data.w / Math.max(s.w, 1)
+      const syScale = data.h / Math.max(s.h, 1)
+      const localBx = (b.x - s.x) * sxScale
+      const localBy = (b.y - s.y) * syScale
+      const localR2 = hitR2 * Math.min(sxScale * sxScale, syScale * syScale)
+      const nextSegs = eraseSegmentsByHit(data.segments, (px, py) => {
+        const dx = px - localBx, dy = py - localBy
+        return dx * dx + dy * dy <= localR2
+      })
+      if (nextSegs.length === data.segments.length &&
+          nextSegs.every((seg, i) => seg.length === data.segments[i].length)) {
+        continue // nothing actually changed for this stroke this frame
       }
-      if (hit) {
-        erasedThisGesture.current.add(s.id)
-        onStickerDelete?.(s.id)
-      }
+      const nextPayload = { w: data.w, h: data.h, segs: nextSegs }
+      onStickerUpdate(s.id, { text_content: JSON.stringify(nextPayload) })
     }
-  }, [stickers, eraserSize, screenToBoard, onStickerDelete])
+  }, [stickers, eraserSize, screenToBoard, onStickerUpdate])
 
   // Mouse buttons & tools matrix:
   //   middle / right click  → pan (any tool)
@@ -584,11 +602,16 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
 
-    // Eraser: begin a gesture. We reset the per-gesture deduplication set and then
-    // run one hit-test immediately so a quick tap also erases what's under the cursor.
+    // Eraser: begin a gesture. Snapshot the FULL state of every stroke so we can
+    // emit a single batched undo entry at mouseup that restores them all in one
+    // Ctrl+Z (regardless of how many strokes the user dragged across).
     if (creativeMode && effectiveTool === 'eraser') {
       e.preventDefault()
-      erasedThisGesture.current = new Set()
+      const snap = new Map()
+      for (const s of stickers) {
+        if (s.kind === 'stroke') snap.set(s.id, { ...s })
+      }
+      eraseSnapshot.current = snap
       setErasing(true)
       eraseAt(e.clientX, e.clientY)
       return
@@ -654,25 +677,54 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         }
         const pad = Math.max(2, penSize) // ensures stroke caps don't get clipped
         minX -= pad; minY -= pad; maxX += pad; maxY += pad
+        const w = Math.round(maxX - minX), h = Math.round(maxY - minY)
         // Convert absolute board points → coords local to the new sticker's top-left.
         // Storing local coords means moving / duplicating the sticker doesn't require
         // re-baselining the path — just translate the sticker's (x, y).
         const rel = livePath.points.map(([x, y]) => [Math.round(x - minX), Math.round(y - minY)])
+        // New format with explicit natural extent + sub-polylines (one to start;
+        // the eraser may split it later).
+        const payload = { w, h, segs: [rel] }
         onCreateSticker({
           kind: 'stroke',
           x: Math.round(minX), y: Math.round(minY),
-          w: Math.round(maxX - minX), h: Math.round(maxY - minY),
-          text: JSON.stringify(rel),
+          w, h,
+          text: JSON.stringify(payload),
           text_color: penColor,
           font_size: penSize,
+          // Pre-rendered preview points so the parent can drop in the optimistic
+          // sticker WITHOUT waiting for the DB roundtrip — no flicker at release.
+          _optimistic: true,
         })
       }
       setLivePath(null)
       return
     }
     if (erasing) {
+      // Build a batched undo entry from the snapshot taken at mousedown. For
+      // each stroke the user touched: if it's now empty (no sub-polylines left)
+      // we tear down the row entirely; otherwise we keep an 'update' entry
+      // with the original text_content.
+      const beforeEntries = []
+      for (const [id, before] of eraseSnapshot.current) {
+        const now = stickers.find(x => x.id === id)
+        if (!now) continue // somebody else's realtime delete — leave it alone
+        if (before.text_content === now.text_content) continue
+        const data = parseStroke(now.text_content)
+        if (!data || data.segments.length === 0) {
+          // Fully erased → schedule a hard delete (no separate undo entry, the
+          // batch will recreate the original sticker on Ctrl+Z).
+          onStickerDelete?.(id, { skipUndo: true })
+          beforeEntries.push({ type: 'delete', sticker: before })
+        } else {
+          beforeEntries.push({ type: 'update', id, before: { text_content: before.text_content } })
+        }
+      }
+      if (beforeEntries.length > 0) {
+        onCommitUndo?.({ type: 'multi', entries: beforeEntries })
+      }
+      eraseSnapshot.current = new Map()
       setErasing(false)
-      erasedThisGesture.current = new Set()
       return
     }
     if (marquee) {
@@ -732,7 +784,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
     setDragging(false)
-  }, [draft, marquee, stickers, livePath, erasing, penColor, penSize, onCreateSticker])
+  }, [draft, marquee, stickers, livePath, erasing, penColor, penSize, onCreateSticker, onStickerDelete, onCommitUndo])
 
   // Track the cursor while the eraser tool is active so we can render a small
   // preview circle showing the brush radius. Only attached when the tool is armed.
@@ -1172,17 +1224,20 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
             background: '#F1F5F9', flexShrink: 0,
           }}>
             <div style={{
-              width: Math.max(4, Math.min(28, eraserSize / 2)),
-              height: Math.max(4, Math.min(28, eraserSize / 2)),
+              // Cap the preview swatch to the dial size — for large eraser values
+              // (up to 500) we just render the maximum disc, the on-canvas circle
+              // is the authoritative size indicator anyway.
+              width: Math.max(4, Math.min(28, Math.sqrt(eraserSize) * 1.6)),
+              height: Math.max(4, Math.min(28, Math.sqrt(eraserSize) * 1.6)),
               borderRadius: '50%', background: '#fff', border: '1.5px solid #64748B',
             }} />
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#475569' }}>
             Diametro
-            <input type="range" min={6} max={80} step={2} value={eraserSize}
+            <input type="range" min={6} max={500} step={2} value={eraserSize}
               onChange={e => setEraserSize(Number(e.target.value))}
-              style={{ width: 120, accentColor: '#F28C28' }} />
-            <span style={{ fontSize: 11, color: '#64748B', minWidth: 24, textAlign: 'right' }}>{eraserSize}</span>
+              style={{ width: 160, accentColor: '#F28C28' }} />
+            <span style={{ fontSize: 11, color: '#64748B', minWidth: 28, textAlign: 'right' }}>{eraserSize}</span>
           </label>
         </div>
       )}
@@ -1485,6 +1540,51 @@ function hexToRgba(hex, alpha) {
   if (!m) return hex
   const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16)
   return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`
+}
+
+// Pen-stroke storage format:
+//   { w, h, segs: [[[x,y],...], ...] }
+// `segs` is an array of sub-polylines (allows gaps from the eraser to cut a single
+// drawn stroke into multiple visible segments without splitting it into separate
+// stickers). `w`/`h` is the AUTHORITATIVE natural extent used as the SVG viewBox —
+// stored alongside the points so partial-erasure (which shrinks the visible content)
+// can't accidentally rescale what's left.
+// Legacy formats are auto-upgraded on read:
+//   - flat array          [[x,y], ...]           → one sub-polyline
+//   - bare nested array   [[[x,y],...], ...]     → segs, w/h derived from max point
+function parseStroke(text) {
+  let v
+  try { v = JSON.parse(text || '[]') } catch { return null }
+  if (v && !Array.isArray(v) && Array.isArray(v.segs)) {
+    return { w: v.w || 1, h: v.h || 1, segments: v.segs }
+  }
+  if (!Array.isArray(v) || v.length === 0) return null
+  const segments = Array.isArray(v[0]) && typeof v[0][0] === 'number' ? [v] : v
+  let maxX = 0, maxY = 0
+  for (const seg of segments) for (const [x, y] of seg) {
+    if (x > maxX) maxX = x; if (y > maxY) maxY = y
+  }
+  return { w: maxX || 1, h: maxY || 1, segments }
+}
+
+// Split a stroke's sub-polylines wherever a point falls within the eraser disc.
+// `isHit(x, y)` is called in the stroke's LOCAL coordinate space (same as the
+// stored points). Returns a new segments array; never mutates the input.
+function eraseSegmentsByHit(segments, isHit) {
+  const out = []
+  for (const seg of segments) {
+    let cur = []
+    for (const pt of seg) {
+      if (isHit(pt[0], pt[1])) {
+        if (cur.length >= 2) out.push(cur)
+        cur = []
+      } else {
+        cur.push(pt)
+      }
+    }
+    if (cur.length >= 2) out.push(cur)
+  }
+  return out
 }
 
 // 8-handle resize map: 4 corners + 4 sides. Each handle's drag affects only the relevant
@@ -1838,30 +1938,25 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
       )}
 
       {isStroke && (() => {
-        // Pen stroke — stored points are LOCAL to the sticker's top-left corner so
-        // moving the sticker just translates (x, y). Resizing the bounding box
-        // proportionally scales the rendered stroke via SVG viewBox (the viewBox is
-        // pinned to the points' NATURAL extent, not the current bbox, so the path
-        // is never warped). vectorEffect="non-scaling-stroke" keeps the line crisp
-        // at any zoom — the brush thickness is interpreted in screen px after the
-        // scale transform.
-        let pts
-        try { pts = JSON.parse(sticker.text_content || '[]') } catch { pts = [] }
-        if (pts.length < 2) return null
-        let maxX = 0, maxY = 0
-        for (const [px, py] of pts) { if (px > maxX) maxX = px; if (py > maxY) maxY = py }
-        const naturalW = maxX || 1
-        const naturalH = maxY || 1
-        const pointsStr = pts.map(([px, py]) => `${px},${py}`).join(' ')
+        // Pen stroke. Stored as a list of sub-polylines (gaps allowed) so the
+        // eraser can cut a stroke into pieces without splitting it across
+        // multiple stickers. viewBox is pinned to the original natural extent so
+        // partial erasure or sticker resize never warps what's left.
+        const data = parseStroke(sticker.text_content)
+        if (!data || data.segments.length === 0) return null
         return (
-          <svg width={cw} height={ch} viewBox={`0 0 ${naturalW} ${naturalH}`}
+          <svg width={cw} height={ch} viewBox={`0 0 ${data.w} ${data.h}`}
             preserveAspectRatio="none"
             style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}>
-            <polyline points={pointsStr} fill="none"
-              stroke={sticker.text_color || '#1a1a1a'}
-              strokeWidth={sticker.font_size || 4}
-              strokeLinecap="round" strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke" />
+            {data.segments.map((seg, i) => (
+              <polyline key={i}
+                points={seg.map(([px, py]) => `${px},${py}`).join(' ')}
+                fill="none"
+                stroke={sticker.text_color || '#1a1a1a'}
+                strokeWidth={sticker.font_size || 4}
+                strokeLinecap="round" strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke" />
+            ))}
           </svg>
         )
       })()}
@@ -2250,7 +2345,7 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
 
   // Unified item creator — handles image files (upload to Cloudinary) and plain text.
   // Declared BEFORE the effects that depend on it to avoid TDZ during render.
-  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h, text_color, font_size }) => {
+  const handleCreateSticker = useCallback(async ({ kind, file, text, x, y, w, h, text_color, font_size, _optimistic }) => {
     if (!currentProject?.id || !creativeModeRef.current) return
     const baseX = Math.round(x ?? 300), baseY = Math.round(y ?? 300)
     const board = activeTabRef.current // 'shots' | 'assets'
@@ -2345,28 +2440,41 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     }
 
     if (kind === 'stroke') {
-      // Pen stroke. Points come in `text` as a JSON-serialised list of [x, y] pairs
-      // local to the sticker's top-left. text_color = stroke colour, font_size =
+      // Pen stroke. Points come in `text` as a JSON payload (see parseStroke):
+      // `{ w, h, segs: [[[x,y]...]] }`. text_color = stroke colour, font_size =
       // brush thickness in px. We persist via the existing sticker schema and the
       // realtime channel broadcasts new strokes to anyone else viewing the project.
       // (Migration 060 added 'stroke' to the kind CHECK constraint.)
-      const { data, error } = await createSticker({
+      const payload = {
         project_id: currentProject.id, user_id: user.id, board,
         kind: 'stroke', text_content: text || '[]',
         text_color: text_color || '#1a1a1a', bg_color: null,
         font_size: typeof font_size === 'number' ? font_size : 4,
         x: baseX, y: baseY, w: w || 1, h: h || 1, rotation: 0, z_index: z,
-      })
-      // Surface insert failures explicitly — a silent fail (e.g. a future CHECK
-      // constraint mismatch) used to make the stroke "disappear on release" with
-      // no UI feedback at all.
+      }
+      // Optimistic render: drop a temp sticker into local state IMMEDIATELY so
+      // the user sees no flicker between releasing the pen and the DB roundtrip
+      // completing. When the real insert returns, swap the temp row for the
+      // server row (preserves the id used by the realtime channel for de-dup).
+      const tempId = `tmp_${Math.random().toString(36).slice(2, 10)}`
+      if (_optimistic) {
+        setStickers(prev => [...prev, { ...payload, id: tempId, created_at: new Date().toISOString() }])
+      }
+      const { data, error } = await createSticker(payload)
       if (error) {
         console.warn('[stroke create] failed:', error.message)
         addToast?.('Errore salvataggio tratto: ' + error.message, 'danger')
+        if (_optimistic) setStickers(prev => prev.filter(s => s.id !== tempId))
         return
       }
       if (data?.id) {
-        setStickers(prev => prev.some(s => s.id === data.id) ? prev : [...prev, data])
+        setStickers(prev => {
+          // Replace the optimistic stub with the real row. If the realtime channel
+          // already delivered the real one, also dedupe it.
+          const withoutTemp = prev.filter(s => s.id !== tempId)
+          if (withoutTemp.some(s => s.id === data.id)) return withoutTemp
+          return [...withoutTemp, data]
+        })
         pushUndo({ type: 'create', id: data.id })
       }
     }
@@ -2521,27 +2629,35 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
   const handleUndo = useCallback(async () => {
     const entry = undoStack.current.pop()
     if (!entry) return
-    if (entry.type === 'delete') {
-      const s = entry.sticker
-      const { data } = await createSticker({
-        project_id: s.project_id || currentProject.id, user_id: user.id,
-        board: s.board || 'shots', kind: s.kind, image_url: s.image_url,
-        text_content: s.text_content, text_color: s.text_color, bg_color: s.bg_color,
-        font_size: s.font_size, x: s.x, y: s.y, w: s.w, h: s.h,
-        rotation: s.rotation || 0, z_index: s.z_index || 0,
-      })
-      if (data?.id) setStickers(prev => prev.some(st => st.id === data.id) ? prev : [...prev, data])
-    } else if (entry.type === 'create') {
-      // Cancel any pending updates for this sticker, then remove it.
-      if (stickerSaveTimers.current[entry.id]) { clearTimeout(stickerSaveTimers.current[entry.id]); delete stickerSaveTimers.current[entry.id] }
-      delete pendingStickerUpdates.current[entry.id]
-      setStickers(prev => prev.filter(s => s.id !== entry.id))
-      await deleteSticker(entry.id)
-    } else if (entry.type === 'update') {
-      // Restore the pre-gesture geometry/rotation. Goes through the regular
-      // optimistic update path so DB save + realtime reconcile work as usual.
-      handleStickerUpdate(entry.id, entry.before)
+    const applyOne = async (e) => {
+      if (e.type === 'delete') {
+        const s = e.sticker
+        const { data } = await createSticker({
+          project_id: s.project_id || currentProject.id, user_id: user.id,
+          board: s.board || 'shots', kind: s.kind, image_url: s.image_url,
+          text_content: s.text_content, text_color: s.text_color, bg_color: s.bg_color,
+          font_size: s.font_size, x: s.x, y: s.y, w: s.w, h: s.h,
+          rotation: s.rotation || 0, z_index: s.z_index || 0,
+        })
+        if (data?.id) setStickers(prev => prev.some(st => st.id === data.id) ? prev : [...prev, data])
+      } else if (e.type === 'create') {
+        if (stickerSaveTimers.current[e.id]) { clearTimeout(stickerSaveTimers.current[e.id]); delete stickerSaveTimers.current[e.id] }
+        delete pendingStickerUpdates.current[e.id]
+        setStickers(prev => prev.filter(s => s.id !== e.id))
+        await deleteSticker(e.id)
+      } else if (e.type === 'update') {
+        // Restore pre-gesture state via the regular optimistic path so the DB
+        // save + realtime reconcile work as usual.
+        handleStickerUpdate(e.id, e.before)
+      }
     }
+    if (entry.type === 'multi') {
+      // Batched undo (currently used by the eraser): restore every sub-entry
+      // recorded for the gesture so one Ctrl+Z reverts the whole drag.
+      for (const sub of (entry.entries || [])) await applyOne(sub)
+      return
+    }
+    await applyOne(entry)
   }, [currentProject?.id, user?.id, handleStickerUpdate])
 
   // Z-order: bring to front / send to back. Uses the existing optimistic update path
@@ -2557,12 +2673,15 @@ export default function StoryboardPage({ shots, assets = [], tasks, profiles, us
     handleStickerUpdate(id, { z_index: minZ - 1 })
   }, [handleStickerUpdate])
 
-  const handleStickerDelete = async (id) => {
+  const handleStickerDelete = async (id, { skipUndo = false } = {}) => {
     // Cancel any pending update for this sticker (we're about to remove it).
     if (stickerSaveTimers.current[id]) { clearTimeout(stickerSaveTimers.current[id]); delete stickerSaveTimers.current[id] }
     delete pendingStickerUpdates.current[id]
     const target = stickersRef.current.find(s => s.id === id)
-    if (target) pushUndo({ type: 'delete', sticker: target })
+    // skipUndo is used by the eraser tool: it commits ONE batched undo entry
+    // for the whole gesture, so it doesn't want each underlying stroke delete
+    // to push its own redundant entry.
+    if (target && !skipUndo) pushUndo({ type: 'delete', sticker: target })
     setStickers(prev => prev.filter(s => s.id !== id))
     await deleteSticker(id)
   }
