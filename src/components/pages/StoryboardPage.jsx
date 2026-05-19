@@ -287,6 +287,7 @@ const TOOLS = [
   { id: 'arrow',   label: 'Freccia',    shortcut: 'A' },
   { id: 'pen',     label: 'Pennarello', shortcut: 'P' },
   { id: 'eraser',  label: 'Gomma',      shortcut: 'X' },
+  { id: 'strokemove', label: 'Sposta disegno', shortcut: 'M' },
 ]
 
 function ToolIcon({ id, active }) {
@@ -306,6 +307,8 @@ function ToolIcon({ id, active }) {
     // get confused with the pen (which has the same diagonal axis). The bottom
     // horizontal line is the floor that gives the icon a clear "rubber" identity.
     case 'eraser':  return <svg {...common}><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+    // Sposta-disegno — dashed selection rect + 4-direction move arrows.
+    case 'strokemove': return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="1.5" strokeDasharray="3 2"/><path d="M12 9v6"/><path d="M9 12h6"/><path d="m10.5 10.5-1.5 1.5 1.5 1.5"/><path d="m13.5 10.5 1.5 1.5-1.5 1.5"/></svg>
     default: return null
   }
 }
@@ -353,6 +356,14 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   // strokes the eraser touched during this drag — including ones that ended up
   // fully erased (removed entirely).
   const eraseSnapshot = useRef(new Map())
+  // Stroke selection & area-move (Sposta-disegno tool). Strokes are not part of
+  // the normal selectedIds flow — they live on the drawing layer and need their
+  // own marquee/group-drag pipeline that ignores every other element type.
+  const [selectedStrokeIds, setSelectedStrokeIds] = useState(() => new Set())
+  const [strokeMarquee, setStrokeMarquee] = useState(null) // { sx, sy, ex, ey, additive }
+  const [strokeGroupAction, setStrokeGroupAction] = useState(null) // { mx, my, snaps: Map<id, {x,y}> }
+  const selectedStrokeIdsRef = useRef(selectedStrokeIds)
+  selectedStrokeIdsRef.current = selectedStrokeIds
   // Group manipulation. While active, mousemove on window applies the captured deltas
   // to every selected sticker via handleStickerUpdate. We snapshot the starting geometry
   // for every selected sticker once on mousedown so resizes / drags scale relative to
@@ -602,6 +613,33 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
 
+    // Sposta-disegno: mousedown either starts a marquee (if the cursor is outside
+    // the current stroke selection or there is none) or a group drag (if the cursor
+    // is inside the bbox of the already-selected strokes). Strokes never become
+    // clickable individually — area-select is the only entry point.
+    if (creativeMode && effectiveTool === 'strokemove') {
+      e.preventDefault()
+      const b = screenToBoard(e.clientX, e.clientY)
+      const inside = strokeGroupBbox &&
+        b.x >= strokeGroupBbox.x && b.x <= strokeGroupBbox.x + strokeGroupBbox.w &&
+        b.y >= strokeGroupBbox.y && b.y <= strokeGroupBbox.y + strokeGroupBbox.h
+      if (inside) {
+        // Snapshot every selected stroke's position so the move is reversible as
+        // a single Ctrl+Z and the relative spacing between strokes is preserved.
+        const snaps = new Map()
+        for (const id of selectedStrokeIds) {
+          const s = stickers.find(x => x.id === id)
+          if (s) snaps.set(id, { x: s.x, y: s.y })
+        }
+        setStrokeGroupAction({ mx: e.clientX, my: e.clientY, snaps })
+        return
+      }
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey
+      if (!additive) setSelectedStrokeIds(new Set())
+      setStrokeMarquee({ sx: b.x, sy: b.y, ex: b.x, ey: b.y, additive })
+      return
+    }
+
     // Eraser: begin a gesture. Snapshot the FULL state of every stroke so we can
     // emit a single batched undo entry at mouseup that restores them all in one
     // Ctrl+Z (regardless of how many strokes the user dragged across).
@@ -630,7 +668,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     // Hand tool (or fallback) with left button → pan.
     setDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY, panX: p.x, panY: p.y }
-  }, [pan, creativeMode, effectiveTool, screenToBoard, eraseAt])
+  }, [pan, creativeMode, effectiveTool, screenToBoard, eraseAt, stickers, strokeGroupBbox, selectedStrokeIds])
 
   const handleMouseMove = useCallback((e) => {
     if (livePath) {
@@ -649,6 +687,19 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       eraseAt(e.clientX, e.clientY)
       return
     }
+    if (strokeMarquee) {
+      const b = screenToBoard(e.clientX, e.clientY)
+      setStrokeMarquee(m => m ? { ...m, ex: b.x, ey: b.y } : m)
+      return
+    }
+    if (strokeGroupAction) {
+      const dx = (e.clientX - strokeGroupAction.mx) / scale
+      const dy = (e.clientY - strokeGroupAction.my) / scale
+      for (const [id, start] of strokeGroupAction.snaps) {
+        onStickerUpdate(id, { x: Math.round(start.x + dx), y: Math.round(start.y + dy) })
+      }
+      return
+    }
     if (draft) {
       const b = screenToBoard(e.clientX, e.clientY)
       setDraft(d => d ? { ...d, ex: b.x, ey: b.y } : d)
@@ -663,7 +714,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy })
-  }, [dragging, draft, marquee, livePath, erasing, eraseAt, screenToBoard])
+  }, [dragging, draft, marquee, livePath, erasing, eraseAt, strokeMarquee, strokeGroupAction, scale, onStickerUpdate, screenToBoard])
 
   const handleMouseUp = useCallback(() => {
     if (livePath) {
@@ -698,6 +749,45 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         })
       }
       setLivePath(null)
+      return
+    }
+    if (strokeMarquee) {
+      const x1 = Math.min(strokeMarquee.sx, strokeMarquee.ex), x2 = Math.max(strokeMarquee.sx, strokeMarquee.ex)
+      const y1 = Math.min(strokeMarquee.sy, strokeMarquee.ey), y2 = Math.max(strokeMarquee.sy, strokeMarquee.ey)
+      const tinyDrag = (x2 - x1) < 4 && (y2 - y1) < 4
+      if (tinyDrag) { setStrokeMarquee(null); return }
+      // Hit-test: every stroke whose bbox intersects the marquee. We only look at
+      // strokes — the whole tool's contract is "select drawings, leave everything
+      // else alone".
+      const hits = []
+      for (const s of stickers) {
+        if (s.kind !== 'stroke') continue
+        if (s.x < x2 && s.x + s.w > x1 && s.y < y2 && s.y + s.h > y1) hits.push(s.id)
+      }
+      setSelectedStrokeIds(prev => {
+        if (strokeMarquee.additive) {
+          const next = new Set(prev)
+          for (const id of hits) next.add(id)
+          return next
+        }
+        return new Set(hits)
+      })
+      setStrokeMarquee(null)
+      return
+    }
+    if (strokeGroupAction) {
+      // Commit one batched undo entry — one Ctrl+Z reverts the whole group move
+      // back to the positions captured at mousedown.
+      const entries = []
+      for (const [id, snap] of strokeGroupAction.snaps) {
+        const cur = stickers.find(x => x.id === id)
+        if (!cur) continue
+        if (cur.x !== snap.x || cur.y !== snap.y) {
+          entries.push({ type: 'update', id, before: { x: snap.x, y: snap.y } })
+        }
+      }
+      if (entries.length > 0) onCommitUndo?.({ type: 'multi', entries })
+      setStrokeGroupAction(null)
       return
     }
     if (erasing) {
@@ -787,7 +877,17 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       return
     }
     setDragging(false)
-  }, [draft, marquee, stickers, livePath, erasing, penColor, penSize, onCreateSticker, onStickerDelete, onCommitUndo])
+  }, [draft, marquee, stickers, livePath, erasing, strokeMarquee, strokeGroupAction, penColor, penSize, onCreateSticker, onStickerDelete, onCommitUndo])
+
+  // Switching away from the Sposta-disegno tool clears the stroke selection so
+  // the user doesn't see an orphan dashed bbox floating over the board while
+  // working with another tool.
+  useEffect(() => {
+    if (effectiveTool !== 'strokemove' && selectedStrokeIds.size > 0) {
+      setSelectedStrokeIds(new Set())
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveTool])
 
   // Track the cursor while the eraser tool is active so we can render a small
   // preview circle showing the brush radius. Only attached when the tool is armed.
@@ -809,7 +909,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   }, [creativeMode, effectiveTool])
 
   useEffect(() => {
-    if (dragging || draft || marquee || livePath || erasing) {
+    if (dragging || draft || marquee || livePath || erasing || strokeMarquee || strokeGroupAction) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -817,7 +917,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         window.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [dragging, draft, marquee, livePath, erasing, handleMouseMove, handleMouseUp])
+  }, [dragging, draft, marquee, livePath, erasing, strokeMarquee, strokeGroupAction, handleMouseMove, handleMouseUp])
 
   // Selection helper passed to each StickerItem. Sticker calls this on mousedown:
   //   additive=true (Shift/Ctrl) → toggle membership without losing the rest.
@@ -858,6 +958,24 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       }).filter(Boolean),
     })
   }, [stickers])
+
+  // Union bbox of every currently selected stroke. Lives in board space, used to
+  // both render the dashed selection outline and to hit-test the cursor inside it
+  // (= start a group drag) vs. outside it (= start a new marquee).
+  const strokeGroupBbox = useMemo(() => {
+    if (selectedStrokeIds.size === 0) return null
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const id of selectedStrokeIds) {
+      const s = stickers.find(x => x.id === id)
+      if (!s || s.kind !== 'stroke') continue
+      if (s.x < minX) minX = s.x
+      if (s.y < minY) minY = s.y
+      if (s.x + s.w > maxX) maxX = s.x + s.w
+      if (s.y + s.h > maxY) maxY = s.y + s.h
+    }
+    if (!Number.isFinite(minX)) return null
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+  }, [selectedStrokeIds, stickers])
 
   // Group bbox in board coordinates — derived from all currently selected stickers.
   // Returns null when fewer than 2 are selected (single-selection has its own chrome).
@@ -972,6 +1090,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       if (k === 'Escape') {
         if (draft) setDraft(null)
         if (selectedIdsRef.current.size > 0) setSelectedIds(new Set())
+        if (selectedStrokeIdsRef.current.size > 0) setSelectedStrokeIds(new Set())
         setActiveTool('select') // back to interaction mode (user is already engaged)
         return
       }
@@ -1005,6 +1124,21 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         setSelectedIds(new Set())
         return
       }
+      // Delete every selected stroke (any count). Strokes have their own
+      // selection set so they don't fall under the rule above.
+      if ((k === 'Delete' || k === 'Backspace') && selectedStrokeIdsRef.current.size > 0) {
+        e.preventDefault()
+        // Build a single 'multi' undo entry so Ctrl+Z restores the whole group.
+        const entries = []
+        for (const id of selectedStrokeIdsRef.current) {
+          const s = stickers.find(x => x.id === id)
+          if (s) entries.push({ type: 'delete', sticker: s })
+        }
+        for (const id of selectedStrokeIdsRef.current) onStickerDelete?.(id, { skipUndo: true })
+        if (entries.length > 0) onCommitUndo?.({ type: 'multi', entries })
+        setSelectedStrokeIds(new Set())
+        return
+      }
       // Undo (delete + create operations). Ctrl/⌘+Z. Skip Shift+Z to leave room for
       // a future redo, even though redo isn't implemented yet.
       if (mod && !e.shiftKey && (k === 'z' || k === 'Z')) {
@@ -1016,7 +1150,8 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       const toolKeys = { v: 'select', V: 'select', h: 'hand', H: 'hand',
         t: 'text', T: 'text', r: 'rect', R: 'rect', e: 'ellipse', E: 'ellipse',
         a: 'arrow', A: 'arrow', l: 'arrow', L: 'arrow',
-        p: 'pen', P: 'pen', x: 'eraser', X: 'eraser' }
+        p: 'pen', P: 'pen', x: 'eraser', X: 'eraser',
+        m: 'strokemove', M: 'strokemove' }
       if (toolKeys[k] && !mod) { e.preventDefault(); setActiveTool(toolKeys[k]); return }
     }
     const onKeyUp = (e) => { if (e.key === ' ') setSpaceHeld(false) }
@@ -1026,7 +1161,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [creativeMode, draft, stickers, onBringForward, onSendBack, onUndo, onStickerDelete])
+  }, [creativeMode, draft, stickers, onBringForward, onSendBack, onUndo, onStickerDelete, onCommitUndo])
 
   // Calculate board layout positions
   const totalCols = 3 + depts.length
@@ -1099,6 +1234,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     if (effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') return 'crosshair'
     if (effectiveTool === 'pen') return 'crosshair'
     if (effectiveTool === 'eraser') return 'none' // a custom circle is drawn instead
+    if (effectiveTool === 'strokemove') return strokeGroupAction ? 'grabbing' : 'crosshair'
     return 'grab' // select → hand over empty board (where clicking pans)
   })()
 
@@ -1451,6 +1587,35 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
               position: 'absolute', left: mx, top: my, width: mw, height: mh,
               border: '1.5px solid #F28C28', background: 'rgba(242,140,40,0.10)',
               pointerEvents: 'none', borderRadius: 2, zIndex: 9997,
+            }} />
+          )
+        })()}
+
+        {/* Stroke selection bbox — shown while the Sposta-disegno tool is active
+            and at least one stroke is selected. Lives above the drawing layer
+            (zIndex 100001 vs 99999) so the dashed outline is visible over the ink. */}
+        {effectiveTool === 'strokemove' && strokeGroupBbox && (
+          <div style={{
+            position: 'absolute',
+            left: strokeGroupBbox.x, top: strokeGroupBbox.y,
+            width: strokeGroupBbox.w, height: strokeGroupBbox.h,
+            border: '2px dashed #F28C28', borderRadius: 4,
+            background: 'rgba(242,140,40,0.04)',
+            pointerEvents: 'none', zIndex: 100001,
+          }} />
+        )}
+
+        {/* Stroke marquee — live drag rectangle while area-selecting strokes. */}
+        {strokeMarquee && (() => {
+          const mx = Math.min(strokeMarquee.sx, strokeMarquee.ex)
+          const my = Math.min(strokeMarquee.sy, strokeMarquee.ey)
+          const mw = Math.abs(strokeMarquee.ex - strokeMarquee.sx)
+          const mh = Math.abs(strokeMarquee.ey - strokeMarquee.sy)
+          return (
+            <div style={{
+              position: 'absolute', left: mx, top: my, width: mw, height: mh,
+              border: '1.5px solid #F28C28', background: 'rgba(242,140,40,0.10)',
+              pointerEvents: 'none', borderRadius: 2, zIndex: 100000,
             }} />
           )
         })()}
