@@ -50,11 +50,11 @@ export default function TasksPage({
       clearDeepLink()
     }
     if (deepLink?.type === 'shotFilter' && deepLink?.id) {
-      setFilter(f => ({ ...f, shot: deepLink.id, asset: '' }))
+      setFilter(f => ({ ...f, shot: deepLink.id, asset: '', dept: deepLink.dept || '' }))
       clearDeepLink()
     }
     if (deepLink?.type === 'assetFilter' && deepLink?.id) {
-      setFilter(f => ({ ...f, asset: deepLink.id, shot: '' }))
+      setFilter(f => ({ ...f, asset: deepLink.id, shot: '', dept: deepLink.dept || '' }))
       clearDeepLink()
     }
   }, [deepLink, tasks])

@@ -262,6 +262,8 @@ const AssetRow = React.memo(function AssetRow({
           key={dept.id}
           status={deptStatuses?.[dept.id] || 'not_started'}
           disabled={false}
+          onClick={onGoToTasks ? () => onGoToTasks(asset.id, dept.id) : undefined}
+          title={onGoToTasks ? `Apri task ${dept.label} di ${asset.name}` : undefined}
         />
       ))}
       {!isMobile && (() => {
@@ -276,7 +278,7 @@ const AssetRow = React.memo(function AssetRow({
               }}
                 onMouseEnter={e => { e.currentTarget.style.color = '#2563EB' }}
                 onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
-              >Tasks →</button>
+              >All tasks →</button>
             )}
             {allDone && (
               <span title="Tutti i dept completati!" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 13, lineHeight: 1 }}>

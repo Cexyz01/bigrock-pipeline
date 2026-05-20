@@ -321,6 +321,8 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelet
           key={dept.id}
           status={deptStatuses?.[dept.id] || 'not_started'}
           disabled={!isDeptEnabled(shot, dept.id)}
+          onClick={onGoToTasks ? () => onGoToTasks(shot.id, dept.id) : undefined}
+          title={onGoToTasks ? `Apri task ${dept.label} di ${shot.code}` : undefined}
         />
       ))}
       {/* Tasks link — last grid column. When every enabled dept is Done,
@@ -338,7 +340,7 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelet
               }}
                 onMouseEnter={e => { e.currentTarget.style.color = '#2563EB' }}
                 onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8' }}
-              >Tasks →</button>
+              >All tasks →</button>
             )}
             {allDone && (
               <span title="Tutti i dept completati!" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 13, lineHeight: 1 }}>
