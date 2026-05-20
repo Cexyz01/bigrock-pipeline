@@ -257,13 +257,17 @@ export default function TaskDetailModal({
   const handleWipComment = async (wipUpdateId) => {
     const body = (wipCommentInputs[wipUpdateId] || '').trim()
     if (!body) return
-    const { data } = await onAddWipComment(wipUpdateId, task.id, user.id, body)
-    if (data) {
-      setWipComments(prev => ({
-        ...prev,
-        [wipUpdateId]: [...(prev[wipUpdateId] || []), data],
-      }))
+    const { data, error } = await onAddWipComment(wipUpdateId, task.id, user.id, body)
+    if (error || !data) {
+      // Surface failures so the user knows nothing was saved (previously the
+      // insert was being silently rejected by RLS and the field just cleared).
+      addToast?.(`Errore nel salvataggio del feedback: ${error?.message || 'sconosciuto'}`, 'danger')
+      return
     }
+    setWipComments(prev => ({
+      ...prev,
+      [wipUpdateId]: [...(prev[wipUpdateId] || []), data],
+    }))
     setWipCommentInputs(prev => ({ ...prev, [wipUpdateId]: '' }))
   }
 
