@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, isAudioUrl, isVideoUrl, isDeptEnabled, ACCENT } from '../../lib/constants'
 import { getWipUpdates } from '../../lib/supabase'
 import Av from '../ui/Av'
@@ -340,9 +340,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
             Nessun WIP disponibile
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {wipsByUser.map(w => <WipBlock key={w.id} wip={w} user={user} addToast={addToast} />)}
-          </div>
+          <WipCarousel wips={wipsByUser} user={user} addToast={addToast} />
         )}
 
         {/* Action bar */}
@@ -408,6 +406,125 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
       </div>
     </div>
   )
+}
+
+// Horizontal swipeable carousel: shows one WIP at a time so a task with 10
+// updates doesn't turn the review feed into an endless scroll. Each slide
+// snap-aligns to the container; arrow buttons + dot indicator make discovery
+// of older WIPs obvious.
+function WipCarousel({ wips, user, addToast }) {
+  const scrollerRef = useRef(null)
+  const [activeIdx, setActiveIdx] = useState(0)
+
+  const scrollTo = useCallback((idx) => {
+    const el = scrollerRef.current
+    if (!el) return
+    const clamped = Math.max(0, Math.min(wips.length - 1, idx))
+    const slide = el.children[clamped]
+    if (slide) slide.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
+  }, [wips.length])
+
+  // Track which slide is currently snapped into view via scroll position.
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const w = el.clientWidth
+        if (!w) return
+        const idx = Math.round(el.scrollLeft / w)
+        setActiveIdx(idx)
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => { el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
+  }, [])
+
+  const single = wips.length === 1
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div
+        ref={scrollerRef}
+        style={{
+          display: 'flex', gap: 16, overflowX: 'auto', overflowY: 'hidden',
+          scrollSnapType: 'x mandatory',
+          scrollbarWidth: 'none', msOverflowStyle: 'none',
+          paddingBottom: single ? 0 : 4,
+        }}
+      >
+        {wips.map(w => (
+          <div key={w.id} style={{
+            flex: '0 0 100%', minWidth: 0,
+            scrollSnapAlign: 'start',
+          }}>
+            <WipBlock wip={w} user={user} addToast={addToast} />
+          </div>
+        ))}
+      </div>
+
+      {!single && (
+        <>
+          {activeIdx > 0 && (
+            <button
+              onClick={() => scrollTo(activeIdx - 1)}
+              aria-label="WIP precedente"
+              style={carouselArrowStyle('left')}
+            >‹</button>
+          )}
+          {activeIdx < wips.length - 1 && (
+            <button
+              onClick={() => scrollTo(activeIdx + 1)}
+              aria-label="WIP successivo"
+              style={carouselArrowStyle('right')}
+            >›</button>
+          )}
+          <div style={{
+            display: 'flex', justifyContent: 'center', gap: 6,
+            marginTop: 10,
+          }}>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginRight: 8 }}>
+              WIP {activeIdx + 1} / {wips.length}
+            </span>
+            {wips.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => scrollTo(i)}
+                aria-label={`Vai al WIP ${i + 1}`}
+                style={{
+                  width: 8, height: 8, borderRadius: '50%', padding: 0,
+                  background: i === activeIdx ? '#F28C28' : '#CBD5E1',
+                  border: 'none', cursor: 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Hide the native scrollbar on Chromium-based browsers */}
+      <style>{`
+        div[data-scroller="wip-carousel"]::-webkit-scrollbar { display: none; }
+      `}</style>
+    </div>
+  )
+}
+
+function carouselArrowStyle(side) {
+  return {
+    position: 'absolute', top: '50%',
+    [side]: -14, transform: 'translateY(-50%)',
+    width: 36, height: 36, borderRadius: '50%',
+    background: '#fff', color: '#1a1a1a',
+    border: '1px solid #E2E8F0',
+    boxShadow: '0 4px 14px rgba(15,23,42,0.12)',
+    fontSize: 22, fontWeight: 600, lineHeight: 1,
+    cursor: 'pointer', zIndex: 2,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }
 }
 
 function WipBlock({ wip, user, addToast }) {

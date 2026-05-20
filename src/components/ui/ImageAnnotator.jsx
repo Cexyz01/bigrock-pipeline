@@ -8,11 +8,12 @@ import { useImageAnnotation } from '../../hooks/useImageAnnotations'
 // strokes are stored in normalised [0..1] of the image's natural size so they
 // replay correctly anywhere the image appears.
 //
-// Tools: pen, eraser (whole-stroke), undo, save, close. Eraser removes any
-// stroke whose path passes within a small radius of the cursor.
+// Tools: pen, eraser (point-level brush — same feel as the storyboard eraser),
+// undo, clear, auto-save, close. The dark margin around the image acts as a
+// click-to-close zone — drawing is clipped to the image rect.
 
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#a855f7', '#0f172a', '#ffffff']
-const ERASER_RADIUS_FRAC = 0.015 // 1.5% of image width
+const ERASER_RADIUS_FRAC = 0.015 // default eraser radius (fraction of image width)
 
 function computeImageRect(natW, natH, cW, cH) {
   if (!natW || !natH || !cW || !cH) return { x: 0, y: 0, w: cW || 0, h: cH || 0 }
@@ -32,17 +33,30 @@ function pointNearSegment(px, py, ax, ay, bx, by, r) {
   return (ex * ex + ey * ey) <= r * r
 }
 
-function strokeHitByEraser(stroke, ex, ey, r) {
+// Point-level eraser: walk a stroke's points, drop every one within radius of
+// the cursor, and re-emit the surviving runs as separate strokes. This is the
+// "brush eraser" feel from the creative storyboard — gaps cut a stroke into
+// two instead of nuking the whole thing.
+function eraseStrokeAtPoint(stroke, ex, ey, r) {
   const pts = stroke.points || []
-  if (pts.length === 0) return false
-  if (pts.length === 1) {
-    const dx = pts[0][0] - ex, dy = pts[0][1] - ey
-    return (dx * dx + dy * dy) <= r * r
+  if (pts.length === 0) return [stroke]
+  const r2 = r * r
+  const keep = pts.map(p => {
+    const dx = p[0] - ex, dy = p[1] - ey
+    return (dx * dx + dy * dy) > r2
+  })
+  if (keep.every(Boolean)) return [stroke]              // nothing erased
+  if (keep.every(k => !k)) return []                    // whole stroke gone
+  const segs = []
+  let cur = []
+  for (let i = 0; i < pts.length; i++) {
+    if (keep[i]) cur.push(pts[i])
+    else if (cur.length > 0) { segs.push(cur); cur = [] }
   }
-  for (let i = 0; i < pts.length - 1; i++) {
-    if (pointNearSegment(ex, ey, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], r)) return true
-  }
-  return false
+  if (cur.length > 0) segs.push(cur)
+  return segs
+    .filter(s => s.length > 0)
+    .map(points => ({ ...stroke, points }))
 }
 
 export default function ImageAnnotator({ src, onClose, addToast }) {
@@ -142,9 +156,20 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
   // the user can see at a glance how thick a stroke / how wide the eraser is.
   const [cursorPos, setCursorPos] = useState(null)
 
+  // True if (clientX, clientY) is over the actual image, not the dark margin.
+  const isInsideImage = (clientX, clientY) => {
+    if (!wrapRef.current || !rect.w) return false
+    const wrap = wrapRef.current.getBoundingClientRect()
+    const lx = clientX - wrap.left, ly = clientY - wrap.top
+    return lx >= rect.x && lx <= rect.x + rect.w
+        && ly >= rect.y && ly <= rect.y + rect.h
+  }
+
   // ── Drawing handlers ──
   const onPointerDown = (e) => {
     if (!rect.w) return
+    // Outside the image = click-to-close zone, never a drawing surface.
+    if (!isInsideImage(e.clientX, e.clientY)) { handleClose(); return }
     e.preventDefault()
     e.currentTarget.setPointerCapture?.(e.pointerId)
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
@@ -159,10 +184,14 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
 
   const onPointerMove = (e) => {
     if (!rect.w) return
-    // Update cursor preview even when not drawing
+    // Update cursor preview — but only when over the image, so the brush ring
+    // doesn't sit in the close-zone margin.
     const wrap = wrapRef.current?.getBoundingClientRect()
-    if (wrap) setCursorPos({ x: e.clientX - wrap.left, y: e.clientY - wrap.top })
+    const inside = isInsideImage(e.clientX, e.clientY)
+    if (wrap && inside) setCursorPos({ x: e.clientX - wrap.left, y: e.clientY - wrap.top })
+    else setCursorPos(null)
     if (!drawing) return
+    if (!inside) return
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
     if (tool === 'pen') {
       setStrokes(prev => {
@@ -186,13 +215,22 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     setDrawing(false)
   }
 
+  // Eraser uses the same `size` slider as the pen so the cursor ring and the
+  // actual erase footprint always match.
   const eraseAt = useCallback((x, y) => {
-    const r = ERASER_RADIUS_FRAC
+    const r = size
     setStrokes(prev => {
-      const next = prev.filter(s => !strokeHitByEraser(s, x, y, r))
-      return next
+      const next = []
+      let changed = false
+      for (const s of prev) {
+        const out = eraseStrokeAtPoint(s, x, y, r)
+        if (out.length === 1 && out[0] === s) { next.push(s); continue }
+        changed = true
+        for (const ns of out) next.push(ns)
+      }
+      return changed ? next : prev
     })
-  }, [])
+  }, [size])
 
   const undo = () => {
     setStrokes(prev => prev.slice(0, -1))
@@ -309,7 +347,7 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         {/* Brush-size cursor ring — true-to-scale preview of pen / eraser */}
         {cursorPos && rect.w > 0 && (() => {
           const diameter = tool === 'eraser'
-            ? ERASER_RADIUS_FRAC * 2 * rect.w
+            ? size * 2 * rect.w
             : size * rect.w
           const isEraser = tool === 'eraser'
           return (
