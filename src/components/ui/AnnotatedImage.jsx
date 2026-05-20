@@ -27,34 +27,42 @@ function computeImageRect(natW, natH, cW, cH, fit) {
 export function AnnotationOverlay({ strokes, rect }) {
   if (!strokes || strokes.length === 0) return null
   if (!rect || !rect.w || !rect.h) return null
+  // Render in plain pixel space — no viewBox, no preserveAspectRatio, no
+  // vectorEffect. Earlier we used viewBox="0 0 1 1" + non-scaling-stroke +
+  // CSS strokeWidth override, which on some Mac Chrome GPU paths drops the
+  // path entirely (Safari and Windows Chrome use different compositor paths
+  // and rendered it fine, which made the bug invisible in dev). Pixel-space
+  // coordinates avoid every one of those tripwires.
   return (
     <svg
-      viewBox="0 0 1 1"
-      preserveAspectRatio="none"
+      width={rect.w}
+      height={rect.h}
       style={{
         position: 'absolute',
-        left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+        left: rect.x, top: rect.y,
         pointerEvents: 'none',
         overflow: 'visible',
       }}
+      shapeRendering="geometricPrecision"
     >
       {strokes.map((s, i) => {
         if (!s.points || s.points.length === 0) return null
-        const d = s.points.map((p, idx) => `${idx === 0 ? 'M' : 'L'}${p[0]} ${p[1]}`).join(' ')
-        // Stroke width is stored as fraction of image width. We undo the
-        // viewBox-induced non-uniform scaling by using vectorEffect, then set
-        // strokeWidth as a fraction of rect.w (matches stored size semantics).
+        // Stored coords are normalised [0..1] of the image's natural size;
+        // the image rect always matches the natural aspect ratio so
+        // (x * rect.w, y * rect.h) preserves shape.
+        const d = s.points
+          .map((p, idx) => `${idx === 0 ? 'M' : 'L'}${(p[0] * rect.w).toFixed(2)} ${(p[1] * rect.h).toFixed(2)}`)
+          .join(' ')
+        const strokeW = (s.size || 0.005) * rect.w
         return (
           <path
             key={i}
             d={d}
             fill="none"
             stroke={s.color || '#ef4444'}
-            strokeWidth={(s.size || 0.005) * rect.w}
+            strokeWidth={strokeW}
             strokeLinecap="round"
             strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-            style={{ strokeWidth: `${(s.size || 0.005) * rect.w}px` }}
           />
         )
       })}
