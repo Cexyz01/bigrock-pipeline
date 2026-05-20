@@ -138,6 +138,10 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     return [x, y]
   }, [rect])
 
+  // Cursor position in surface coords — drives the brush-size preview ring so
+  // the user can see at a glance how thick a stroke / how wide the eraser is.
+  const [cursorPos, setCursorPos] = useState(null)
+
   // ── Drawing handlers ──
   const onPointerDown = (e) => {
     if (!rect.w) return
@@ -154,7 +158,11 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
   }
 
   const onPointerMove = (e) => {
-    if (!drawing || !rect.w) return
+    if (!rect.w) return
+    // Update cursor preview even when not drawing
+    const wrap = wrapRef.current?.getBoundingClientRect()
+    if (wrap) setCursorPos({ x: e.clientX - wrap.left, y: e.clientY - wrap.top })
+    if (!drawing) return
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
     if (tool === 'pen') {
       setStrokes(prev => {
@@ -268,9 +276,11 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerLeave={() => setCursorPos(null)}
         style={{
           flex: 1, position: 'relative', overflow: 'hidden',
-          cursor: tool === 'eraser' ? 'cell' : 'crosshair',
+          // Hide native cursor — the brush-size ring below is the cursor.
+          cursor: rect.w > 0 ? 'none' : 'default',
           touchAction: 'none',
         }}
       >
@@ -296,6 +306,29 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         />
         {/* Strokes overlay */}
         <AnnotationOverlay strokes={strokes} rect={rect} />
+        {/* Brush-size cursor ring — true-to-scale preview of pen / eraser */}
+        {cursorPos && rect.w > 0 && (() => {
+          const diameter = tool === 'eraser'
+            ? ERASER_RADIUS_FRAC * 2 * rect.w
+            : size * rect.w
+          const isEraser = tool === 'eraser'
+          return (
+            <div style={{
+              position: 'absolute',
+              left: cursorPos.x - diameter / 2,
+              top: cursorPos.y - diameter / 2,
+              width: diameter, height: diameter, borderRadius: '50%',
+              pointerEvents: 'none',
+              background: isEraser ? 'rgba(255,255,255,0.18)' : color,
+              border: isEraser
+                ? '1.5px dashed rgba(255,255,255,0.9)'
+                : `1px solid rgba(255,255,255,0.7)`,
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
+              mixBlendMode: isEraser ? 'normal' : 'normal',
+              transition: 'width 0.05s linear, height 0.05s linear',
+            }} />
+          )
+        })()}
       </div>
     </div>,
     document.body,
