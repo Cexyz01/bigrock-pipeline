@@ -242,15 +242,10 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
   const [showRejectBox, setShowRejectBox] = useState(false)
   const [rejectComment, setRejectComment] = useState('')
 
-  // Group WIPs by user_id, take latest with content per user
+  // Every WIP with content, newest first. Staff want to scroll back through
+  // the student's earlier deliveries on this task — not just the latest one.
   const wipsByUser = useMemo(() => {
-    const map = new Map()
-    for (const w of wips) {
-      const hasContent = (w.images && w.images.length > 0) || w.note
-      if (!hasContent) continue
-      if (!map.has(w.user_id)) map.set(w.user_id, w)
-    }
-    return Array.from(map.values())
+    return wips.filter(w => (w.images && w.images.length > 0) || w.note)
   }, [wips])
 
   const handleApprove = async () => {
