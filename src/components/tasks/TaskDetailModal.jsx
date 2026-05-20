@@ -732,7 +732,14 @@ export default function TaskDetailModal({
               <h2 style={{
                 fontSize: 16, fontWeight: 700, color: '#1a1a1a', margin: 0,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>{task.title}</h2>
+              }}>
+                {(task.shot?.code || task.asset?.name) && (
+                  <span style={{ color: '#64748B', fontWeight: 600, marginRight: 6 }}>
+                    {task.shot?.code || task.asset?.name}:
+                  </span>
+                )}
+                {task.title}
+              </h2>
               <StatusBadge status={task.status} type="task" />
             </div>
             <button onClick={onClose} style={{

@@ -75,6 +75,11 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
     return new Date(task.last_wip_at) > new Date(view.viewed_at)
   })()
 
+  // WIP updates count (shown on WIP tasks so staff can see at a glance whether
+  // anything has been posted — 0 means "don't bother opening it").
+  const wipCount = Array.isArray(task.wip_updates) ? (task.wip_updates[0]?.count ?? 0) : 0
+  const showWipCount = task.status === 'wip'
+
   return (
     <div
       onMouseEnter={() => setH(true)}
@@ -97,10 +102,23 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
         position: 'relative',
       }}
     >
+      {/* WIP count badge — number of WIP updates posted on this task */}
+      {showWipCount && (
+        <span title={`${wipCount} WIP update${wipCount === 1 ? '' : 's'}`} style={{
+          position: 'absolute', top: 10, right: 10,
+          minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10,
+          background: wipCount === 0 ? '#E2E8F0' : '#2563EB',
+          color: wipCount === 0 ? '#64748B' : '#fff',
+          fontSize: 11, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxSizing: 'border-box',
+        }}>{wipCount}</span>
+      )}
+
       {/* WIP Badge — purple dot with pulse */}
       {showWipBadge && (
         <span style={{
-          position: 'absolute', top: 12, right: 12,
+          position: 'absolute', top: 14, right: showWipCount ? 38 : 12,
           width: 12, height: 12, borderRadius: '50%',
           background: '#8B5CF6',
           boxShadow: '0 0 0 0 rgba(139, 92, 246, 0.6)',
@@ -111,7 +129,7 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
       {/* Late-start indicator — orange pulsing dot when planned start date has arrived but task is still TO DO */}
       {overdueStart && (
         <span title="Doveva iniziare oggi o prima" style={{
-          position: 'absolute', top: 12, right: showWipBadge ? 30 : 12,
+          position: 'absolute', top: 14, right: showWipBadge ? (showWipCount ? 56 : 30) : (showWipCount ? 38 : 12),
           width: 12, height: 12, borderRadius: '50%',
           background: '#F59E0B',
           boxShadow: '0 0 0 0 rgba(245, 158, 11, 0.6)',

@@ -319,7 +319,8 @@ export async function getTasks(filters = {}) {
     assignees:task_assignees(user:profiles(id, full_name, email, department, mood_emoji, avatar_url)),
     creator:profiles!tasks_created_by_fkey(id, full_name),
     shot:shots(id, code, sequence),
-    asset:assets(id, name)
+    asset:assets(id, name),
+    wip_updates:task_wip_updates(count)
   `).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
 
   if (filters.project_id) query = query.eq('project_id', filters.project_id)
