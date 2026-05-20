@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { isStaff, isAdmin, isSuperAdmin, hasPermission, SUPER_ADMIN_EMAILS, isAudioUrl } from './lib/constants'
+import { AnnotationsProvider } from './hooks/useImageAnnotations'
 import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import useIsMobile from './hooks/useIsMobile'
@@ -1210,6 +1211,7 @@ export default function App() {
   const contentPadding = isMobile ? '16px 16px 65px' : '36px 44px'
 
   return (
+    <AnnotationsProvider user={user}>
     <div className={isMobile ? 'mobile-safe-top app-shell-mobile' : ''} style={{ display: 'flex', height: isMobile ? '100%' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
@@ -1364,5 +1366,6 @@ export default function App() {
         <BanOverlay seconds={banInfo.seconds} onExpire={() => {}} />
       )}
     </div>
+    </AnnotationsProvider>
   )
 }

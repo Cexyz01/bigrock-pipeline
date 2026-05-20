@@ -1977,3 +1977,41 @@ export async function uploadStickerImage(projectId, file) {
     return { url: null, error: { message: err.message } }
   }
 }
+
+
+// ── Image annotations (teacher pen drawings on top of WIP / review images) ──
+// Keyed by image URL. Strokes are normalised [0..1] of the image's natural size
+// so the same payload replays at any display scale.
+
+export async function getImageAnnotations(urls) {
+  if (!urls || urls.length === 0) return []
+  const { data, error } = await supabase
+    .from('image_annotations')
+    .select('image_url, strokes, updated_by, updated_at')
+    .in('image_url', urls)
+  if (error) { console.warn('[image_annotations] fetch error:', error.message); return [] }
+  return data || []
+}
+
+export async function upsertImageAnnotation(url, strokes, userId) {
+  const payload = {
+    image_url: url,
+    strokes,
+    updated_by: userId || null,
+    updated_at: new Date().toISOString(),
+  }
+  const { data, error } = await supabase
+    .from('image_annotations')
+    .upsert(payload, { onConflict: 'image_url' })
+    .select()
+    .single()
+  if (error) console.warn('[image_annotations] save error:', error.message)
+  return { data, error }
+}
+
+export function subscribeImageAnnotations(callback) {
+  return supabase
+    .channel('image_annotations_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'image_annotations' }, callback)
+    .subscribe()
+}

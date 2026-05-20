@@ -12,6 +12,7 @@ import { IconX, IconImage, IconSend, IconCheck, IconTrash } from '../ui/Icons'
 import AssigneePicker from './AssigneePicker'
 import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
+import AnnotatedImage from '../ui/AnnotatedImage'
 
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
@@ -626,9 +627,12 @@ export default function TaskDetailModal({
                           <audio controls src={imgUrl} style={{ width: '100%', height: 36 }} preload="metadata" />
                         </div>
                       ) : (
-                        <div key={imgIdx} onClick={() => setLightboxUrl(imgUrl)} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', cursor: 'pointer', aspectRatio: '1' }}>
-                          <Img src={imgUrl} w={400} h={400} fit="fill" alt={`WIP ${imgIdx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                        </div>
+                        <AnnotatedImage
+                          key={imgIdx}
+                          src={imgUrl} w={400} h={400} fit="fill" alt={`WIP ${imgIdx + 1}`}
+                          onClick={() => setLightboxUrl(imgUrl)}
+                          style={{ borderRadius: 8, border: '1px solid #E2E8F0', aspectRatio: '1', objectFit: 'cover', cursor: 'pointer' }}
+                        />
                       )
                     ))}
                   </div>
@@ -728,7 +732,7 @@ export default function TaskDetailModal({
             </div>
           </div>
         </div>
-        <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+        <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
       </>
     )
   }
@@ -802,7 +806,7 @@ export default function TaskDetailModal({
         </div>
       </div>
 
-      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
     </>
   )
 }

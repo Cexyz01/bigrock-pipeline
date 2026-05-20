@@ -5,6 +5,8 @@ import Av from '../ui/Av'
 import EmptyState from '../ui/EmptyState'
 import { IconEye } from '../ui/Icons'
 import Img from '../ui/Img'
+import AnnotatedImage from '../ui/AnnotatedImage'
+import ImageLightbox from '../ui/ImageLightbox'
 
 // ── date helpers (local-time, no UTC drift) ──
 const MS_DAY = 86400000
@@ -343,7 +345,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {wipsByUser.map(w => <WipBlock key={w.id} wip={w} />)}
+            {wipsByUser.map(w => <WipBlock key={w.id} wip={w} user={user} addToast={addToast} />)}
           </div>
         )}
 
@@ -412,12 +414,13 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
   )
 }
 
-function WipBlock({ wip }) {
+function WipBlock({ wip, user, addToast }) {
   const author = wip.author || {}
   const images = (wip.images || []).filter(u => !isAudioUrl(u) && !isVideoUrl(u))
   const audios = (wip.images || []).filter(isAudioUrl)
   const videos = (wip.images || []).filter(isVideoUrl)
   const date = wip.created_at ? new Date(wip.created_at) : null
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
   return (
     <div style={{
@@ -456,12 +459,16 @@ function WipBlock({ wip }) {
             gap: 10,
           }}>
             {images.map((src, i) => (
-              <a key={i} href={src} target="_blank" rel="noopener noreferrer" style={{ display: 'block', borderRadius: 12, overflow: 'hidden', background: '#000', border: '1px solid #E8ECF1' }}>
-                <Img src={src} alt="" style={{
-                  width: '100%', maxHeight: images.length === 1 ? 480 : 320, objectFit: 'contain',
-                  display: 'block', background: '#000',
-                }} />
-              </a>
+              <AnnotatedImage
+                key={i}
+                src={src} alt=""
+                onClick={() => setLightboxUrl(src)}
+                style={{
+                  width: '100%', height: images.length === 1 ? 480 : 320,
+                  borderRadius: 12, background: '#000',
+                  border: '1px solid #E8ECF1', objectFit: 'contain', cursor: 'zoom-in',
+                }}
+              />
             ))}
           </div>
         )}
@@ -482,6 +489,7 @@ function WipBlock({ wip }) {
           </div>
         )}
       </div>
+      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
     </div>
   )
 }

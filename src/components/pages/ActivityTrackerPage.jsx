@@ -11,6 +11,7 @@ import ImageLightbox from '../ui/ImageLightbox'
 import { IconX } from '../ui/Icons'
 import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
+import AnnotatedImage from '../ui/AnnotatedImage'
 
 export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate, currentProject }) {
   const isMobile = useIsMobile()
@@ -413,7 +414,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
         </Modal>
       )}
 
-      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} />
     </div>
   )
 }
@@ -455,7 +456,7 @@ function WipCard({ wip, green, onImageClick, onOpen }) {
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {wip.images.map((url, i) => (
             <div key={i} onClick={(e) => { e.stopPropagation(); onImageClick?.(url) }} style={{ cursor: 'pointer' }}>
-              <Img src={url} w={120} h={120} fit="fill" alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: `1px solid ${imgBorder}` }} />
+              <AnnotatedImage src={url} w={120} h={120} fit="fill" alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: `1px solid ${imgBorder}` }} />
             </div>
           ))}
         </div>
