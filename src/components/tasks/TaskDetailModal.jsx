@@ -22,6 +22,7 @@ export default function TaskDetailModal({
   onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
   onCreateWipUpdate, onDeleteWipUpdate, onCommitForReview, onMarkWipViewed,
   addToast, requestConfirm,
+  scrollToWipId = null,
 }) {
   const isMobile = useIsMobile()
   const [mobileTab, setMobileTab] = useState('info') // mobile: info | wip
@@ -101,6 +102,24 @@ export default function TaskDetailModal({
   const [wipCommentInputs, setWipCommentInputs] = useState({}) // { [wipUpdateId]: string }
 
   const fileInputRef = useRef(null)
+  // Per-WIP DOM refs so we can scroll to a specific update when deep-linked
+  // from the Activity tracker (click a WIP card → open task and jump to it).
+  const wipRefs = useRef({})
+  const [highlightWipId, setHighlightWipId] = useState(null)
+  useEffect(() => {
+    if (loading || !scrollToWipId) return
+    // Mobile uses tabs; ensure the WIP tab is active so the row mounts
+    if (isMobile && mobileTab !== 'wip') { setMobileTab('wip'); return }
+    const el = wipRefs.current[scrollToWipId]
+    if (!el) return
+    const id = scrollToWipId
+    setHighlightWipId(id)
+    const t = setTimeout(() => {
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch { el.scrollIntoView() }
+    }, 50)
+    const t2 = setTimeout(() => setHighlightWipId(curr => curr === id ? null : curr), 2200)
+    return () => { clearTimeout(t); clearTimeout(t2) }
+  }, [loading, scrollToWipId, isMobile, mobileTab, wipUpdates])
   const dept = DEPTS.find(d => d.id === task.department)
   const assignees = task.assignees || []
   const isOwner = assignees.some(a => a.user.id === user.id)
@@ -554,7 +573,19 @@ export default function TaskDetailModal({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {wipUpdates.map((update, idx) => (
-              <div key={update.id} style={{ padding: isMobile ? 12 : 16, borderRadius: 14, background: '#F8FAFC', border: idx === 0 ? '1px solid #F28C2820' : '1px solid #E8ECF1' }}>
+              <div
+                key={update.id}
+                ref={el => { if (el) wipRefs.current[update.id] = el; else delete wipRefs.current[update.id] }}
+                style={{
+                  padding: isMobile ? 12 : 16, borderRadius: 14,
+                  background: highlightWipId === update.id ? '#FFF7ED' : '#F8FAFC',
+                  border: highlightWipId === update.id
+                    ? '2px solid #F28C28'
+                    : (idx === 0 ? '1px solid #F28C2820' : '1px solid #E8ECF1'),
+                  boxShadow: highlightWipId === update.id ? '0 0 0 4px rgba(242,140,40,0.18)' : 'none',
+                  transition: 'background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease',
+                }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <Av name={update.author?.full_name} size={26} url={update.author?.avatar_url} />
                   <div style={{ flex: 1 }}>

@@ -513,9 +513,9 @@ export default function App() {
     setPendingGameInvite(invite)
   }, [])
 
-  const handleNavigate = (targetView, targetId) => {
+  const handleNavigate = (targetView, targetId, extras = null) => {
     setView(targetView)
-    if (targetId) setDeepLink({ type: targetView, id: targetId })
+    if (targetId) setDeepLink({ type: targetView, id: targetId, ...(extras || {}) })
   }
   const clearDeepLink = () => setDeepLink(null)
 

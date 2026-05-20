@@ -34,6 +34,7 @@ export default function TasksPage({
   const [showCreate, setShowCreate] = useState(false)
   const [createPrefill, setCreatePrefill] = useState(null)
   const [selectedTask, setSelectedTask] = useState(null)
+  const [scrollToWipId, setScrollToWipId] = useState(null)
   const [viewMode, setViewMode] = useState('all')
   const staff = hasPermission(user, 'create_edit_tasks')
   const isMobile = useIsMobile()
@@ -42,7 +43,10 @@ export default function TasksPage({
   useEffect(() => {
     if (deepLink?.type === 'tasks' && deepLink?.id) {
       const t = tasks.find(t => t.id === deepLink.id)
-      if (t) setSelectedTask(t)
+      if (t) {
+        setSelectedTask(t)
+        setScrollToWipId(deepLink.wipId || null)
+      }
       clearDeepLink()
     }
     if (deepLink?.type === 'shotFilter' && deepLink?.id) {
@@ -318,7 +322,8 @@ export default function TasksPage({
         <TaskDetailModal
           task={selectedTask} user={user} staff={staff} profiles={profiles} students={students}
           projectStartDate={currentProject?.start_date || null}
-          onClose={() => setSelectedTask(null)}
+          onClose={() => { setSelectedTask(null); setScrollToWipId(null) }}
+          scrollToWipId={scrollToWipId}
           onUpdate={onUpdateTask} onSetAssignees={onSetAssignees} onDelete={onDeleteTask} onReject={onRejectTask} onAddWipComment={onAddWipComment}
           onCreateWipUpdate={onCreateWipUpdate}
           onDeleteWipUpdate={onDeleteWipUpdate}

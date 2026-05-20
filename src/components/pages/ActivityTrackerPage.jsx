@@ -405,6 +405,10 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
             approvedByStudentDate={approvedByStudentDate}
             tasks={tasks}
             onImageClick={setLightboxUrl}
+            onOpenWip={(wip) => {
+              setSelectedCell(null)
+              if (wip?.task_id && onNavigate) onNavigate('tasks', wip.task_id, { wipId: wip.id })
+            }}
           />
         </Modal>
       )}
@@ -414,15 +418,26 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
   )
 }
 
-function WipCard({ wip, green, onImageClick }) {
+function WipCard({ wip, green, onImageClick, onOpen }) {
   const bg = green ? '#D1FAE5' : '#DBEAFE'
   const border = green ? '#A7F3D0' : '#BFDBFE'
   const titleColor = green ? '#065F46' : '#1E40AF'
   const timeColor = green ? '#059669' : '#3B82F6'
   const noteColor = green ? '#047857' : '#1E3A5F'
   const imgBorder = green ? '#6EE7B7' : '#93C5FD'
+  const clickable = !!onOpen
   return (
-    <div style={{ padding: '10px 14px', borderRadius: 10, background: bg, border: `1px solid ${border}` }}>
+    <div
+      onClick={clickable ? () => onOpen(wip) : undefined}
+      title={clickable ? 'Apri task su questo WIP' : undefined}
+      style={{
+        padding: '10px 14px', borderRadius: 10, background: bg, border: `1px solid ${border}`,
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+      }}
+      onMouseEnter={clickable ? e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)' } : undefined}
+      onMouseLeave={clickable ? e => { e.currentTarget.style.boxShadow = 'none' } : undefined}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: wip.note || (wip.images?.length > 0) ? 6 : 0 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: titleColor }}>{wip.task?.title || 'Task'}</div>
@@ -439,7 +454,7 @@ function WipCard({ wip, green, onImageClick }) {
       {wip.images?.length > 0 && (
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {wip.images.map((url, i) => (
-            <div key={i} onClick={() => onImageClick?.(url)} style={{ cursor: 'pointer' }}>
+            <div key={i} onClick={(e) => { e.stopPropagation(); onImageClick?.(url) }} style={{ cursor: 'pointer' }}>
               <Img src={url} w={120} h={120} fit="fill" alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: `1px solid ${imgBorder}` }} />
             </div>
           ))}
@@ -449,7 +464,7 @@ function WipCard({ wip, green, onImageClick }) {
   )
 }
 
-function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStudentDate, tasks, onImageClick }) {
+function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStudentDate, tasks, onImageClick, onOpenWip }) {
   const key = `${student.id}_${dateStr}`
   const dayWips = wipsByStudentDate[key] || []
   const dayApproved = approvedByStudentDate[key] || []
@@ -484,12 +499,16 @@ function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStud
             const dept = DEPTS.find(d => d.id === t.department)
             const latestWip = approvedWips.find(w => w.task_id === t.id)
             // If there's a WIP with screenshots, show only that; otherwise show the task info
-            if (latestWip) return <WipCard key={t.id} wip={latestWip} green onImageClick={onImageClick} />
+            if (latestWip) return <WipCard key={t.id} wip={latestWip} green onImageClick={onImageClick} onOpen={onOpenWip} />
             return (
-              <div key={t.id} style={{
-                padding: '10px 14px', borderRadius: 10,
-                background: '#D1FAE5', border: '1px solid #A7F3D0',
-                display: 'flex', alignItems: 'center', gap: 10,
+              <div key={t.id}
+                onClick={() => onOpenWip && onOpenWip({ task_id: t.id, id: null })}
+                title="Apri task"
+                style={{
+                  padding: '10px 14px', borderRadius: 10,
+                  background: '#D1FAE5', border: '1px solid #A7F3D0',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  cursor: onOpenWip ? 'pointer' : 'default',
               }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#065F46' }}>{t.title}</div>
@@ -508,7 +527,7 @@ function CellDetailContent({ student, dateStr, wipsByStudentDate, approvedByStud
           <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, color: '#2563EB', marginTop: dayApproved.length > 0 ? 8 : 0 }}>
             WIP Updates ({remainingWips.length})
           </h3>
-          {remainingWips.map(wip => <WipCard key={wip.id} wip={wip} onImageClick={onImageClick} />)}
+          {remainingWips.map(wip => <WipCard key={wip.id} wip={wip} onImageClick={onImageClick} onOpen={onOpenWip} />)}
         </>
       )}
     </div>
