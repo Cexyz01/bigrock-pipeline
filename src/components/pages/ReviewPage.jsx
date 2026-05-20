@@ -120,6 +120,7 @@ export default function ReviewPage({
                 onUpdateTask={onUpdateTask}
                 onRejectTask={onRejectTask}
                 onDismiss={dismissTask}
+                user={user}
                 addToast={addToast}
                 requestConfirm={requestConfirm}
               />
@@ -234,7 +235,7 @@ function Stat({ label, value, accent }) {
 // ────────────────────────────────────────────────────────────
 // TASK REVIEW CARD
 // ────────────────────────────────────────────────────────────
-function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, onDismiss, addToast, requestConfirm }) {
+function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, onDismiss, user, addToast, requestConfirm }) {
   const dept = DEPTS.find(d => d.id === task.department)
   const assignees = task.assignees || []
   const [actionLoading, setActionLoading] = useState(null)
