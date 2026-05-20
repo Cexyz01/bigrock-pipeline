@@ -152,9 +152,38 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     return [x, y]
   }, [rect])
 
-  // Cursor position in surface coords — drives the brush-size preview ring so
-  // the user can see at a glance how thick a stroke / how wide the eraser is.
-  const [cursorPos, setCursorPos] = useState(null)
+  // Brush-size preview ring. Updated imperatively (DOM .style writes) instead
+  // of React state so the cursor follows the pointer at native refresh rate
+  // even while a stroke is being drawn — React re-renders for state changes
+  // can't keep up with high-frequency pointermove on busy canvases.
+  const cursorRef = useRef(null)
+  const updateCursorVisual = useCallback(() => {
+    const el = cursorRef.current
+    if (!el || !rect.w) return
+    const diameter = (tool === 'eraser' ? size * 2 : size) * rect.w
+    el.style.width = el.style.height = `${diameter}px`
+    if (tool === 'eraser') {
+      el.style.background = 'rgba(255,255,255,0.18)'
+      el.style.borderStyle = 'dashed'
+      el.style.borderColor = 'rgba(255,255,255,0.9)'
+    } else {
+      el.style.background = color
+      el.style.borderStyle = 'solid'
+      el.style.borderColor = 'rgba(255,255,255,0.7)'
+    }
+  }, [tool, size, color, rect.w])
+  useEffect(updateCursorVisual, [updateCursorVisual])
+  const moveCursor = useCallback((x, y) => {
+    const el = cursorRef.current
+    if (!el) return
+    const diameter = (tool === 'eraser' ? size * 2 : size) * rect.w
+    el.style.transform = `translate3d(${x - diameter / 2}px, ${y - diameter / 2}px, 0)`
+    el.style.display = 'block'
+  }, [tool, size, rect.w])
+  const hideCursor = useCallback(() => {
+    const el = cursorRef.current
+    if (el) el.style.display = 'none'
+  }, [])
 
   // True if (clientX, clientY) is over the actual image, not the dark margin.
   const isInsideImage = (clientX, clientY) => {
@@ -184,12 +213,10 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
 
   const onPointerMove = (e) => {
     if (!rect.w) return
-    // Update cursor preview — but only when over the image, so the brush ring
-    // doesn't sit in the close-zone margin.
     const wrap = wrapRef.current?.getBoundingClientRect()
     const inside = isInsideImage(e.clientX, e.clientY)
-    if (wrap && inside) setCursorPos({ x: e.clientX - wrap.left, y: e.clientY - wrap.top })
-    else setCursorPos(null)
+    if (wrap && inside) moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
+    else hideCursor()
     if (!drawing) return
     if (!inside) return
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
@@ -314,7 +341,7 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => setCursorPos(null)}
+        onPointerLeave={hideCursor}
         style={{
           flex: 1, position: 'relative', overflow: 'hidden',
           // Hide native cursor — the brush-size ring below is the cursor.
@@ -344,29 +371,18 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         />
         {/* Strokes overlay */}
         <AnnotationOverlay strokes={strokes} rect={rect} />
-        {/* Brush-size cursor ring — true-to-scale preview of pen / eraser */}
-        {cursorPos && rect.w > 0 && (() => {
-          const diameter = tool === 'eraser'
-            ? size * 2 * rect.w
-            : size * rect.w
-          const isEraser = tool === 'eraser'
-          return (
-            <div style={{
-              position: 'absolute',
-              left: cursorPos.x - diameter / 2,
-              top: cursorPos.y - diameter / 2,
-              width: diameter, height: diameter, borderRadius: '50%',
-              pointerEvents: 'none',
-              background: isEraser ? 'rgba(255,255,255,0.18)' : color,
-              border: isEraser
-                ? '1.5px dashed rgba(255,255,255,0.9)'
-                : `1px solid rgba(255,255,255,0.7)`,
-              boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
-              mixBlendMode: isEraser ? 'normal' : 'normal',
-              transition: 'width 0.05s linear, height 0.05s linear',
-            }} />
-          )
-        })()}
+        {/* Brush-size cursor ring — positioned imperatively via translate3d so
+            it tracks the pointer without going through React's render cycle. */}
+        <div
+          ref={cursorRef}
+          style={{
+            position: 'absolute', top: 0, left: 0,
+            borderRadius: '50%', pointerEvents: 'none',
+            borderWidth: 1, willChange: 'transform',
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
+            display: 'none',
+          }}
+        />
       </div>
     </div>,
     document.body,
