@@ -6,22 +6,24 @@ import { useImageAnnotation } from '../../hooks/useImageAnnotations'
 import ImageAnnotator from './ImageAnnotator'
 import { isStaff } from '../../lib/constants'
 
-// Lightbox that always renders any saved teacher annotations on top of the
-// image. Staff get an "Annota" button to switch into the pen/eraser editor;
-// students see only the readonly composite.
+// Image viewer. For staff this is the annotator (pen + eraser, auto-save).
+// For students it's a readonly viewer that still renders saved annotations on
+// top of the image so they can see teacher corrections.
 
 export default function ImageLightbox({ src, onClose, user, addToast }) {
-  const [editing, setEditing] = useState(false)
+  // Staff jump straight into the annotator — drawing is the primary action,
+  // no two-step "view then click Annota" UX. Students never enter the editor.
+  const canAnnotate = isStaff(user)
   const { strokes } = useImageAnnotation(src)
   const wrapRef = useRef(null)
   const [box, setBox] = useState({ w: 0, h: 0 })
 
   useEffect(() => {
     if (!src) return
-    const onKey = (e) => { if (e.key === 'Escape' && !editing) onClose() }
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [src, onClose, editing])
+  }, [src, onClose])
 
   useLayoutEffect(() => {
     if (!wrapRef.current) return
@@ -38,11 +40,10 @@ export default function ImageLightbox({ src, onClose, user, addToast }) {
 
   if (!src) return null
 
-  if (editing) {
-    return <ImageAnnotator src={src} onClose={() => setEditing(false)} addToast={addToast} />
+  // Staff: open the annotator directly. Drawing is immediate, save is automatic.
+  if (canAnnotate) {
+    return <ImageAnnotator src={src} onClose={onClose} addToast={addToast} />
   }
-
-  const canAnnotate = isStaff(user)
 
   return createPortal(
     <div
@@ -55,18 +56,6 @@ export default function ImageLightbox({ src, onClose, user, addToast }) {
         cursor: 'zoom-out',
       }}
     >
-      {canAnnotate && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setEditing(true) }}
-          style={{
-            position: 'absolute', top: 20, right: 20, zIndex: 1,
-            padding: '10px 16px', borderRadius: 10,
-            background: '#F28C28', color: '#fff', border: 'none',
-            fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-          }}
-        >✏️ Annota</button>
-      )}
       <div
         ref={wrapRef}
         onClick={(e) => e.stopPropagation()}

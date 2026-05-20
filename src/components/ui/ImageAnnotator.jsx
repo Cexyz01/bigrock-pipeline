@@ -52,15 +52,64 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
   const [color, setColor] = useState(COLORS[0])
   const [size, setSize] = useState(0.005) // fraction of image width
   const [drawing, setDrawing] = useState(false)
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
+  // Auto-save lifecycle: 'idle' (no pending changes), 'pending' (debounce
+  // running), 'saving' (network in flight), 'saved' (last flush succeeded —
+  // shown briefly then back to idle).
+  const [saveState, setSaveState] = useState('idle')
+  const strokesRef = useRef(strokes)
+  strokesRef.current = strokes
+  const saveTimerRef = useRef(null)
+  const savedFlashTimerRef = useRef(null)
+  const lastSavedJsonRef = useRef(JSON.stringify(saved || []))
 
-  // Resync when the upstream cache loads (saved arrives async on first open)
+  // Resync when the upstream cache loads (saved arrives async on first open).
+  // We only adopt the server state once; further upstream pushes (e.g. our own
+  // optimistic updates after auto-save) shouldn't clobber in-progress strokes.
   const hydratedRef = useRef(false)
   useEffect(() => {
     if (hydratedRef.current) return
-    if (saved && saved.length >= 0) { setStrokes(saved); hydratedRef.current = true }
+    if (saved && saved.length >= 0) {
+      setStrokes(saved)
+      strokesRef.current = saved
+      lastSavedJsonRef.current = JSON.stringify(saved)
+      hydratedRef.current = true
+    }
   }, [saved])
+
+  const flushSave = useCallback(async () => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    const payload = strokesRef.current
+    const json = JSON.stringify(payload)
+    if (json === lastSavedJsonRef.current) return
+    setSaveState('saving')
+    const { error } = await save(payload)
+    if (error) {
+      setSaveState('idle')
+      addToast?.('Errore nel salvataggio annotazioni', 'danger')
+      return
+    }
+    lastSavedJsonRef.current = json
+    setSaveState('saved')
+    if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current)
+    savedFlashTimerRef.current = setTimeout(() => setSaveState('idle'), 1100)
+  }, [save, addToast])
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setSaveState('pending')
+    saveTimerRef.current = setTimeout(() => { saveTimerRef.current = null; flushSave() }, 600)
+  }, [flushSave])
+
+  // On unmount: flush any pending changes synchronously-ish (fire-and-forget,
+  // the cache is already optimistic so the overlay shows it immediately).
+  useEffect(() => () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      flushSave()
+    }
+    if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current)
+  }, [flushSave])
 
   const wrapRef = useRef(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
@@ -98,7 +147,6 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     if (tool === 'pen') {
       setDrawing(true)
       setStrokes(prev => [...prev, { color, size, points: [p] }])
-      setDirty(true)
     } else if (tool === 'eraser') {
       setDrawing(true)
       eraseAt(p[0], p[1])
@@ -126,6 +174,7 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
   }
 
   const onPointerUp = () => {
+    if (drawing) scheduleSave()
     setDrawing(false)
   }
 
@@ -133,34 +182,20 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     const r = ERASER_RADIUS_FRAC
     setStrokes(prev => {
       const next = prev.filter(s => !strokeHitByEraser(s, x, y, r))
-      if (next.length !== prev.length) setDirty(true)
       return next
     })
   }, [])
 
   const undo = () => {
     setStrokes(prev => prev.slice(0, -1))
-    setDirty(true)
+    scheduleSave()
   }
   const clearAll = () => {
     setStrokes([])
-    setDirty(true)
-  }
-  const handleSave = async () => {
-    setSaving(true)
-    const { error } = await save(strokes)
-    setSaving(false)
-    if (error) {
-      addToast?.('Errore nel salvataggio annotazioni', 'danger')
-      return
-    }
-    addToast?.('Annotazioni salvate', 'success')
-    onClose?.()
+    scheduleSave()
   }
   const handleClose = () => {
-    if (dirty) {
-      if (!window.confirm('Hai modifiche non salvate. Chiudere senza salvare?')) return
-    }
+    // flushSave (called on unmount) will persist any pending changes.
     onClose?.()
   }
 
@@ -170,11 +205,10 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
       else if (e.key === 'b' || e.key === 'B') setTool('pen')
       else if (e.key === 'e' || e.key === 'E') setTool('eraser')
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo() }
-      else if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); handleSave() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [dirty, strokes])
+  }, [])
 
   return createPortal(
     <div style={{
@@ -212,13 +246,18 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
           />
         </label>
         <div style={{ flex: 1 }} />
+        <span style={{
+          fontSize: 11, color: saveState === 'saved' ? '#86efac' : '#cbd5e1',
+          minWidth: 78, textAlign: 'right',
+          transition: 'color 0.2s ease',
+        }}>
+          {saveState === 'saving' ? 'Salvataggio…'
+            : saveState === 'pending' ? 'Modifiche…'
+            : saveState === 'saved' ? '✓ Salvato'
+            : ''}
+        </span>
         <button onClick={undo} style={toolBtnStyle(false)}>↶ Undo</button>
         <button onClick={clearAll} style={toolBtnStyle(false)}>🗑 Pulisci</button>
-        <button onClick={handleSave} disabled={saving} style={{
-          ...toolBtnStyle(true),
-          background: '#F28C28', borderColor: '#F28C28', color: '#fff',
-          opacity: saving ? 0.6 : 1,
-        }}>{saving ? 'Salvataggio…' : '💾 Salva'}</button>
         <button onClick={handleClose} style={toolBtnStyle(false)}>✕ Chiudi</button>
       </div>
 
