@@ -5,7 +5,7 @@
 DROP POLICY IF EXISTS wip_comments_insert ON wip_comments;
 CREATE POLICY wip_comments_insert ON wip_comments
   FOR INSERT TO authenticated
-  WITH CHECK (author_id = auth.uid());
+  WITH CHECK (author_id = auth.uid() AND is_staff(auth.uid()));
 
 -- Authors (and staff) can clean up their own comments.
 DROP POLICY IF EXISTS wip_comments_delete ON wip_comments;
