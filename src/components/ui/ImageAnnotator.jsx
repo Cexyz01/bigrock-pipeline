@@ -211,6 +211,61 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     }
   }
 
+  // rAF-batched flush. Pointer events fire faster than the screen refreshes,
+  // so we collect raw points in refs and apply them once per frame. Without
+  // this, every pointermove triggered setStrokes → SVG re-render of every
+  // existing path, which made the eraser feel sluggish on busy canvases.
+  const pendingPenPointsRef = useRef([])
+  const pendingErasePointsRef = useRef([])
+  const flushRafRef = useRef(0)
+  const requestFlush = useCallback(() => {
+    if (flushRafRef.current) return
+    flushRafRef.current = requestAnimationFrame(() => {
+      flushRafRef.current = 0
+      const penPts = pendingPenPointsRef.current
+      const erasePts = pendingErasePointsRef.current
+      if (penPts.length === 0 && erasePts.length === 0) return
+      pendingPenPointsRef.current = []
+      pendingErasePointsRef.current = []
+      setStrokes(prev => {
+        let next = prev
+        if (penPts.length > 0 && next.length > 0) {
+          const last = next[next.length - 1]
+          const lastPts = last.points
+          const lp = lastPts[lastPts.length - 1]
+          // Drop sub-pixel duplicates so the path stays compact.
+          const merged = [...lastPts]
+          let prevX = lp[0], prevY = lp[1]
+          for (const p of penPts) {
+            const dx = p[0] - prevX, dy = p[1] - prevY
+            if (dx * dx + dy * dy < 1e-6) continue
+            merged.push(p); prevX = p[0]; prevY = p[1]
+          }
+          if (merged.length !== lastPts.length) {
+            next = next.slice(0, -1)
+            next.push({ ...last, points: merged })
+          }
+        }
+        if (erasePts.length > 0) {
+          let arr = next
+          let changed = false
+          for (const [x, y, r] of erasePts) {
+            const out = []
+            for (const s of arr) {
+              const split = eraseStrokeAtPoint(s, x, y, r)
+              if (split.length === 1 && split[0] === s) { out.push(s); continue }
+              changed = true
+              for (const ns of split) out.push(ns)
+            }
+            arr = out
+          }
+          if (changed) next = arr
+        }
+        return next
+      })
+    })
+  }, [])
+
   const onPointerMove = (e) => {
     if (!rect.w) return
     const wrap = wrapRef.current?.getBoundingClientRect()
@@ -221,29 +276,54 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
     if (!inside) return
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
     if (tool === 'pen') {
-      setStrokes(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        // Throttle to avoid runaway points: ignore if too close to previous.
-        const lp = last.points[last.points.length - 1]
-        const dx = p[0] - lp[0], dy = p[1] - lp[1]
-        if (dx * dx + dy * dy < 1e-6) return prev
-        const next = prev.slice(0, -1)
-        next.push({ ...last, points: [...last.points, p] })
-        return next
-      })
+      pendingPenPointsRef.current.push(p)
     } else if (tool === 'eraser') {
-      eraseAt(p[0], p[1])
+      pendingErasePointsRef.current.push([p[0], p[1], size])
     }
+    requestFlush()
   }
 
   const onPointerUp = () => {
+    // Flush any queued points so the gesture ends with a consistent state.
+    if (flushRafRef.current) {
+      cancelAnimationFrame(flushRafRef.current)
+      flushRafRef.current = 0
+    }
+    const penPts = pendingPenPointsRef.current
+    const erasePts = pendingErasePointsRef.current
+    if (penPts.length > 0 || erasePts.length > 0) {
+      pendingPenPointsRef.current = []
+      pendingErasePointsRef.current = []
+      setStrokes(prev => {
+        let next = prev
+        if (penPts.length > 0 && next.length > 0) {
+          const last = next[next.length - 1]
+          const merged = [...last.points, ...penPts]
+          next = next.slice(0, -1)
+          next.push({ ...last, points: merged })
+        }
+        if (erasePts.length > 0) {
+          let arr = next
+          for (const [x, y, r] of erasePts) {
+            const out = []
+            for (const s of arr) {
+              const split = eraseStrokeAtPoint(s, x, y, r)
+              for (const ns of split) out.push(ns)
+            }
+            arr = out
+          }
+          next = arr
+        }
+        return next
+      })
+    }
     if (drawing) scheduleSave()
     setDrawing(false)
   }
 
-  // Eraser uses the same `size` slider as the pen so the cursor ring and the
-  // actual erase footprint always match.
+  // Single-click erase (used on pointerdown) — same logic as the rAF flush
+  // but applied immediately so the very first dab is visible without waiting
+  // for a pointermove.
   const eraseAt = useCallback((x, y) => {
     const r = size
     setStrokes(prev => {
