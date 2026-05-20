@@ -144,11 +144,27 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
 
   const rect = computeImageRect(natural.w, natural.h, containerSize.w, containerSize.h)
 
+  // ── Pan / zoom ──
+  // Transform is held in a ref + applied imperatively to the stage so panning
+  // and wheel-zoom don't trigger React re-renders during the gesture.
+  const stageRef = useRef(null)
+  const xformRef = useRef({ scale: 1, panX: 0, panY: 0 })
+  const applyXform = useCallback(() => {
+    const el = stageRef.current
+    if (!el) return
+    const { scale, panX, panY } = xformRef.current
+    el.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
+  }, [])
+  useLayoutEffect(applyXform, [applyXform, rect.w])
+
   const screenToNorm = useCallback((clientX, clientY) => {
     if (!wrapRef.current || !rect.w) return null
     const wrap = wrapRef.current.getBoundingClientRect()
-    const x = (clientX - wrap.left - rect.x) / rect.w
-    const y = (clientY - wrap.top - rect.y) / rect.h
+    const { scale, panX, panY } = xformRef.current
+    const lx = (clientX - wrap.left - panX) / scale
+    const ly = (clientY - wrap.top - panY) / scale
+    const x = (lx - rect.x) / rect.w
+    const y = (ly - rect.y) / rect.h
     return [x, y]
   }, [rect])
 
@@ -157,11 +173,18 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
   // even while a stroke is being drawn — React re-renders for state changes
   // can't keep up with high-frequency pointermove on busy canvases.
   const cursorRef = useRef(null)
+  // Brush diameter on screen depends on the current zoom (the stored stroke
+  // size is fraction of natural image width, and the image is scaled by
+  // zoom in the stage), so we always read xformRef when sizing the cursor.
+  const cursorDiameter = useCallback(() => {
+    const { scale } = xformRef.current
+    return (tool === 'eraser' ? size * 2 : size) * rect.w * scale
+  }, [tool, size, rect.w])
   const updateCursorVisual = useCallback(() => {
     const el = cursorRef.current
     if (!el || !rect.w) return
-    const diameter = (tool === 'eraser' ? size * 2 : size) * rect.w
-    el.style.width = el.style.height = `${diameter}px`
+    const d = cursorDiameter()
+    el.style.width = el.style.height = `${d}px`
     if (tool === 'eraser') {
       el.style.background = 'rgba(255,255,255,0.18)'
       el.style.borderStyle = 'dashed'
@@ -171,32 +194,84 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
       el.style.borderStyle = 'solid'
       el.style.borderColor = 'rgba(255,255,255,0.7)'
     }
-  }, [tool, size, color, rect.w])
+  }, [tool, size, color, rect.w, cursorDiameter])
   useEffect(updateCursorVisual, [updateCursorVisual])
   const moveCursor = useCallback((x, y) => {
     const el = cursorRef.current
     if (!el) return
-    const diameter = (tool === 'eraser' ? size * 2 : size) * rect.w
-    el.style.transform = `translate3d(${x - diameter / 2}px, ${y - diameter / 2}px, 0)`
+    const d = cursorDiameter()
+    el.style.width = el.style.height = `${d}px`
+    el.style.transform = `translate3d(${x - d / 2}px, ${y - d / 2}px, 0)`
     el.style.display = 'block'
-  }, [tool, size, rect.w])
+  }, [cursorDiameter])
   const hideCursor = useCallback(() => {
     const el = cursorRef.current
     if (el) el.style.display = 'none'
   }, [])
 
-  // True if (clientX, clientY) is over the actual image, not the dark margin.
+  // True if (clientX, clientY) is over the actual image after pan/zoom,
+  // not the dark margin around it.
   const isInsideImage = (clientX, clientY) => {
     if (!wrapRef.current || !rect.w) return false
     const wrap = wrapRef.current.getBoundingClientRect()
-    const lx = clientX - wrap.left, ly = clientY - wrap.top
+    const { scale, panX, panY } = xformRef.current
+    const lx = (clientX - wrap.left - panX) / scale
+    const ly = (clientY - wrap.top - panY) / scale
     return lx >= rect.x && lx <= rect.x + rect.w
         && ly >= rect.y && ly <= rect.y + rect.h
   }
 
-  // ── Drawing handlers ──
+  // ── Pan + wheel zoom handlers ──
+  const panningRef = useRef(null) // { startX, startY, originPanX, originPanY }
+  const onWheel = useCallback((e) => {
+    if (!rect.w || !wrapRef.current) return
+    e.preventDefault()
+    const wrap = wrapRef.current.getBoundingClientRect()
+    const cx = e.clientX - wrap.left
+    const cy = e.clientY - wrap.top
+    const cur = xformRef.current
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+    const nextScale = Math.max(0.2, Math.min(8, cur.scale * factor))
+    if (nextScale === cur.scale) return
+    // Anchor the zoom to the cursor: the world point under the cursor must
+    // stay under the cursor after scaling.
+    const k = nextScale / cur.scale
+    const nextPanX = cx - (cx - cur.panX) * k
+    const nextPanY = cy - (cy - cur.panY) * k
+    xformRef.current = { scale: nextScale, panX: nextPanX, panY: nextPanY }
+    applyXform()
+    moveCursor(cx, cy)
+  }, [rect.w, applyXform, moveCursor])
+  // Wheel events on a passive listener can't preventDefault, so we attach
+  // a non-passive listener via a layout effect (React's default is passive).
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const handler = (e) => onWheel(e)
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [onWheel])
+  const resetZoom = () => {
+    xformRef.current = { scale: 1, panX: 0, panY: 0 }
+    applyXform()
+    updateCursorVisual()
+  }
+
+  // ── Drawing / pan handlers ──
   const onPointerDown = (e) => {
     if (!rect.w) return
+    // Right-mouse / middle-mouse → pan, regardless of where on the surface.
+    if (e.button === 2 || e.button === 1) {
+      e.preventDefault()
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      const cur = xformRef.current
+      panningRef.current = {
+        startX: e.clientX, startY: e.clientY,
+        originPanX: cur.panX, originPanY: cur.panY,
+      }
+      hideCursor()
+      return
+    }
     // Outside the image = click-to-close zone, never a drawing surface.
     if (!isInsideImage(e.clientX, e.clientY)) { handleClose(); return }
     e.preventDefault()
@@ -268,6 +343,17 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
 
   const onPointerMove = (e) => {
     if (!rect.w) return
+    // Panning takes priority — neither the cursor ring nor drawing fires.
+    if (panningRef.current) {
+      const p = panningRef.current
+      xformRef.current = {
+        ...xformRef.current,
+        panX: p.originPanX + (e.clientX - p.startX),
+        panY: p.originPanY + (e.clientY - p.startY),
+      }
+      applyXform()
+      return
+    }
     const wrap = wrapRef.current?.getBoundingClientRect()
     const inside = isInsideImage(e.clientX, e.clientY)
     if (wrap && inside) moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
@@ -284,6 +370,7 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
   }
 
   const onPointerUp = () => {
+    if (panningRef.current) { panningRef.current = null; return }
     // Flush any queued points so the gesture ends with a consistent state.
     if (flushRafRef.current) {
       cancelAnimationFrame(flushRafRef.current)
@@ -411,6 +498,7 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         </span>
         <button onClick={undo} style={toolBtnStyle(false)}>↶ Undo</button>
         <button onClick={clearAll} style={toolBtnStyle(false)}>🗑 Pulisci</button>
+        <button onClick={resetZoom} title="Reset zoom (1:1)" style={toolBtnStyle(false)}>⌖ 1:1</button>
         <button onClick={handleClose} style={toolBtnStyle(false)}>✕ Chiudi</button>
       </div>
 
@@ -422,6 +510,7 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={hideCursor}
+        onContextMenu={(e) => e.preventDefault()}
         style={{
           flex: 1, position: 'relative', overflow: 'hidden',
           // Hide native cursor — the brush-size ring below is the cursor.
@@ -429,18 +518,28 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
           touchAction: 'none',
         }}
       >
-        {/* Centered image */}
-        {rect.w > 0 && (
-          <div style={{
-            position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+        {/* Stage — image + strokes live here together so wheel-zoom and
+            right-click pan transform them in lockstep. */}
+        <div
+          ref={stageRef}
+          style={{
+            position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+            transformOrigin: '0 0', willChange: 'transform',
             pointerEvents: 'none',
-          }}>
-            <Img src={src} w={1920} h={1920} fit="limit" alt="" style={{
-              width: '100%', height: '100%', objectFit: 'fill', display: 'block',
-              userSelect: 'none', pointerEvents: 'none',
-            }} />
-          </div>
-        )}
+          }}
+        >
+          {rect.w > 0 && (
+            <div style={{
+              position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+            }}>
+              <Img src={src} w={1920} h={1920} fit="limit" alt="" style={{
+                width: '100%', height: '100%', objectFit: 'fill', display: 'block',
+                userSelect: 'none', pointerEvents: 'none',
+              }} />
+            </div>
+          )}
+          <AnnotationOverlay strokes={strokes} rect={rect} />
+        </div>
         {/* Hidden img for natural-size detection (so rect math works even before
             the visible img has rendered into its computed slot). */}
         <img
@@ -449,8 +548,6 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
           onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
         />
-        {/* Strokes overlay */}
-        <AnnotationOverlay strokes={strokes} rect={rect} />
         {/* Brush-size cursor ring — positioned imperatively via translate3d so
             it tracks the pointer without going through React's render cycle. */}
         <div
