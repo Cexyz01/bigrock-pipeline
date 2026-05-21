@@ -1,77 +1,113 @@
-import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, hasPermission, isDeptEnabled } from '../../lib/constants'
+import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, TASK_STATUSES, isDeptEnabled } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Bar from '../ui/Bar'
 
-export default function OverviewPage({ shots, assets = [], tasks, profiles, user, currentProject }) {
+// Project-wide overview. Intentionally NOT personalized — no "my tasks" or
+// per-user breakdowns. Everything here describes the state of the project
+// itself so the page reads the same for any viewer.
+export default function OverviewPage({ shots, assets = [], tasks, profiles = [], currentProject }) {
   const isMobile = useIsMobile()
 
-  // All progress metrics are task-based for consistency with the Departments section.
+  // Task-based metrics — every KPI on this page uses the same unit (tasks)
+  // so the cards can be compared at a glance.
   const total = tasks.length
-  const todoTasks = tasks.filter(t => t.status === 'todo').length
+  const todo = tasks.filter(t => t.status === 'todo').length
   const wip = tasks.filter(t => t.status === 'wip').length
-  const reviewTasks = tasks.filter(t => t.status === 'review')
+  const review = tasks.filter(t => t.status === 'review').length
   const done = tasks.filter(t => t.status === 'approved').length
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  const myTasks = tasks.filter(t => (t.assignees || []).some(a => a.user.id === user.id))
-  const statusCounts = {
-    not_started: todoTasks,
-    in_progress: wip + reviewTasks.length,
-    approved: done,
-  }
 
-  // Dept color map for stat cards
-  const statCards = [
-    { l: 'Shots', v: shots.length, c: '#1a1a1a' },
-    { l: 'Assets', v: assets.length, c: '#1a1a1a' },
-    { l: 'Completed', v: done, c: '#10B981' },
-    { l: 'In Progress', v: wip, c: '#2563EB' },
-    { l: hasPermission(user, 'access_review') ? 'To Review' : 'My Tasks', v: hasPermission(user, 'access_review') ? reviewTasks.length : myTasks.length, c: '#F28C28' },
+  // Status breakdown for the progress bar legend — drives off TASK_STATUSES
+  // so colors/labels stay in sync with the rest of the app.
+  const statusCounts = { todo, wip, review, approved: done }
+
+  // Top-line KPIs (all task-based, all project-wide).
+  const kpis = [
+    { label: 'Task in Review', value: review,            color: '#F28C28' },
+    { label: 'In corso',       value: wip,               color: '#2563EB' },
+    { label: 'Completati',     value: `${done} / ${total}`, color: '#10B981' },
   ]
+
+  // Project meta strip — counts of entities (shots/assets/team) live here
+  // as INFORMATION, not as KPI cards. This is the fix for the previous
+  // header that mixed entity counts with task statuses in the same row.
+  const metaBits = [
+    { icon: '🎬', label: `${shots.length} shots` },
+    { icon: '🧊', label: `${assets.length} assets` },
+    { icon: '👥', label: `${profiles.length} ${profiles.length === 1 ? 'persona' : 'persone'}` },
+    currentProject?.start_date && { icon: '📅', label: `dal ${formatStart(currentProject.start_date)}` },
+  ].filter(Boolean)
 
   return (
     <div>
+      {/* ── HEADER ─────────────────────────────────────────────── */}
       <Fade>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Hi {user.full_name.split(' ')[0]} {user.mood_emoji || ''}</h1>
-        {currentProject && (
-          <div style={{ marginTop: 8, marginBottom: 8 }}>
-            <div style={{ fontSize: 18, fontWeight: 600, color: '#1a1a1a' }}>{currentProject.name}</div>
-            {currentProject.description && <div style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>{currentProject.description}</div>}
-            {currentProject.start_date && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>Inizio: {currentProject.start_date}</div>}
-          </div>
-        )}
-        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>BigRock Hub Overview</p>
+        <div style={{ marginBottom: isMobile ? 20 : 28 }}>
+          <h1 style={{ fontSize: isMobile ? 24 : 32, fontWeight: 700, margin: 0, color: '#1a1a1a', letterSpacing: '-0.01em' }}>
+            {currentProject?.name || 'Overview'}
+          </h1>
+          {currentProject?.description && (
+            <p style={{ fontSize: 14, color: '#64748B', margin: '6px 0 0', maxWidth: 720, lineHeight: 1.5 }}>
+              {currentProject.description}
+            </p>
+          )}
+          {metaBits.length > 0 && (
+            <div style={{ display: 'flex', gap: isMobile ? 10 : 18, flexWrap: 'wrap', marginTop: 12 }}>
+              {metaBits.map(m => (
+                <span key={m.label} style={{ fontSize: 12, color: '#64748B', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 14, lineHeight: 1 }}>{m.icon}</span>
+                  {m.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </Fade>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${statCards.length}, 1fr)`, gap: isMobile ? 12 : 20, marginBottom: isMobile ? 20 : 32 }}>
-        {statCards.map((s, i) => (
-          <Fade key={s.l} delay={i * 50}>
+      {/* ── KPI ROW ─────────────────────────────────────────────── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : `repeat(${kpis.length}, 1fr)`,
+        gap: isMobile ? 10 : 20,
+        marginBottom: isMobile ? 20 : 32,
+      }}>
+        {kpis.map((k, i) => (
+          <Fade key={k.label} delay={i * 50}>
             <div style={{
               background: '#fff', border: '1px solid #E8ECF1', borderRadius: 16,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', padding: isMobile ? 16 : 24,
-              borderLeft: `4px solid ${s.c}`,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              padding: isMobile ? 14 : 24,
+              borderLeft: `4px solid ${k.color}`,
             }}>
-              <div style={{ fontSize: isMobile ? 11 : 13, color: '#64748B', marginBottom: isMobile ? 6 : 12 }}>{s.l}</div>
-              <div style={{ fontSize: isMobile ? 24 : 32, fontWeight: 700, color: s.c }}>{s.v}</div>
+              <div style={{
+                fontSize: isMobile ? 10 : 11, color: '#94A3B8',
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+                fontWeight: 600, marginBottom: isMobile ? 6 : 10,
+              }}>{k.label}</div>
+              <div style={{
+                fontSize: isMobile ? 22 : 32, fontWeight: 800, color: k.color, lineHeight: 1,
+              }}>{k.value}</div>
             </div>
           </Fade>
         ))}
       </div>
 
+      {/* ── PIPELINE PROGRESS ───────────────────────────────────── */}
       <Fade delay={200}>
         <Card style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a' }}>Pipeline Progress</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: '#F28C28' }}>{pct}%</span>
+            <span style={{ fontSize: 28, fontWeight: 800, color: '#F28C28', lineHeight: 1 }}>{pct}%</span>
           </div>
           <Bar value={pct} h={8} />
-          <div style={{ display: 'flex', gap: 20, marginTop: 20, flexWrap: 'wrap' }}>
-            {SHOT_STATUSES.map(st => {
+          <div style={{ display: 'flex', gap: isMobile ? 12 : 24, marginTop: 18, flexWrap: 'wrap' }}>
+            {TASK_STATUSES.map(st => {
               const c = statusCounts[st.id] || 0
               return (
                 <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.color }} />
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: st.color }} />
                   <span style={{ fontSize: 13, color: '#64748B' }}>{st.label}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: st.color }}>{c}</span>
                 </div>
@@ -81,6 +117,7 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
         </Card>
       </Fade>
 
+      {/* ── DEPARTMENTS (invariato) ─────────────────────────────── */}
       <Fade delay={300}>
         <Card>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#1a1a1a' }}>Departments</div>
@@ -95,7 +132,6 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
               const assetsD = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id) && isDone(a[`status_${dept.id}`])).length : 0
               const t = shotsT + assetsT
               const d = shotsD + assetsD
-              // Tasks count only for THIS department
               const deptTasks = tasks.filter(tk => tk.department === dept.id)
               const deptDone = deptTasks.filter(tk => tk.status === 'approved' || tk.status === 'review').length
 
@@ -124,4 +160,13 @@ export default function OverviewPage({ shots, assets = [], tasks, profiles, user
       </Fade>
     </div>
   )
+}
+
+// Italian-locale short date for the meta strip — "dal 12 mar 2026"
+function formatStart(iso) {
+  try {
+    return new Date(iso).toLocaleDateString('it', { day: 'numeric', month: 'short', year: 'numeric' })
+  } catch {
+    return iso
+  }
 }
