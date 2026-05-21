@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl, hasPermission } from '../../lib/constants'
-import { getWipUpdates, getWipComments } from '../../lib/supabase'
+import { getWipUpdates, getWipComments, deleteWipComment } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
 import Av from '../ui/Av'
@@ -271,9 +271,34 @@ export default function TaskDetailModal({
     setWipCommentInputs(prev => ({ ...prev, [wipUpdateId]: '' }))
   }
 
-  // Admin/producer-only: remove a single WIP update + purge its Cloudinary
-  // assets. Gated by delete_tasks permission server-side too.
-  const canDeleteWip = !!onDeleteWipUpdate && hasPermission(user, 'delete_tasks')
+  // Prof+ (anyone with access_review) can remove a single WIP update +
+  // purge its Cloudinary assets. Server-side RLS on task_wip_updates still
+  // enforces the same staff check.
+  const canDeleteWip = !!onDeleteWipUpdate && hasPermission(user, 'access_review')
+
+  // Per-comment delete: comment author always, or any reviewer (prof+).
+  // RLS (migration 062) mirrors this — author OR non-studente.
+  const canDeleteWipComment = (comment) => {
+    if (!comment) return false
+    if (comment.author_id === user?.id || comment.author?.id === user?.id) return true
+    return hasPermission(user, 'access_review')
+  }
+  const handleDeleteWipComment = (wipUpdateId, commentId) => {
+    requestConfirm(
+      'Eliminare questo feedback?',
+      async () => {
+        const { error } = await deleteWipComment(commentId)
+        if (error) {
+          addToast?.(`Errore: ${error.message || 'eliminazione non riuscita'}`, 'danger')
+          return
+        }
+        setWipComments(prev => ({
+          ...prev,
+          [wipUpdateId]: (prev[wipUpdateId] || []).filter(c => c.id !== commentId),
+        }))
+      },
+    )
+  }
   const handleDeleteWip = (wipUpdateId) => {
     requestConfirm(
       'Eliminare questo WIP? I file caricati su Cloudinary verranno cancellati definitivamente.',
@@ -516,6 +541,19 @@ export default function TaskDetailModal({
                   </div>
                   <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.4, marginTop: 2 }}>{c.body}</div>
                 </div>
+                {canDeleteWipComment(c) && (
+                  <button
+                    onClick={() => handleDeleteWipComment(updateId, c.id)}
+                    title="Elimina feedback"
+                    style={{
+                      background: 'transparent', border: 'none', color: '#B0B8C4',
+                      cursor: 'pointer', padding: 2, fontSize: 14, lineHeight: 1,
+                      flexShrink: 0,
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                    onMouseLeave={e => (e.currentTarget.style.color = '#B0B8C4')}
+                  >×</button>
+                )}
               </div>
             ))}
           </div>

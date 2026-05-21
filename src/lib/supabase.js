@@ -1347,6 +1347,13 @@ export async function addWipComment(wipUpdateId, authorId, body) {
   return { data, error }
 }
 
+// Delete a single WIP comment. RLS (migration 062) allows the comment's
+// author OR any non-studente profile to delete.
+export async function deleteWipComment(commentId) {
+  const { error } = await supabase.from('wip_comments').delete().eq('id', commentId)
+  return { error }
+}
+
 // Upload a WIP image via Cloudinary (same pattern as uploadCardImage)
 export async function uploadWipImage(taskId, file) {
   try {

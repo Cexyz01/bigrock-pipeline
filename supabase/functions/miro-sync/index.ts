@@ -1181,9 +1181,10 @@ async function handlePreregStudent(supabase: any, params: any, authHeader: strin
 }
 
 // ══════════════════════════════════════════════════════════════
-// DELETE WIP UPDATE — gated by delete_tasks permission, also
-// purges the Cloudinary assets to free space (the whole point —
-// students sometimes post by accident, this lets staff clean up).
+// DELETE WIP UPDATE — gated by access_review (prof+) OR delete_tasks
+// (producer+); also purges the Cloudinary assets to free space (the
+// whole point — students sometimes post by accident, this lets staff
+// clean up).
 // ══════════════════════════════════════════════════════════════
 
 function parseCloudinaryUrl(url: string): { resourceType: string; publicId: string } | null {
@@ -1204,17 +1205,23 @@ async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: str
   if (!wip_update_id) return err("Missing wip_update_id")
   if (!authHeader) return err("Missing Authorization header", 401)
 
-  // Permission check — caller must have delete_tasks (super admins always pass via has_permission)
+  // Permission check — caller needs access_review (prof+) OR delete_tasks
+  // (producer+). Super admins pass via has_permission automatically.
   const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY ?? SUPABASE_SERVICE_KEY, {
     global: { headers: { Authorization: authHeader } },
   })
   const { data: { user: caller }, error: callerErr } = await userClient.auth.getUser()
   if (callerErr || !caller) return err("Invalid auth token", 401)
-  const { data: hasPerm, error: permErr } = await supabase.rpc("has_permission", {
-    user_id: caller.id, perm: "delete_tasks",
-  })
-  if (permErr) return err("Permission check failed: " + permErr.message, 500)
-  if (!hasPerm) return err("Forbidden: requires delete_tasks permission", 403)
+  const [reviewPerm, deletePerm] = await Promise.all([
+    supabase.rpc("has_permission", { user_id: caller.id, perm: "access_review" }),
+    supabase.rpc("has_permission", { user_id: caller.id, perm: "delete_tasks" }),
+  ])
+  if (reviewPerm.error && deletePerm.error) {
+    return err("Permission check failed: " + (reviewPerm.error.message || deletePerm.error.message), 500)
+  }
+  if (!reviewPerm.data && !deletePerm.data) {
+    return err("Forbidden: requires access_review or delete_tasks permission", 403)
+  }
 
   // Read the WIP update to get its image/audio URLs + the task/user it belongs to.
   // We need task_id + user_id later to scope the miro_wip_images cleanup correctly
