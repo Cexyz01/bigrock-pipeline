@@ -154,10 +154,11 @@ export const isAdmin = (roleOrUser) => {
 }
 
 export const displayRole = (roleOrUser) => {
-  if (typeof roleOrUser === 'object' && roleOrUser?.role_name) return roleOrUser.role_name
+  const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+  if (typeof roleOrUser === 'object' && roleOrUser?.role_name) return cap(roleOrUser.role_name)
   const role = typeof roleOrUser === 'string' ? roleOrUser : roleOrUser?.role
   const ROLE_MAP = { super_admin: 'Super Admin', admin: 'Admin', docente: 'Docente', coordinatore: 'Coordinatore', studente: 'Studente' }
-  return ROLE_MAP[role] || role || 'Studente'
+  return ROLE_MAP[role] || cap(role) || 'Studente'
 }
 
 // Pack rarity tiers (ordered by rarity descending)
