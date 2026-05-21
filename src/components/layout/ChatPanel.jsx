@@ -219,6 +219,27 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
 
   const totalDMUnread = conversations.reduce((s, c) => s + c.unread, 0)
 
+  // Format timestamp with relative date prefix when the message is not from today.
+  // Today → "03:21 PM"; yesterday → "Ieri 03:21 PM"; within 7 days → "lun 03:21 PM";
+  // older → "21/05 03:21 PM"; different year → "21/05/25 03:21 PM".
+  const formatMsgTime = (iso) => {
+    const d = new Date(iso)
+    const time = d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
+    const now = new Date()
+    const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+    const diffDays = Math.round((startOf(now) - startOf(d)) / 86400000)
+    if (diffDays <= 0) return time
+    if (diffDays === 1) return `Ieri ${time}`
+    if (diffDays < 7) {
+      const wd = d.toLocaleDateString('it', { weekday: 'short' }).replace('.', '')
+      return `${wd} ${time}`
+    }
+    if (d.getFullYear() === now.getFullYear()) {
+      return `${d.toLocaleDateString('it', { day: '2-digit', month: '2-digit' })} ${time}`
+    }
+    return `${d.toLocaleDateString('it', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${time}`
+  }
+
   // ── Message bubble (shared between channel + DM) ──
   const renderMessage = (m, isDM) => {
     const authorId = isDM ? m.sender_id : m.author_id
@@ -245,7 +266,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           )}
           <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{m.body}</div>
           <div style={{ fontSize: 9, color: '#71717a', marginTop: 4, textAlign: isMine ? 'right' : 'left' }}>
-            {new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
+            {formatMsgTime(m.created_at)}
           </div>
         </div>
       </div>
@@ -424,7 +445,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 13, fontWeight: conv.unread > 0 ? 700 : 500, color: '#E4E4E7' }}>{conv.user.full_name}</span>
                       <span style={{ fontSize: 10, color: '#71717a' }}>
-                        {new Date(conv.lastMessage.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
+                        {formatMsgTime(conv.lastMessage.created_at)}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
