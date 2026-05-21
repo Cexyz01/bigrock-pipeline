@@ -329,6 +329,13 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
   const [dragging, setDragging] = useState(false)
   const [dropHighlight, setDropHighlight] = useState(false)
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
+  // Live refs so the wheel handler always reads the latest pan/scale without
+  // relying on closure capture or nested setState updaters (which React can
+  // re-invoke for purity, double-applying the zoom ratio).
+  const panRef = useRef(pan)
+  const scaleRef = useRef(scale)
+  useEffect(() => { panRef.current = pan }, [pan])
+  useEffect(() => { scaleRef.current = scale }, [scale])
 
   // Tool palette state. Available tools: select | hand | text | rect | ellipse | arrow.
   // While a drawing tool is active, mousedown on the background canvas starts a "draft"
@@ -530,27 +537,38 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     onCreateSticker({ kind: 'text', text: '', x: c.x - 120, y: c.y - 30, w: 240, h: 60 })
   }, [viewportCenterBoard, onCreateSticker])
 
-  // Zoom toward cursor
+  // Zoom toward cursor — tool-agnostic. We read pan/scale through refs and
+  // dispatch two independent state updates so the ratio math runs exactly
+  // once per wheel event (React can re-invoke nested setState updaters for
+  // purity, which previously caused the cursor anchor to drift off-target).
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const onWheel = (e) => {
       e.preventDefault()
       const rect = el.getBoundingClientRect()
-      const mx = e.clientX - rect.left // mouse X relative to container
-      const my = e.clientY - rect.top  // mouse Y relative to container
+      const mx = e.clientX - rect.left
+      const my = e.clientY - rect.top
       const factor = e.deltaY > 0 ? 0.92 : 1.08
 
-      setScale(prev => {
-        const next = Math.min(5, Math.max(0.1, prev * factor))
-        const ratio = next / prev
-        // Adjust pan so the point under cursor stays fixed
-        setPan(p => ({
-          x: mx - ratio * (mx - p.x),
-          y: my - ratio * (my - p.y),
-        }))
-        return next
-      })
+      const prev = scaleRef.current
+      const next = Math.min(5, Math.max(0.1, prev * factor))
+      if (next === prev) return
+      const ratio = next / prev
+      // Fallback if pan hasn't been auto-centered yet (first paint race).
+      const p = panRef.current || { x: 40, y: 20 }
+
+      // Pre-write the refs so any state update later in this tick that
+      // reads them sees the new values.
+      scaleRef.current = next
+      const newPan = {
+        x: mx - ratio * (mx - p.x),
+        y: my - ratio * (my - p.y),
+      }
+      panRef.current = newPan
+
+      setScale(next)
+      setPan(newPan)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
