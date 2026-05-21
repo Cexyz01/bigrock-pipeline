@@ -513,9 +513,10 @@ export async function markAllNotificationsRead(userId) {
   return supabase.from('notifications').update({ read: true }).eq('user_id', userId).eq('read', false)
 }
 
-export async function sendNotification(userId, type, title, body, linkType, linkId, projectId) {
+export async function sendNotification(userId, type, title, body, linkType, linkId, projectId, meta) {
   const row = { user_id: userId, type, title, body, link_type: linkType, link_id: linkId }
   if (projectId) row.project_id = projectId
+  if (meta) row.meta = meta
   return supabase.from('notifications').insert(row)
 }
 

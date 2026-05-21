@@ -818,11 +818,22 @@ export default function App() {
     // 3. Update task.last_wip_at
     await updateTask(taskId, { last_wip_at: new Date().toISOString() })
 
-    // 4. Notify all staff
+    // 4. Notify all staff — include pusher name in the title and the new
+    // wip_update_id in `meta` so clicking the notification deep-links to that
+    // specific WIP inside the task modal (TasksPage reads deepLink.wipId).
     const task = tasks.find(t => t.id === taskId)
     const staffMembers = profiles.filter(p => isStaff(p))
+    const authorName = user.full_name || 'Qualcuno'
+    const wipUpdateId = data?.id || null
     for (const s of staffMembers) {
-      await sendNotification(s.id, 'wip_update', 'New WIP update', task?.title || 'Task', 'task', taskId)
+      await sendNotification(
+        s.id, 'wip_update',
+        `${authorName} ha pubblicato un WIP`,
+        task?.title || 'Task',
+        'task', taskId,
+        undefined,
+        wipUpdateId ? { wip_update_id: wipUpdateId } : undefined,
+      )
     }
 
     setTasks(await getTasks({ project_id: currentProject?.id }))

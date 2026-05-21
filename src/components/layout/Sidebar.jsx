@@ -62,7 +62,9 @@ export default function Sidebar({
   const handleNotifClick = (n) => {
     onMarkRead(n.id)
     if (n.link_type && n.link_id) {
-      onNavigate(n.link_type === 'task' ? 'tasks' : n.link_type === 'shot' ? 'shots' : 'overview', n.link_id)
+      const target = n.link_type === 'task' ? 'tasks' : n.link_type === 'shot' ? 'shots' : 'overview'
+      const wipId = n.meta?.wip_update_id || null
+      onNavigate(target, n.link_id, wipId ? { wipId } : null)
     }
     setShowNotifs(false)
     setShowMore(false)
