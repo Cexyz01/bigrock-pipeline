@@ -2010,6 +2010,19 @@ const ROTATE_ZONES = [
   { c: 'br', pos: { bottom: -44, right: -44, width: 32, height: 32 } },
 ]
 
+// Cloudinary fetch buckets for image stickers. Quantized so we don't refetch
+// on every wheel tick when zooming, and we cap at 4096 to keep bandwidth sane
+// even when someone zooms way in on a giant contact-sheet sticker.
+const STICKER_BUCKETS = [512, 1024, 2048, 4096]
+function pickStickerBucket(stickerW, stickerH, canvasScale) {
+  const dpr = typeof window !== 'undefined'
+    ? Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)))
+    : 2
+  const longest = Math.max(stickerW || 0, stickerH || 0, 1)
+  const target = Math.ceil(longest * (canvasScale || 1) * dpr)
+  return STICKER_BUCKETS.find(b => b >= target) ?? STICKER_BUCKETS[STICKER_BUCKETS.length - 1]
+}
+
 function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSendBack, onCommitUndo, autoEdit, selected, onSelect, multiSelect, onGroupDragStart, onGroupDragMove, onGroupDragEnd, interactive = true }) {
   const isImage = sticker.kind === 'image' || !sticker.kind
   const isText = sticker.kind === 'text'
@@ -2018,6 +2031,17 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
   const isShape = isRect || isEllipse
   const isArrow = sticker.kind === 'arrow'
   const isStroke = sticker.kind === 'stroke'
+
+  // Adaptive Cloudinary resolution for image stickers — see pickStickerBucket().
+  // Crucially we only ever bump UP: the browser keeps the higher-res copy in
+  // its image cache, so zooming back out doesn't trigger a fetch downgrade and
+  // the image still looks crisp at the smaller size.
+  const [imgBucket, setImgBucket] = useState(() => isImage ? pickStickerBucket(sticker.w, sticker.h, scale) : STICKER_BUCKETS[1])
+  useEffect(() => {
+    if (!isImage) return
+    const next = pickStickerBucket(sticker.w, sticker.h, scale)
+    setImgBucket(prev => (next > prev ? next : prev))
+  }, [isImage, sticker.w, sticker.h, scale])
 
   const [editing, setEditing] = useState(!!autoEdit && isText)
   const [action, setAction] = useState(null) // 'drag' | 'resize' | 'rotate' | 'endpoint'
@@ -2285,8 +2309,8 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
       {isImage && (
         <Img
           src={sticker.image_url}
-          w={600}
-          h={600}
+          w={imgBucket}
+          h={imgBucket}
           fit="limit"
           alt=""
           draggable={false}
