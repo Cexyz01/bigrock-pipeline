@@ -520,9 +520,9 @@ export default function TaskDetailModal({
               )}
             </>
           )}
-          {task.status === 'approved' && isSuperAdmin(user) && (
+          {task.status === 'approved' && (
             <Btn variant="info" loading={actionLoading === 'reopen'}
-              onClick={() => requestConfirm('Riportare questo task in WIP?', async () => {
+              onClick={() => requestConfirm('Riportare questo task in WIP? Lo studente potrà ricaricare nuovi WIP e dovrà essere riapprovato.', async () => {
                 setActionLoading('reopen')
                 await onUpdate(task.id, { status: 'wip' })
                 if (addToast) addToast('Task riportato in WIP', 'success')
