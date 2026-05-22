@@ -435,13 +435,54 @@ export async function deleteProjectPause(id) {
 // ── WIP Images ──
 
 export async function getStoryboardImages(projectId) {
-  const { data } = await supabase
+  // 1) Latest WIP per (task, uploader) — kept up-to-date by miro-sync dedup.
+  const baseQ = supabase
     .from('miro_wip_images')
     .select('id, shot_id, asset_id, task_id, department, image_url, image_order, img_width, img_height, created_at')
     .not('image_url', 'is', null)
     .order('image_order')
-  // Filter client-side by project shots (avoids complex join)
-  return data || []
+
+  // 2) Pinned images from any historical WIP update (migration 064).
+  //    Join through tasks to grab the shot/asset/department the storyboard
+  //    needs to slot each image into its cell.
+  const pinnedQ = supabase
+    .from('task_wip_updates')
+    .select('id, images, pinned_storyboard_urls, task:tasks(id, shot_id, asset_id, department)')
+    .not('pinned_storyboard_urls', 'eq', '{}')
+
+  const [{ data: base }, { data: pins }] = await Promise.all([baseQ, pinnedQ])
+
+  const out = [...(base || [])]
+  // Build a set of URLs already covered by miro_wip_images so a pinned URL that
+  // also happens to be the latest WIP isn't double-rendered.
+  const seen = new Set(out.map(r => r.image_url))
+  let synthId = 0
+  for (const row of (pins || [])) {
+    const task = row.task
+    if (!task) continue
+    const pinnedList = Array.isArray(row.pinned_storyboard_urls) ? row.pinned_storyboard_urls : []
+    if (pinnedList.length === 0) continue
+    for (const url of pinnedList) {
+      if (!url || seen.has(url)) continue
+      seen.add(url)
+      out.push({
+        // Synthetic id with a stable prefix so React keys don't collide with
+        // real miro_wip_images uuids.
+        id: `pin-${row.id}-${synthId++}`,
+        shot_id: task.shot_id || null,
+        asset_id: task.asset_id || null,
+        task_id: task.id,
+        department: task.department,
+        image_url: url,
+        image_order: 999, // sort pinned images after the latest-WIP set
+        img_width: null,
+        img_height: null,
+        created_at: null,
+        _pinned: true,
+      })
+    }
+  }
+  return out
 }
 
 export async function getTaskWipImages(taskId) {
@@ -1295,6 +1336,26 @@ export async function createWipUpdate(taskId, userId, note, imageUrls) {
       images: imageUrls || [],
     })
     .select('*, author:profiles(id, full_name, avatar_url, role)')
+    .single()
+  return { data, error }
+}
+
+// Toggle "Show in Storyboard" pin on a single image URL inside a WIP update.
+// RLS (migration 064) allows the WIP author OR any staff to update.
+export async function toggleWipStoryboardPin(wipUpdateId, imageUrl, pinned) {
+  const { data: current, error: readErr } = await supabase.from('task_wip_updates')
+    .select('pinned_storyboard_urls')
+    .eq('id', wipUpdateId)
+    .single()
+  if (readErr) return { data: null, error: readErr }
+  const existing = Array.isArray(current?.pinned_storyboard_urls) ? current.pinned_storyboard_urls : []
+  const next = pinned
+    ? (existing.includes(imageUrl) ? existing : [...existing, imageUrl])
+    : existing.filter(u => u !== imageUrl)
+  const { data, error } = await supabase.from('task_wip_updates')
+    .update({ pinned_storyboard_urls: next })
+    .eq('id', wipUpdateId)
+    .select('id, pinned_storyboard_urls')
     .single()
   return { data, error }
 }

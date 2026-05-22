@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl, hasPermission } from '../../lib/constants'
-import { getWipUpdates, getWipComments, deleteWipComment } from '../../lib/supabase'
+import { getWipUpdates, getWipComments, deleteWipComment, toggleWipStoryboardPin } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
 import Av from '../ui/Av'
@@ -8,7 +8,7 @@ import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 import ImageLightbox from '../ui/ImageLightbox'
-import { IconX, IconImage, IconSend, IconCheck, IconTrash } from '../ui/Icons'
+import { IconX, IconImage, IconSend, IconCheck, IconTrash, IconStar } from '../ui/Icons'
 import AssigneePicker from './AssigneePicker'
 import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
@@ -299,6 +299,30 @@ export default function TaskDetailModal({
       },
     )
   }
+  // Storyboard pin toggle — only meaningful on approved tasks.
+  // RLS lets the WIP author OR any staff change it; we mirror that here so
+  // students don't see a checkbox they can't use on someone else's image.
+  const canPinForWip = (update) => {
+    if (task.status !== 'approved') return false
+    if (!update) return false
+    return update.user_id === user?.id || isStaff(user)
+  }
+  const handleTogglePin = async (update, imgUrl) => {
+    const current = Array.isArray(update.pinned_storyboard_urls) ? update.pinned_storyboard_urls : []
+    const isPinned = current.includes(imgUrl)
+    const next = isPinned ? current.filter(u => u !== imgUrl) : [...current, imgUrl]
+    // Optimistic update
+    setWipUpdates(prev => prev.map(u => u.id === update.id ? { ...u, pinned_storyboard_urls: next } : u))
+    const { error } = await toggleWipStoryboardPin(update.id, imgUrl, !isPinned)
+    if (error) {
+      // Revert
+      setWipUpdates(prev => prev.map(u => u.id === update.id ? { ...u, pinned_storyboard_urls: current } : u))
+      addToast?.(`Errore: ${error.message || 'aggiornamento non riuscito'}`, 'danger')
+    } else {
+      addToast?.(isPinned ? 'Rimossa dalla Storyboard' : 'Aggiunta alla Storyboard', 'success')
+    }
+  }
+
   const handleDeleteWip = (wipUpdateId) => {
     requestConfirm(
       'Eliminare questo WIP? I file caricati su Cloudinary verranno cancellati definitivamente.',
@@ -662,21 +686,69 @@ export default function TaskDetailModal({
                 )}
                 {update.images && update.images.length > 0 && (
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 6 }}>
-                    {update.images.map((imgUrl, imgIdx) => (
-                      isAudioUrl(imgUrl) ? (
-                        <div key={imgIdx} style={{ gridColumn: 'span 2', borderRadius: 8, border: '1px solid #E2E8F0', padding: 8, background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 20 }}>&#9835;</span>
-                          <audio controls src={imgUrl} style={{ width: '100%', height: 36 }} preload="metadata" />
+                    {update.images.map((imgUrl, imgIdx) => {
+                      if (isAudioUrl(imgUrl)) {
+                        return (
+                          <div key={imgIdx} style={{ gridColumn: 'span 2', borderRadius: 8, border: '1px solid #E2E8F0', padding: 8, background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 20 }}>&#9835;</span>
+                            <audio controls src={imgUrl} style={{ width: '100%', height: 36 }} preload="metadata" />
+                          </div>
+                        )
+                      }
+                      const pinnedList = Array.isArray(update.pinned_storyboard_urls) ? update.pinned_storyboard_urls : []
+                      const isPinned = pinnedList.includes(imgUrl)
+                      const canPin = canPinForWip(update)
+                      // Visible on approved task when user can toggle, or always when pinned (so others see the badge).
+                      const showOverlay = (task.status === 'approved') && (canPin || isPinned)
+                      return (
+                        <div key={imgIdx} style={{ position: 'relative' }}>
+                          <AnnotatedImage
+                            src={imgUrl} w={400} h={400} fit="fill" alt={`WIP ${imgIdx + 1}`}
+                            onClick={() => setLightboxUrl(imgUrl)}
+                            style={{ borderRadius: 8, border: isPinned ? '2px solid #F28C28' : '1px solid #E2E8F0', aspectRatio: '1', objectFit: 'cover', cursor: 'pointer', display: 'block', width: '100%' }}
+                          />
+                          {showOverlay && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); if (canPin) handleTogglePin(update, imgUrl) }}
+                              disabled={!canPin}
+                              title={
+                                isPinned
+                                  ? (canPin ? 'Rimuovi dalla Storyboard' : 'In Storyboard')
+                                  : 'Mostra in Storyboard'
+                              }
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                left: 6,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 8px 4px 6px',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                lineHeight: 1,
+                                borderRadius: 999,
+                                border: 'none',
+                                cursor: canPin ? 'pointer' : 'default',
+                                background: isPinned ? '#F28C28' : 'rgba(15,23,42,0.55)',
+                                color: '#fff',
+                                backdropFilter: 'blur(6px)',
+                                WebkitBackdropFilter: 'blur(6px)',
+                                boxShadow: isPinned ? '0 2px 8px rgba(242,140,40,0.45)' : '0 2px 6px rgba(0,0,0,0.25)',
+                                opacity: isPinned ? 1 : 0.92,
+                                transition: 'all 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => { if (canPin) e.currentTarget.style.opacity = '1' }}
+                              onMouseLeave={(e) => { if (canPin && !isPinned) e.currentTarget.style.opacity = '0.92' }}
+                            >
+                              <IconStar size={11} color="#fff" />
+                              <span>{isPinned ? 'In Storyboard' : 'Mostra in Storyboard'}</span>
+                            </button>
+                          )}
                         </div>
-                      ) : (
-                        <AnnotatedImage
-                          key={imgIdx}
-                          src={imgUrl} w={400} h={400} fit="fill" alt={`WIP ${imgIdx + 1}`}
-                          onClick={() => setLightboxUrl(imgUrl)}
-                          style={{ borderRadius: 8, border: '1px solid #E2E8F0', aspectRatio: '1', objectFit: 'cover', cursor: 'pointer' }}
-                        />
                       )
-                    ))}
+                    })}
                   </div>
                 )}
                 {/* Per-WIP comments section */}
