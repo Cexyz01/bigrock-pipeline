@@ -24,7 +24,15 @@ const B_HDR_H = 48
 
 function thumbUrl(url, w = 300, h = 260) {
   if (!url) return null
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fit,w_${w},h_${h},q_auto,f_auto/`)
+  // Source must cover retina (devicePixelRatio up to ~3 on phones, 2 on most
+  // desktops). Without the multiplier Cloudinary served images at the layout
+  // size and the browser upscaled them, giving the visible blur.
+  const dpr = typeof window !== 'undefined'
+    ? Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)))
+    : 2
+  const W = Math.round(w * dpr)
+  const H = Math.round(h * dpr)
+  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fit,w_${W},h_${H},q_auto,f_auto/`)
   return url
 }
 
@@ -72,26 +80,107 @@ function measureDescH(text, maxW, fontSize = 12, lineHeight = 1.5, padV = 24) {
 // ══════════════════════════════════════════════════
 
 function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClose, onNav }) {
+  // Pan/zoom transform held in a ref and applied imperatively to the stage so
+  // wheel-zoom and right-click pan don't trigger React re-renders during the
+  // gesture (same pattern as ImageAnnotator). Reset whenever the image changes.
+  const wrapRef = useRef(null)
+  const stageRef = useRef(null)
+  const xformRef = useRef({ scale: 1, panX: 0, panY: 0 })
+  const panningRef = useRef(null)
+  const [zoomLabel, setZoomLabel] = useState(1)
+
+  const applyXform = useCallback(() => {
+    const el = stageRef.current
+    if (!el) return
+    const { scale, panX, panY } = xformRef.current
+    el.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
+  }, [])
+
+  const resetZoom = useCallback(() => {
+    xformRef.current = { scale: 1, panX: 0, panY: 0 }
+    applyXform()
+    setZoomLabel(1)
+  }, [applyXform])
+
+  // Reset view whenever the active image changes (nav or initial open).
+  useEffect(() => { resetZoom() }, [index, resetZoom])
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowRight') onNav(1)
       if (e.key === 'ArrowLeft') onNav(-1)
+      if (e.key === '0') resetZoom()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, onNav])
+  }, [onClose, onNav, resetZoom])
+
+  // Wheel zoom anchored to the cursor. Non-passive so we can preventDefault
+  // (React's default wheel listener is passive).
+  const onWheel = useCallback((e) => {
+    if (!wrapRef.current) return
+    e.preventDefault()
+    const wrap = wrapRef.current.getBoundingClientRect()
+    const cx = e.clientX - wrap.left
+    const cy = e.clientY - wrap.top
+    const cur = xformRef.current
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+    const nextScale = Math.max(0.2, Math.min(10, cur.scale * factor))
+    if (nextScale === cur.scale) return
+    const k = nextScale / cur.scale
+    const nextPanX = cx - (cx - cur.panX) * k
+    const nextPanY = cy - (cy - cur.panY) * k
+    xformRef.current = { scale: nextScale, panX: nextPanX, panY: nextPanY }
+    applyXform()
+    setZoomLabel(nextScale)
+  }, [applyXform])
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const handler = (e) => onWheel(e)
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [onWheel])
+
+  const onPointerDown = (e) => {
+    // Right-button OR middle-button → pan. Left-click on the dark backdrop
+    // still closes (via the outer onClick), left-click on the image is a no-op.
+    if (e.button === 2 || e.button === 1) {
+      e.preventDefault()
+      e.stopPropagation()
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      const cur = xformRef.current
+      panningRef.current = {
+        startX: e.clientX, startY: e.clientY,
+        originPanX: cur.panX, originPanY: cur.panY,
+      }
+    }
+  }
+  const onPointerMove = (e) => {
+    if (!panningRef.current) return
+    const p = panningRef.current
+    xformRef.current = {
+      ...xformRef.current,
+      panX: p.originPanX + (e.clientX - p.startX),
+      panY: p.originPanY + (e.clientY - p.startY),
+    }
+    applyXform()
+  }
+  const onPointerUp = () => { panningRef.current = null }
+
   if (!images?.length) return null
   const img = images[index] || images[0]
+  const audio = isAudioUrl(img.image_url)
   return createPortal(
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, zIndex: 99999,
       background: 'rgba(10,10,20,0.92)', backdropFilter: 'blur(12px)',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      animation: 'fadeIn 0.15s ease', cursor: 'zoom-out',
+      animation: 'fadeIn 0.15s ease',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        position: 'absolute', top: 0, left: 0, right: 0,
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '16px 24px', cursor: 'default',
       }}>
@@ -100,22 +189,75 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
           {deptLabel && <span style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20 }}>{deptLabel}</span>}
           {statusObj && <span style={{ background: statusObj.bg, color: statusObj.color, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 }}>{statusObj.label}</span>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!audio && (
+            <>
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontFamily: 'monospace' }}>{Math.round(zoomLabel * 100)}%</span>
+              <button onClick={resetZoom} title="Reset zoom (0)" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 18, padding: '6px 12px', cursor: 'pointer', color: '#fff', fontSize: 12, fontWeight: 600 }}>1:1</button>
+            </>
+          )}
           {images.length > 1 && <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>{index + 1} / {images.length}</span>}
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}><IconX size={18} /></button>
         </div>
       </div>
-      {isAudioUrl(img.image_url) ? (
+      {audio ? (
         <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: '24px 32px', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 8px 60px rgba(0,0,0,0.5)' }}>
           <span style={{ fontSize: 32 }}>&#9835;</span>
           <audio controls src={img.image_url} autoPlay style={{ minWidth: 300 }} />
         </div>
       ) : (
-        <Img src={img.image_url} w={1920} h={1920} fit="limit" alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '80vh', borderRadius: 6, objectFit: 'contain', cursor: 'default', boxShadow: '0 8px 60px rgba(0,0,0,0.5)' }} />
+        <div
+          ref={wrapRef}
+          onClick={e => e.stopPropagation()}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden', touchAction: 'none',
+            cursor: panningRef.current ? 'grabbing' : 'default',
+          }}
+        >
+          <div
+            ref={stageRef}
+            style={{
+              transformOrigin: '0 0',
+              willChange: 'transform',
+              display: 'inline-block',
+              lineHeight: 0,
+            }}
+          >
+            <Img
+              src={img.image_url} w={2400} h={2400} fit="limit" alt=""
+              draggable={false}
+              style={{
+                maxWidth: '88vw', maxHeight: '80vh',
+                borderRadius: 6, objectFit: 'contain', display: 'block',
+                boxShadow: '0 8px 60px rgba(0,0,0,0.5)',
+                userSelect: 'none', pointerEvents: 'none',
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {/* Hint: how to use the zoom/pan — only when image is shown */}
+      {!audio && (
+        <div onClick={e => e.stopPropagation()} style={{
+          position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)',
+          color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: 500,
+          padding: '6px 14px', borderRadius: 999, pointerEvents: 'none', zIndex: 2,
+          letterSpacing: 0.2,
+        }}>
+          Rotella per zoomare · Tasto destro per spostare · 0 per reset
+        </div>
       )}
       {images.length > 1 && <>
-        <button onClick={e => { e.stopPropagation(); onNav(-1) }} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, backdropFilter: 'blur(4px)' }}>&lsaquo;</button>
-        <button onClick={e => { e.stopPropagation(); onNav(1) }} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, backdropFilter: 'blur(4px)' }}>&rsaquo;</button>
+        <button onClick={e => { e.stopPropagation(); onNav(-1) }} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, backdropFilter: 'blur(4px)', zIndex: 2 }}>&lsaquo;</button>
+        <button onClick={e => { e.stopPropagation(); onNav(1) }} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, backdropFilter: 'blur(4px)', zIndex: 2 }}>&rsaquo;</button>
       </>}
     </div>,
     document.body,
@@ -207,7 +349,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     )
     return (
       <div style={{ height: cellH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={thumbUrl(images[0].image_url, 400, 225)} alt="" onClick={() => onClickImage(0)}
+        <Img src={thumbUrl(images[0].image_url, 800, 450)} alt="" onClick={() => onClickImage(0)}
           style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
       </div>
     )
@@ -221,7 +363,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
           {isAudioUrl(img.image_url) ? (
             <AudioMiniPlayer url={img.image_url} />
           ) : (
-            <Img src={thumbUrl(img.image_url, 280, 158)} alt="" onClick={() => onClickImage(i)}
+            <Img src={thumbUrl(img.image_url, 560, 316)} alt="" onClick={() => onClickImage(i)}
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
           )}
         </div>
@@ -233,7 +375,12 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
 // Cloudinary fit (no crop) for references
 function refThumbUrl(url, w = 320, h = 180) {
   if (!url) return null
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fit,w_${w},h_${h},q_auto,f_auto/`)
+  const dpr = typeof window !== 'undefined'
+    ? Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)))
+    : 2
+  const W = Math.round(w * dpr)
+  const H = Math.round(h * dpr)
+  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fit,w_${W},h_${H},q_auto,f_auto/`)
   return url
 }
 
@@ -243,7 +390,7 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
   return (
     <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ height: cellH, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '1px solid #E8ECF1', background: '#fff', transition: 'all 0.15s ease', transform: hov ? 'translateY(-1px)' : 'none', boxShadow: hov ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Img src={refThumbUrl(url, 400, 225)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+      <Img src={refThumbUrl(url, 800, 450)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
     </div>
   )
 })
