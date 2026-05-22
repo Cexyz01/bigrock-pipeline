@@ -2013,13 +2013,20 @@ const ROTATE_ZONES = [
 // Cloudinary fetch buckets for image stickers. Quantized so we don't refetch
 // on every wheel tick when zooming, and we cap at 4096 to keep bandwidth sane
 // even when someone zooms way in on a giant contact-sheet sticker.
-const STICKER_BUCKETS = [512, 1024, 2048, 4096]
+//
+// HEADROOM=1.5 oversamples the screen size so the image stays crisp even as
+// the user zooms a bit further before we cross the next bucket boundary.
+// MIN_BUCKET=1024 keeps initial paint sharp on small stickers that the user
+// then resizes upward (the previous 512 default was just barely enough for a
+// half-screen sticker on retina, so any further zoom blurred it).
+const STICKER_BUCKETS = [1024, 2048, 4096]
+const STICKER_HEADROOM = 1.5
 function pickStickerBucket(stickerW, stickerH, canvasScale) {
   const dpr = typeof window !== 'undefined'
     ? Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)))
     : 2
   const longest = Math.max(stickerW || 0, stickerH || 0, 1)
-  const target = Math.ceil(longest * (canvasScale || 1) * dpr)
+  const target = Math.ceil(longest * (canvasScale || 1) * dpr * STICKER_HEADROOM)
   return STICKER_BUCKETS.find(b => b >= target) ?? STICKER_BUCKETS[STICKER_BUCKETS.length - 1]
 }
 
