@@ -742,7 +742,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       const factor = e.deltaY > 0 ? 0.92 : 1.08
 
       const prev = scaleRef.current
-      const next = Math.min(5, Math.max(0.1, prev * factor))
+      const next = Math.min(40, Math.max(0.05, prev * factor))
       if (next === prev) return
       const ratio = next / prev
       // Fallback if pan hasn't been auto-centered yet (first paint race).
@@ -1505,9 +1505,9 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         ...(isMobile ? { top: 16, right: 16 } : { bottom: 16, right: 16 }),
         zIndex: 20, display: 'flex', flexDirection: 'column', gap: 4,
       }}>
-        <button onClick={() => setScale(s => Math.min(5, s * 1.2))} style={zoomBtnStyle}>+</button>
+        <button onClick={() => setScale(s => Math.min(40, s * 1.2))} style={zoomBtnStyle}>+</button>
         <button onClick={() => setScale(0.55)} style={{ ...zoomBtnStyle, fontSize: 10, fontWeight: 600 }}>{Math.round(scale * 100)}%</button>
-        <button onClick={() => setScale(s => Math.max(0.1, s * 0.8))} style={zoomBtnStyle}>&minus;</button>
+        <button onClick={() => setScale(s => Math.max(0.05, s * 0.8))} style={zoomBtnStyle}>&minus;</button>
         <button onClick={resetView} title="Reset view" style={{ ...zoomBtnStyle, fontSize: 11 }}><IconTarget size={14} /></button>
       </div>
 
