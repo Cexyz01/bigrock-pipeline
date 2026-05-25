@@ -94,6 +94,10 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     setFloats(prev => prev.map(f => f.uid === uid ? { ...f, z } : f))
   }, [floatZRef])
 
+  const handleFloatReturn = useCallback((uid) => {
+    setFloats(prev => prev.filter(f => f.uid !== uid))
+  }, [])
+
   const handleFloatClick = useCallback((f) => {
     const card = cards.find(c => c.number === f.cardNumber) || f.card
     setSelected(card)
@@ -539,6 +543,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
             onMove={handleFloatMove}
             onPickup={handleFloatPickup}
             onClick={handleFloatClick}
+            onReturn={handleFloatReturn}
           />
         ))}
       </>,

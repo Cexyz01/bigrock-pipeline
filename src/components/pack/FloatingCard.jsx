@@ -3,9 +3,15 @@ import { ScaledCard } from './CardRenderer'
 
 const DRAG_THRESHOLD = 5
 
-export default function FloatingCard({ float, onMove, onClick, onPickup }) {
+export default function FloatingCard({ float, onMove, onClick, onPickup, onReturn }) {
   const dragRef = useRef(null)
   const [grabbing, setGrabbing] = useState(false)
+
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (onReturn) onReturn(float.uid)
+  }
 
   const handlePointerDown = (e) => {
     if (e.button != null && e.button !== 0 && e.pointerType === 'mouse') return
@@ -41,6 +47,7 @@ export default function FloatingCard({ float, onMove, onClick, onPickup }) {
   return (
     <div
       onPointerDown={handlePointerDown}
+      onContextMenu={handleContextMenu}
       style={{
         position: 'fixed',
         left: float.x,
