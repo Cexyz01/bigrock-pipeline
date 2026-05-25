@@ -89,19 +89,32 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     setTimeout(() => document.body.classList.remove('chat-nudge-shake'), 800)
   }, [playNudge])
 
-  // Fire on count increase
-  useEffect(() => {
-    if (dmUnreadCount > prevUnreadRef.current) triggerNudge()
-    prevUnreadRef.current = dmUnreadCount
-  }, [dmUnreadCount, triggerNudge])
+  // Loud-mode rule: only students with an unread DM from a staff member get
+  // the full nagging treatment. Staff users and student-to-student DMs stay
+  // visual-only (red wobbling tab, no sound/shake/toast).
+  const hasStaffUnread = !staff && conversations.some(c => c.unread > 0 && isStaff(c.user))
+  const loud = !staff && hasStaffUnread
 
-  // Re-nudge every 7s while there are unread DMs AND chat is closed —
-  // until they click. MSN-grade nagging.
+  // Make sure conversations are loaded when there's an unread DM, so we can
+  // decide whether to nag. Otherwise `loud` would always be false on first paint.
   useEffect(() => {
-    if (open || dmUnreadCount === 0) return undefined
+    if (dmUnreadCount > 0 && conversations.length === 0) {
+      getDMConversations(user.id).then(setConversations)
+    }
+  }, [dmUnreadCount, conversations.length, user.id])
+
+  // Fire on count increase (only in loud mode)
+  useEffect(() => {
+    if (loud && dmUnreadCount > prevUnreadRef.current) triggerNudge()
+    prevUnreadRef.current = dmUnreadCount
+  }, [dmUnreadCount, triggerNudge, loud])
+
+  // Re-nudge every 7s while there are unread DMs AND chat is closed AND loud.
+  useEffect(() => {
+    if (!loud || open || dmUnreadCount === 0) return undefined
     const id = setInterval(triggerNudge, 7000)
     return () => clearInterval(id)
-  }, [open, dmUnreadCount, triggerNudge])
+  }, [open, dmUnreadCount, triggerNudge, loud])
 
   // ── Channel logic (existing) ──
   const fetchMessages = useCallback((ch) => {
@@ -340,7 +353,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
               <span className="chat-tab-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
             )}
           </button>
-          {dmUnreadCount > 0 && !open && (
+          {loud && dmUnreadCount > 0 && !open && (
             <button
               className="chat-nag-toast"
               onClick={onToggle}
@@ -348,7 +361,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
             >
               <span className="chat-nag-toast-emoji">📬</span>
               <span className="chat-nag-toast-text">
-                <strong>{dmUnreadCount} nuov{dmUnreadCount === 1 ? 'o messaggio' : 'i messaggi'}</strong>
+                <strong>{dmUnreadCount} nuov{dmUnreadCount === 1 ? 'o messaggio' : 'i messaggi'} dallo staff</strong>
                 <span className="chat-nag-toast-sub">clicca per leggere</span>
               </span>
             </button>
