@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { PACK_TYPES, PACK_TIMER_MINUTES, PACK_MAX_ACCUMULATED } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 
-export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onResetPacks, canOpenPacks }) {
+export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onResetPacks, canOpenPacks, requestConfirm }) {
   const isMobile = useIsMobile()
   const [hovered, setHovered] = useState(null)
   const [settling, setSettling] = useState(null)
@@ -134,9 +134,21 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
                 />
               </div>
 
-              {/* Remaining count */}
-              <div style={{ fontSize: 11, color: '#CBD5E1', marginTop: 4 }}>
-                {typeof rem === 'number' ? rem.toLocaleString() : rem} remaining
+              {/* Remaining count — pill */}
+              <div style={{
+                marginTop: 6,
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '2px 9px',
+                borderRadius: 999,
+                background: `${pack.color}1a`,
+                border: `1px solid ${pack.color}33`,
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
+                color: '#E2E8F0',
+                fontFamily: 'monospace',
+              }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: pack.color }} />
+                {typeof rem === 'number' ? rem.toLocaleString() : rem}
+                <span style={{ opacity: 0.6 }}>left</span>
               </div>
             </div>
           )
@@ -189,7 +201,14 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
           {/* Admin reset button — only visible to admins */}
           {isAdmin && (
             <button
-              onClick={(e) => { e.stopPropagation(); onResetPacks() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (requestConfirm) {
+                  requestConfirm('Riportare i pacchetti disponibili a 3/3?', () => onResetPacks())
+                } else {
+                  onResetPacks()
+                }
+              }}
               style={{
                 padding: '4px 12px', borderRadius: 8,
                 border: '1px solid #F28C2840', background: 'transparent',

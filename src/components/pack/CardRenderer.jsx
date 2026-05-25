@@ -1,35 +1,15 @@
 import { useRef, useEffect, useState } from 'react'
 import { IconCards } from '../ui/Icons'
 import { cld } from '../../lib/cld'
+import { RARITY_COLORS, CARD_W, CARD_H, DEPTH_LAYERS } from '../../lib/cardConstants'
+import { observeWidth } from '../../lib/sharedResizeObserver'
 import bigrockLogo from '../../../Images/bigrock.png'
 
-// ── Rarity visual config ──
-const RARITY_COLORS = {
-  common:  { border: '#64748B', glow: 'rgba(100,116,139,0.3)', label: 'Common',  bg: '#2d2d2d' },
-  rare:    { border: '#22C55E', glow: 'rgba(34,197,94,0.35)',  label: 'Rare',    bg: '#14532D' },
-  gold:    { border: '#F5A623', glow: 'rgba(245,166,35,0.45)',   label: 'Gold',    bg: '#422006' },
-  diamond: { border: '#06B6D4', glow: 'rgba(6,182,212,0.35)',  label: 'Diamond', bg: '#083344' },
-  rainbow: { border: '#EC4899', glow: 'rgba(236,72,153,0.4)',  label: 'Rainbow', bg: '#500724' },
-}
-
-// Canonical render size — card is always rendered at this size, then CSS-scaled
-const CARD_W = 300
-const CARD_H = 420
-
-// Card depth — actual side faces rendered as skewed divs for parallelepiped look
-const CARD_DEPTH = 3
-
-// Soft ambient shadow only (solid edges are real divs now)
+// Soft ambient shadows (solid edges are real divs)
 const CARD_SHADOW_SOFT = 'inset 0 1px 0 rgba(255,255,255,0.07), 5px 9px 8px rgba(0,0,0,0.28), 7px 13px 20px rgba(0,0,0,0.14)'
 const CARD_SHADOW_SOFT_DARK = 'inset 0 1px 0 rgba(255,255,255,0.04), 5px 9px 8px rgba(0,0,0,0.35), 7px 13px 20px rgba(0,0,0,0.18)'
 const CARD_SHADOW_SOFT_ANIM = '5px 9px 8px rgba(0,0,0,0.28), 7px 13px 20px rgba(0,0,0,0.14)'
 
-// Card depth — 3 layered back faces for thickness illusion
-const DEPTH_LAYERS = [
-  { depth: 0.33, factor: 0.75 },
-  { depth: 0.66, factor: 0.55 },
-  { depth: 1.0,  factor: 0.35 },
-]
 const DEFAULT_DEPTH_COLORS = ['#222', '#333', '#444']
 
 // Dim a hex color toward black: factor 1 = original, 0 = black
@@ -102,12 +82,21 @@ if (typeof document !== 'undefined' && !document.getElementById('card-renderer-c
   document.head.appendChild(s)
 }
 
+// Pick Cloudinary bucket size that matches the rendered card.
+// Doubles up for retina, snaps to discrete sizes for cache friendliness.
+function pickBucket(displayW) {
+  const target = Math.max(1, (displayW || CARD_W)) * (typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1.5)
+  const buckets = [320, 480, 640, 800, 1024, 1280]
+  for (const b of buckets) if (target <= b) return b
+  return 1280
+}
+
 /**
  * CardRenderer — renders a card at canonical 300×420.
  * This is the SINGLE SOURCE OF TRUTH for how a card looks.
  * Use ScaledCard to display at any size.
  */
-export default function CardRenderer({ card, owned = true, copyInfo, totalCopies, tiltX = 0, tiltY = 0, staticDepth = false }) {
+export default function CardRenderer({ card, owned = true, copyInfo, totalCopies, tiltX = 0, tiltY = 0, staticDepth = false, displayW = CARD_W }) {
   const r = RARITY_COLORS[card.rarity] || RARITY_COLORS.common
   const num = String(card.number).padStart(3, '0')
 
@@ -211,7 +200,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
         <div style={{
           flex: isFullArt ? 1 : '0 0 55%',
           background: card.image_url ? undefined : `linear-gradient(135deg, ${r.bg}, #222222)`,
-          backgroundImage: card.image_url ? `url(${cld(card.image_url, { w: 1200, h: 1200, fit: 'limit' })})` : undefined,
+          backgroundImage: card.image_url ? `url(${cld(card.image_url, { w: pickBucket(displayW), h: pickBucket(displayW), fit: 'limit' })})` : undefined,
           backgroundPosition: card.image_url && card.image_position
             ? `${card.image_position.x}% ${card.image_position.y}%` : 'center',
           backgroundSize: card.image_url && card.image_position
@@ -308,14 +297,8 @@ export function ScaledCard({ card, owned, copyInfo, totalCopies, width: fixedWid
     if (fixedWidth) return
     const el = ref.current
     if (!el) return
-    // Initial measure
     setMeasuredWidth(el.clientWidth)
-    const ro = new ResizeObserver(entries => {
-      const w = entries[0]?.contentRect.width
-      if (w) setMeasuredWidth(w)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
+    return observeWidth(el, (w) => { if (w) setMeasuredWidth(w) })
   }, [fixedWidth])
 
   const displayW = fixedWidth || measuredWidth
@@ -340,7 +323,7 @@ export function ScaledCard({ card, owned, copyInfo, totalCopies, width: fixedWid
           transformOrigin: 'top left',
           transform: `scale(${scale})`,
         }}>
-          <CardRenderer card={card} owned={owned} copyInfo={copyInfo} totalCopies={totalCopies} tiltX={tiltX} tiltY={tiltY} staticDepth={staticDepth} />
+          <CardRenderer card={card} owned={owned} copyInfo={copyInfo} totalCopies={totalCopies} tiltX={tiltX} tiltY={tiltY} staticDepth={staticDepth} displayW={displayW} />
         </div>
       )}
     </div>

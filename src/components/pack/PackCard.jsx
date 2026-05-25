@@ -19,6 +19,20 @@ if (typeof document !== 'undefined' && !document.getElementById('pack-card-css')
       will-change: transform;
       -webkit-user-select: none;
       user-select: none;
+      background: transparent;
+      border: 0;
+      padding: 0;
+      width: 100%;
+      text-align: left;
+      color: inherit;
+      font: inherit;
+      display: block;
+      position: relative;
+      outline: none;
+      border-radius: 16px;
+    }
+    .pack-card:focus-visible {
+      box-shadow: 0 0 0 3px rgba(242,140,40,0.55);
     }
     .pack-card:active {
       transform: translateY(0) scale(0.96) !important;
@@ -31,6 +45,14 @@ if (typeof document !== 'undefined' && !document.getElementById('pack-card-css')
     }
   `
   document.head.appendChild(s)
+}
+
+function ariaLabelFor(card, owned, copyCount) {
+  const name = (card.name || '').replace(/\s*#\d+$/, '') || `Carta #${card.number}`
+  const rarity = RARITY_COLORS[card.rarity]?.label || card.rarity
+  if (!owned) return `${name}, ${rarity}, non posseduta`
+  if (copyCount > 1) return `${name}, ${rarity}, ${copyCount} copie possedute`
+  return `${name}, ${rarity}, posseduta`
 }
 
 export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo, totalCopies, copyCount }) {
@@ -47,7 +69,6 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
     void el.offsetHeight
     el.style.animation = 'cardUp 0.18s cubic-bezier(0.22,1,0.36,1) forwards'
 
-    // Mark card as seen on first hover
     if (isNew && onSeen && !seenFiredRef.current) {
       seenFiredRef.current = true
       onSeen(card.number)
@@ -73,7 +94,6 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
     }
   }
 
-  // Mobile: mark seen on click/tap too
   const handleClick = () => {
     if (isNew && onSeen && !seenFiredRef.current) {
       seenFiredRef.current = true
@@ -83,20 +103,20 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
   }
 
   return (
-    <div
+    <button
       ref={ref}
+      type="button"
       className="pack-card"
       onPointerEnter={handleEnter}
       onPointerLeave={handleLeave}
       onClick={handleClick}
-      style={{ position: 'relative' }}
+      aria-label={ariaLabelFor(card, owned, copyCount)}
+      aria-disabled={!owned}
     >
-      {/* Main card */}
       <ScaledCard card={card} owned={owned} copyInfo={copyInfo} totalCopies={totalCopies} />
 
-      {/* NEW badge */}
       {isNew && (
-        <div style={{
+        <span style={{
           position: 'absolute', top: -6, left: -4, zIndex: 11,
           transform: 'rotate(-8deg)',
           background: 'linear-gradient(135deg, #FF6B6B, #FF2D55)',
@@ -108,25 +128,24 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
           animation: 'newCollPulse 2s ease-in-out infinite',
           pointerEvents: 'none',
           border: '1.5px solid rgba(255,255,255,0.3)',
-        }}>
+        }} aria-hidden>
           NEW
-        </div>
+        </span>
       )}
 
-      {/* Copy count badge */}
       {owned && copyCount >= 2 && (
-        <div style={{
+        <span style={{
           position: 'absolute', top: -6, right: -6, zIndex: 10,
           background: '#F28C28', color: '#fff',
           fontSize: 11, fontWeight: 800, lineHeight: '16px',
           padding: '2px 7px', borderRadius: 10,
           boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
           border: '2px solid #222',
-        }}>
+        }} aria-hidden>
           x{copyCount}
-        </div>
+        </span>
       )}
-    </div>
+    </button>
   )
 }
 
