@@ -39,16 +39,17 @@ export default function HangingIDCard({ user }) {
   })
 
   useEffect(() => {
-    // Idle "breath" — small periodic nudge so the card moves on its own occasionally
+    const MAX_ANGLE = Math.PI * 0.5   // ±90° hard wall
+    const SPRING = 0.014              // restoring spring constant
+    const DAMPING = 0.975             // per-frame damping (~3 swings then settle)
+
     const idleTimer = setInterval(() => {
       const s = stateRef.current
-      if (!s.dragging && Math.abs(s.angVel) < 0.005 && Math.abs(s.angle) < 0.02) {
-        s.angVel += (Math.random() - 0.5) * 0.018
+      if (!s.pointerDown && Math.abs(s.angVel) < 0.004 && Math.abs(s.angle) < 0.015) {
+        s.angVel += (Math.random() - 0.5) * 0.03
       }
-    }, 6000)
+    }, 7000)
 
-    const SPRING = 0.0055
-    const DAMPING = 0.988
     let last = performance.now()
     let raf = 0
 
@@ -57,11 +58,14 @@ export default function HangingIDCard({ user }) {
       last = now
       const s = stateRef.current
       if (!s.dragging) {
-        const accel = -SPRING * Math.sin(s.angle * 1.4)
-        s.angVel += accel * dt
+        s.angVel += -SPRING * s.angle * dt
         s.angVel *= Math.pow(DAMPING, dt)
+        if (s.angVel > 0.35) s.angVel = 0.35
+        if (s.angVel < -0.35) s.angVel = -0.35
         s.angle += s.angVel * dt
-        if (Math.abs(s.angle) < 0.0004 && Math.abs(s.angVel) < 0.0004) {
+        if (s.angle > MAX_ANGLE) { s.angle = MAX_ANGLE; s.angVel = -Math.abs(s.angVel) * 0.35 }
+        if (s.angle < -MAX_ANGLE) { s.angle = -MAX_ANGLE; s.angVel = Math.abs(s.angVel) * 0.35 }
+        if (Math.abs(s.angle) < 0.0005 && Math.abs(s.angVel) < 0.0005) {
           s.angle = 0
           s.angVel = 0
         }
@@ -90,53 +94,56 @@ export default function HangingIDCard({ user }) {
     }
 
     const { x: startX, y: startY } = getXY(e)
-    const pivotX = rect.left + rect.width / 2
-    const pivotY = rect.top + 22
-
-    // Offset between pointer's polar angle (from pivot) and current card angle.
-    // Keeping this constant during drag means the card follows the finger without snapping.
-    const initialPointerAngle = Math.atan2(startX - pivotX, Math.max(20, startY - pivotY))
-    s.dragOffset = s.angle - initialPointerAngle
+    s.pivot = { x: rect.left + rect.width / 2, y: rect.top + 22 }
     s.dragStartX = startX
-    s.dragging = true
-    s.pivot = { x: pivotX, y: pivotY }
-    s.angVel = 0
+    s.dragStartY = startY
+    s.pointerDown = true
+    s.dragging = false   // only commit to drag after enough movement — pure clicks keep physics running
     s.samples = [{ angle: s.angle, time: performance.now() }]
 
     const onMove = (ev) => {
       if (ev.cancelable) ev.preventDefault()
       const { x, y } = getXY(ev)
+      if (!s.dragging) {
+        const moved = Math.hypot(x - s.dragStartX, y - s.dragStartY)
+        if (moved < 4) return
+        // Commit to drag: freeze physics, anchor the touched point on the card
+        s.dragging = true
+        s.angVel = 0
+        const dx = x - s.pivot.x
+        const dy = Math.max(20, y - s.pivot.y)
+        s.dragOffset = s.angle - Math.atan2(dx, dy)
+      }
       const dx = x - s.pivot.x
       const dy = Math.max(20, y - s.pivot.y)
-      const pointerAngle = Math.atan2(dx, dy)
-      let a = pointerAngle + s.dragOffset
+      let a = Math.atan2(dx, dy) + s.dragOffset
       const MAX = Math.PI * 0.45
-      a = Math.max(-MAX, Math.min(MAX, a))
+      if (a > MAX) a = MAX
+      if (a < -MAX) a = -MAX
       s.angle = a
       s.samples.push({ angle: a, time: performance.now() })
       if (s.samples.length > 6) s.samples.shift()
     }
 
     const onUp = () => {
-      s.dragging = false
-      const samples = s.samples
-      const first = samples[0]
-      const last = samples[samples.length - 1]
-      const dt = last.time - first.time
-      const dA = Math.abs(last.angle - first.angle)
-
-      if (dt < 220 && dA < 0.04) {
-        // Click — nudge toward the side that was clicked (right of pivot → right swing)
+      s.pointerDown = false
+      if (s.dragging) {
+        s.dragging = false
+        const samples = s.samples
+        if (samples.length >= 2) {
+          const recent = samples.slice(-3)
+          const f = recent[0]
+          const l = recent[recent.length - 1]
+          const ddt = (l.time - f.time) || 16
+          s.angVel = ((l.angle - f.angle) / ddt) * 16
+          if (s.angVel > 0.25) s.angVel = 0.25
+          if (s.angVel < -0.25) s.angVel = -0.25
+        }
+      } else {
+        // Pure click — preserve current physics momentum and add a nudge toward the click side
         const sideDx = s.dragStartX - s.pivot.x
         const dir = Math.abs(sideDx) < 4 ? (Math.random() > 0.5 ? 1 : -1) : Math.sign(sideDx)
-        s.angVel += dir * 0.08
-      } else if (samples.length >= 2) {
-        const recent = samples.slice(-3)
-        const f = recent[0]
-        const l = recent[recent.length - 1]
-        const ddt = (l.time - f.time) || 16
-        s.angVel = ((l.angle - f.angle) / ddt) * 16
-        s.angVel = Math.max(-0.22, Math.min(0.22, s.angVel))
+        s.angVel += dir * 0.09
       }
 
       window.removeEventListener('mousemove', onMove)
