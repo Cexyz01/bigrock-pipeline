@@ -436,9 +436,13 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     }
     const wrap = wrapRef.current?.getBoundingClientRect()
     const inside = isInsideImage(e.clientX, e.clientY)
-    // Brush-size ring is mouse-only — under a finger it's invisible anyway.
-    if (wrap && inside && e.pointerType !== 'touch') moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
-    else hideCursor()
+    // Brush-size ring is for the pen/eraser tools on a mouse — in view mode
+    // the user sees a native grab cursor instead, and touch shows nothing.
+    if (wrap && inside && e.pointerType !== 'touch' && tool !== 'view') {
+      moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
+    } else {
+      hideCursor()
+    }
     if (!drawing) return
     if (!inside) return
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
@@ -620,8 +624,9 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         onContextMenu={(e) => e.preventDefault()}
         style={{
           flex: 1, position: 'relative', overflow: 'hidden',
-          // Hide native cursor — the brush-size ring below is the cursor.
-          cursor: rect.w > 0 ? 'none' : 'default',
+          // Pen/eraser use the custom brush-size ring (so native cursor is
+          // hidden). View mode shows a real grab/grabbing hand instead.
+          cursor: rect.w === 0 ? 'default' : tool === 'view' ? 'grab' : 'none',
           touchAction: 'none',
         }}
       >
