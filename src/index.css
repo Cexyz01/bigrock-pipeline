@@ -132,13 +132,77 @@ button { font-family: inherit; cursor: pointer; }
 .chat-tab-unread {
   background: linear-gradient(180deg, #EF4444, #B91C1C) !important;
   color: #fff !important;
-  font-size: 13px !important;
-  padding: 20px 12px !important;
-  animation: chatWobble 1.6s ease-in-out infinite, chatGlowPulse 1s ease-in-out infinite !important;
+  font-size: 14px !important;
+  padding: 24px 14px !important;
+  border-radius: 14px 0 0 14px !important;
+  animation: chatWobble 1.4s ease-in-out infinite, chatGlowPulse 1s ease-in-out infinite !important;
   transform-origin: center center !important;
 }
 .chat-tab-unread:hover {
-  padding-right: 16px !important;
+  padding-right: 18px !important;
+}
+
+/* Chat nag toast — slides out from the right edge, screams "click me" */
+@keyframes chatNagSlideIn {
+  0%   { opacity: 0; transform: translate(40px, -50%); }
+  60%  { opacity: 1; transform: translate(-8px, -50%); }
+  100% { opacity: 1; transform: translate(0, -50%); }
+}
+@keyframes chatNagBob {
+  0%, 100% { transform: translate(0, -50%); }
+  50%      { transform: translate(-6px, -50%); }
+}
+.chat-nag-toast {
+  position: fixed;
+  right: 56px;
+  top: calc(50% + 60px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px 12px 14px;
+  background: linear-gradient(135deg, #EF4444, #B91C1C);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(239,68,68,0.55), 0 0 0 1px rgba(255,255,255,0.1);
+  font-family: inherit;
+  text-align: left;
+  animation:
+    chatNagSlideIn 0.4s cubic-bezier(.34,1.56,.64,1) both,
+    chatNagBob 1.8s ease-in-out infinite 0.4s;
+}
+.chat-nag-toast::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background: #B91C1C;
+  transform: translateY(-50%) rotate(45deg);
+  border-radius: 2px;
+}
+.chat-nag-toast-emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+.chat-nag-toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+.chat-nag-toast-text strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+.chat-nag-toast-sub {
+  font-size: 10px;
+  opacity: 0.9;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 /* Chat tab — count badge (visible while unread on desktop) */
@@ -250,6 +314,7 @@ body.chat-nudge-shake {
 
 @media (max-width: 767px) {
   .chat-tab-handle { display: none !important; }
+  .chat-nag-toast { display: none !important; }
   .emoji-picker-grid { grid-template-columns: repeat(6, 1fr); }
   .emoji-picker-grid button { width: 38px; height: 38px; }
 }

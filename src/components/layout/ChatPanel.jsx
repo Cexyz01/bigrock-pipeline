@@ -83,17 +83,25 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     } catch {}
   }, [])
 
+  const triggerNudge = useCallback(() => {
+    playNudge()
+    document.body.classList.add('chat-nudge-shake')
+    setTimeout(() => document.body.classList.remove('chat-nudge-shake'), 800)
+  }, [playNudge])
+
+  // Fire on count increase
   useEffect(() => {
-    if (dmUnreadCount > prevUnreadRef.current) {
-      playNudge()
-      document.body.classList.add('chat-nudge-shake')
-      const t = setTimeout(() => document.body.classList.remove('chat-nudge-shake'), 800)
-      prevUnreadRef.current = dmUnreadCount
-      return () => clearTimeout(t)
-    }
+    if (dmUnreadCount > prevUnreadRef.current) triggerNudge()
     prevUnreadRef.current = dmUnreadCount
-    return undefined
-  }, [dmUnreadCount, playNudge])
+  }, [dmUnreadCount, triggerNudge])
+
+  // Re-nudge every 7s while there are unread DMs AND chat is closed —
+  // until they click. MSN-grade nagging.
+  useEffect(() => {
+    if (open || dmUnreadCount === 0) return undefined
+    const id = setInterval(triggerNudge, 7000)
+    return () => clearInterval(id)
+  }, [open, dmUnreadCount, triggerNudge])
 
   // ── Channel logic (existing) ──
   const fetchMessages = useCallback((ch) => {
@@ -321,16 +329,31 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     <>
       {/* Desktop: side tab handle / Mobile: FAB */}
       {!isMobile ? (
-        <button
-          className={`chat-tab-handle${dmUnreadCount > 0 && !open ? ' chat-tab-unread' : ''}`}
-          onClick={onToggle}
-          style={{ right: open ? 380 : 0 }}
-        >
-          Chat
+        <>
+          <button
+            className={`chat-tab-handle${dmUnreadCount > 0 && !open ? ' chat-tab-unread' : ''}`}
+            onClick={onToggle}
+            style={{ right: open ? 380 : 0 }}
+          >
+            Chat
+            {dmUnreadCount > 0 && !open && (
+              <span className="chat-tab-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
+            )}
+          </button>
           {dmUnreadCount > 0 && !open && (
-            <span className="chat-tab-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
+            <button
+              className="chat-nag-toast"
+              onClick={onToggle}
+              title="Apri chat"
+            >
+              <span className="chat-nag-toast-emoji">📬</span>
+              <span className="chat-nag-toast-text">
+                <strong>{dmUnreadCount} nuov{dmUnreadCount === 1 ? 'o messaggio' : 'i messaggi'}</strong>
+                <span className="chat-nag-toast-sub">clicca per leggere</span>
+              </span>
+            </button>
           )}
-        </button>
+        </>
       ) : !open ? (
         <button
           className="mobile-chat-fab"
