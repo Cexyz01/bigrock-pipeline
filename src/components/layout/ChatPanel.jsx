@@ -51,6 +51,50 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
   useEffect(() => { openRef.current = open }, [open])
   useEffect(() => { channelRef.current = channel }, [channel])
 
+  // ── MSN-style "trillo" on new DM ──
+  const prevUnreadRef = useRef(dmUnreadCount)
+  const audioCtxRef = useRef(null)
+
+  const playNudge = useCallback(() => {
+    try {
+      if (!audioCtxRef.current) {
+        const AC = window.AudioContext || window.webkitAudioContext
+        if (!AC) return
+        audioCtxRef.current = new AC()
+      }
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      const now = ctx.currentTime
+      // Three quick attention beeps (MSN-ish): high, higher, high
+      const tones = [880, 1320, 880]
+      tones.forEach((freq, i) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = freq
+        const t0 = now + i * 0.11
+        gain.gain.setValueAtTime(0, t0)
+        gain.gain.linearRampToValueAtTime(0.2, t0 + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(t0)
+        osc.stop(t0 + 0.12)
+      })
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (dmUnreadCount > prevUnreadRef.current) {
+      playNudge()
+      document.body.classList.add('chat-nudge-shake')
+      const t = setTimeout(() => document.body.classList.remove('chat-nudge-shake'), 800)
+      prevUnreadRef.current = dmUnreadCount
+      return () => clearTimeout(t)
+    }
+    prevUnreadRef.current = dmUnreadCount
+    return undefined
+  }, [dmUnreadCount, playNudge])
+
   // ── Channel logic (existing) ──
   const fetchMessages = useCallback((ch) => {
     if (!projectId) { setMessages([]); return Promise.resolve([]) }
@@ -283,6 +327,9 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           style={{ right: open ? 380 : 0 }}
         >
           Chat
+          {dmUnreadCount > 0 && !open && (
+            <span className="chat-tab-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
+          )}
         </button>
       ) : !open ? (
         <button

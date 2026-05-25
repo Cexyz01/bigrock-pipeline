@@ -114,19 +114,80 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: -4px 0 24px rgba(242,140,40,0.4);
 }
 
-/* Chat tab — unread pulse: orange ↔ red */
-@keyframes chatPulse {
-  0%, 100% {
-    background: linear-gradient(180deg, #F28C28, #F5B862);
-    box-shadow: -2px 0 16px rgba(242,140,40,0.3);
-  }
-  50% {
-    background: linear-gradient(180deg, #E74C3C, #FF6B6B);
-    box-shadow: -4px 0 24px rgba(231,76,60,0.5), 0 0 12px rgba(255,107,107,0.3);
-  }
+/* Chat tab — AGGRESSIVE unread state: red, bigger, wobbling */
+@keyframes chatWobble {
+  0%, 100% { transform: translateY(-50%) rotate(0deg) scale(1); }
+  10%      { transform: translateY(-50%) rotate(-5deg) scale(1.08); }
+  20%      { transform: translateY(-50%) rotate(5deg)  scale(1.08); }
+  30%      { transform: translateY(-50%) rotate(-4deg) scale(1.06); }
+  40%      { transform: translateY(-50%) rotate(4deg)  scale(1.06); }
+  50%      { transform: translateY(-50%) rotate(-2deg) scale(1.04); }
+  60%      { transform: translateY(-50%) rotate(2deg)  scale(1.04); }
+  70%      { transform: translateY(-50%) rotate(0deg)  scale(1); }
+}
+@keyframes chatGlowPulse {
+  0%, 100% { box-shadow: -4px 0 28px rgba(239,68,68,0.55), 0 0 18px rgba(255,107,107,0.35); }
+  50%      { box-shadow: -6px 0 40px rgba(239,68,68,0.95), 0 0 32px rgba(255,107,107,0.7); }
 }
 .chat-tab-unread {
-  animation: chatPulse 2s ease-in-out infinite;
+  background: linear-gradient(180deg, #EF4444, #B91C1C) !important;
+  color: #fff !important;
+  font-size: 13px !important;
+  padding: 20px 12px !important;
+  animation: chatWobble 1.6s ease-in-out infinite, chatGlowPulse 1s ease-in-out infinite !important;
+  transform-origin: center center !important;
+}
+.chat-tab-unread:hover {
+  padding-right: 16px !important;
+}
+
+/* Chat tab — count badge (visible while unread on desktop) */
+.chat-tab-badge {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  writing-mode: horizontal-tb;
+  background: #fff;
+  color: #B91C1C;
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35), 0 0 0 2px #EF4444;
+  animation: chatBadgePop 0.7s ease-in-out infinite;
+  line-height: 1;
+  letter-spacing: 0;
+  font-family: inherit;
+}
+@keyframes chatBadgePop {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.2); }
+}
+
+/* MSN-style "trillo": the whole window shakes when a new DM arrives */
+@keyframes chatNudgeShake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  6%   { transform: translate(-10px, 5px) rotate(-0.8deg); }
+  12%  { transform: translate(10px, -5px) rotate(0.8deg); }
+  18%  { transform: translate(-9px, 6px) rotate(-0.7deg); }
+  24%  { transform: translate(9px, -4px) rotate(0.7deg); }
+  30%  { transform: translate(-8px, 4px) rotate(-0.6deg); }
+  36%  { transform: translate(8px, -3px) rotate(0.6deg); }
+  44%  { transform: translate(-6px, 3px) rotate(-0.4deg); }
+  52%  { transform: translate(6px, -2px) rotate(0.4deg); }
+  60%  { transform: translate(-4px, 2px); }
+  68%  { transform: translate(4px, -1px); }
+  76%  { transform: translate(-3px, 1px); }
+  84%  { transform: translate(2px, 0); }
+  92%  { transform: translate(-1px, 0); }
+}
+body.chat-nudge-shake {
+  animation: chatNudgeShake 0.75s cubic-bezier(.36,.07,.19,.97) both;
 }
 
 /* Emoji picker */
