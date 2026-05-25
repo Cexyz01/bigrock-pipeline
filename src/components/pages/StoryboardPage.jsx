@@ -22,17 +22,19 @@ const B_GAP = 10
 const B_SEQ_H = 36
 const B_HDR_H = 48
 
+// Source size budget: the user can zoom the board canvas up to 5× AND the
+// browser at 200% on top of that. We floor DPR at 2 (so even non-retina
+// users get headroom for browser zoom) and cap at 4. Combined with bigger
+// base widths at the call sites this keeps thumbs sharp through ~10× of
+// effective zoom before Cloudinary's `fit=limit` caps at the original.
 function thumbUrl(url, w = 300, h = 260) {
   if (!url) return null
-  // Source must cover retina (devicePixelRatio up to ~3 on phones, 2 on most
-  // desktops). Without the multiplier Cloudinary served images at the layout
-  // size and the browser upscaled them, giving the visible blur.
   const dpr = typeof window !== 'undefined'
-    ? Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)))
-    : 2
+    ? Math.min(4, Math.max(2, Math.ceil(window.devicePixelRatio || 1)))
+    : 3
   const W = Math.round(w * dpr)
   const H = Math.round(h * dpr)
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fit,w_${W},h_${H},q_auto,f_auto/`)
+  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_limit,w_${W},h_${H},q_auto,f_auto/`)
   return url
 }
 
@@ -382,7 +384,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     )
     return (
       <div style={{ height: cellH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={thumbUrl(images[0].image_url, 800, 450)} alt="" onClick={() => onClickImage(0)}
+        <Img src={thumbUrl(images[0].image_url, 1600, 900)} alt="" onClick={() => onClickImage(0)}
           draggable={false} onDragStart={(e) => e.preventDefault()}
           style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
       </div>
@@ -397,7 +399,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
           {isAudioUrl(img.image_url) ? (
             <AudioMiniPlayer url={img.image_url} />
           ) : (
-            <Img src={thumbUrl(img.image_url, 560, 316)} alt="" onClick={() => onClickImage(i)}
+            <Img src={thumbUrl(img.image_url, 1100, 620)} alt="" onClick={() => onClickImage(i)}
               draggable={false} onDragStart={(e) => e.preventDefault()}
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
           )}
@@ -411,11 +413,11 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
 function refThumbUrl(url, w = 320, h = 180) {
   if (!url) return null
   const dpr = typeof window !== 'undefined'
-    ? Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)))
-    : 2
+    ? Math.min(4, Math.max(2, Math.ceil(window.devicePixelRatio || 1)))
+    : 3
   const W = Math.round(w * dpr)
   const H = Math.round(h * dpr)
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fit,w_${W},h_${H},q_auto,f_auto/`)
+  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_limit,w_${W},h_${H},q_auto,f_auto/`)
   return url
 }
 
@@ -425,7 +427,7 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
   return (
     <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ height: cellH, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '1px solid #E8ECF1', background: '#fff', transition: 'all 0.15s ease', transform: hov ? 'translateY(-1px)' : 'none', boxShadow: hov ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Img src={refThumbUrl(url, 800, 450)} alt=""
+      <Img src={refThumbUrl(url, 1600, 900)} alt=""
         draggable={false} onDragStart={(e) => e.preventDefault()}
         style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', userSelect: 'none', WebkitUserDrag: 'none' }} />
     </div>
