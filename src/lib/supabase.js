@@ -368,6 +368,12 @@ export async function setTaskAssignees(taskId, userIds) {
 
 export async function updateTask(id, updates) {
   const { data, error } = await supabase.from('tasks').update(updates).eq('id', id).select().single()
+  // When a task is approved, set the storyboard default: the latest WIP per
+  // uploader is auto-pinned. Users can still toggle stars freely afterwards.
+  // Storyboard reads ONLY from pinned_storyboard_urls (migration 065).
+  if (!error && updates.status === 'approved') {
+    try { await autoPinLatestWipForTask(id) } catch { /* non-fatal */ }
+  }
   return { data, error }
 }
 
@@ -448,46 +454,33 @@ export async function deleteProjectPause(id) {
 // ── WIP Images ──
 
 export async function getStoryboardImages(projectId) {
-  // 1) Latest WIP per (task, uploader) — kept up-to-date by miro-sync dedup.
-  const baseQ = supabase
-    .from('miro_wip_images')
-    .select('id, shot_id, asset_id, task_id, department, image_url, image_order, img_width, img_height, created_at')
-    .not('image_url', 'is', null)
-    .order('image_order')
-
-  // 2) Pinned images from any historical WIP update (migration 064).
-  //    Join through tasks to grab the shot/asset/department the storyboard
-  //    needs to slot each image into its cell.
-  const pinnedQ = supabase
+  // Single source of truth (migration 065): the storyboard shows ONLY images
+  // whose WIP update has them in `pinned_storyboard_urls`. Approving a task
+  // auto-pins the latest WIP per uploader (see updateTask); users can toggle
+  // additional stars from the task detail modal.
+  const { data: pins } = await supabase
     .from('task_wip_updates')
-    .select('id, images, pinned_storyboard_urls, task:tasks(id, shot_id, asset_id, department)')
+    .select('id, pinned_storyboard_urls, task:tasks(id, shot_id, asset_id, department)')
     .not('pinned_storyboard_urls', 'eq', '{}')
 
-  const [{ data: base }, { data: pins }] = await Promise.all([baseQ, pinnedQ])
-
-  const out = [...(base || [])]
-  // Build a set of URLs already covered by miro_wip_images so a pinned URL that
-  // also happens to be the latest WIP isn't double-rendered.
-  const seen = new Set(out.map(r => r.image_url))
+  const out = []
+  const seen = new Set()
   let synthId = 0
   for (const row of (pins || [])) {
     const task = row.task
     if (!task) continue
     const pinnedList = Array.isArray(row.pinned_storyboard_urls) ? row.pinned_storyboard_urls : []
-    if (pinnedList.length === 0) continue
     for (const url of pinnedList) {
       if (!url || seen.has(url)) continue
       seen.add(url)
       out.push({
-        // Synthetic id with a stable prefix so React keys don't collide with
-        // real miro_wip_images uuids.
         id: `pin-${row.id}-${synthId++}`,
         shot_id: task.shot_id || null,
         asset_id: task.asset_id || null,
         task_id: task.id,
         department: task.department,
         image_url: url,
-        image_order: 999, // sort pinned images after the latest-WIP set
+        image_order: 0,
         img_width: null,
         img_height: null,
         created_at: null,
@@ -496,6 +489,38 @@ export async function getStoryboardImages(projectId) {
     }
   }
   return out
+}
+
+// Auto-pin the latest WIP update per uploader for a given task. Idempotent:
+// re-running merges into existing pins without removing anything the user may
+// have already added or removed by hand.
+export async function autoPinLatestWipForTask(taskId) {
+  const { data: updates, error } = await supabase
+    .from('task_wip_updates')
+    .select('id, user_id, images, pinned_storyboard_urls, created_at')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: false })
+  if (error || !Array.isArray(updates) || updates.length === 0) return { error: error || null }
+
+  const seenUser = new Set()
+  const latest = []
+  for (const u of updates) {
+    if (!u.user_id || seenUser.has(u.user_id)) continue
+    seenUser.add(u.user_id)
+    latest.push(u)
+  }
+
+  for (const u of latest) {
+    const imgs = Array.isArray(u.images) ? u.images.filter(Boolean) : []
+    if (imgs.length === 0) continue
+    const pins = Array.isArray(u.pinned_storyboard_urls) ? u.pinned_storyboard_urls : []
+    const merged = Array.from(new Set([...pins, ...imgs]))
+    if (merged.length === pins.length) continue
+    await supabase.from('task_wip_updates')
+      .update({ pinned_storyboard_urls: merged })
+      .eq('id', u.id)
+  }
+  return { error: null }
 }
 
 export async function getTaskWipImages(taskId) {
