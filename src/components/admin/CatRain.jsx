@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 
-// Only the two cats the user wants: orange tabby + black cat
-const CATS = ['🐈', '🐈‍⬛']
+// SVG cats from Twemoji (Twitter open-source emoji set, MIT licensed).
+// We use images instead of OS emoji so every device — Windows, Mac, Linux,
+// Android — sees the EXACT same cats. SVGs are also much cheaper to rotate
+// than OS color-emoji glyphs (which are bitmap fonts).
+const CATS = [
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.0/assets/svg/1f408.svg',          // 🐈 cat
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.0/assets/svg/1f408-200d-2b1b.svg', // 🐈‍⬛ black cat
+]
 
-// Detect low-power devices once. Emojis are expensive to rasterize, so we
-// scale the count + size aggressively on weaker machines.
 function detectTier() {
   if (typeof navigator === 'undefined') return 'normal'
   const cores = navigator.hardwareConcurrency || 4
@@ -15,16 +19,14 @@ function detectTier() {
   return 'normal'
 }
 
-// Inject keyframes once. No rotation — rotating a color-emoji glyph forces a
-// re-rasterization every frame and is the single biggest cost of this effect.
 function injectKeyframes() {
   if (document.getElementById('cat-rain-kf')) return
   const style = document.createElement('style')
   style.id = 'cat-rain-kf'
   style.textContent = `
     @keyframes catRainFall {
-      0%   { transform: translate3d(0, -10vh, 0); }
-      100% { transform: translate3d(var(--dx), 110vh, 0); }
+      0%   { transform: translate3d(0, -10vh, 0) rotate(var(--r0)); }
+      100% { transform: translate3d(var(--dx), 110vh, 0) rotate(var(--r1)); }
     }
   `
   document.head.appendChild(style)
@@ -36,7 +38,6 @@ export default function CatRain() {
 
   useEffect(() => { injectKeyframes() }, [])
 
-  // Respect the OS "reduce motion" setting → render nothing.
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -46,7 +47,6 @@ export default function CatRain() {
     return () => mq.removeEventListener?.('change', update)
   }, [])
 
-  // Pause animation completely when the tab is in the background.
   useEffect(() => {
     const onVis = () => setHidden(document.hidden)
     document.addEventListener('visibilitychange', onVis)
@@ -55,18 +55,20 @@ export default function CatRain() {
 
   const cats = useMemo(() => {
     const tier = detectTier()
-    const count = tier === 'low' ? 10 : 18
-    const sizeMax = tier === 'low' ? 26 : 32
-    const sizeMin = 20
+    const count = tier === 'low' ? 14 : 24
+    const sizeMax = tier === 'low' ? 32 : 44
+    const sizeMin = 22
     return Array.from({ length: count }, (_, i) => {
       const size = sizeMin + Math.floor(Math.random() * (sizeMax - sizeMin))
       const left = Math.random() * 100
-      const duration = 9 + Math.random() * 9
+      const duration = 7 + Math.random() * 10
       const delay = -Math.random() * duration
-      const dx = (Math.random() - 0.5) * 60
-      const opacity = 0.55 + Math.random() * 0.35
-      const emoji = CATS[i % CATS.length]
-      return { id: i, emoji, size, left, duration, delay, dx, opacity }
+      const dx = (Math.random() - 0.5) * 80
+      const r0 = `${(Math.random() - 0.5) * 60}deg`
+      const r1 = `${(Math.random() - 0.5) * 60 + (Math.random() > 0.5 ? 360 : -360)}deg`
+      const opacity = 0.6 + Math.random() * 0.4
+      const src = CATS[i % CATS.length]
+      return { id: i, src, size, left, duration, delay, dx, r0, r1, opacity }
     })
   }, [])
 
@@ -82,26 +84,39 @@ export default function CatRain() {
         pointerEvents: 'none',
         overflow: 'hidden',
         contain: 'strict',
+        // Isolate compositing so opening modals on top doesn't force the
+        // browser to recomposite the rain layer — main cause of lag on Mac.
+        isolation: 'isolate',
+        transform: 'translateZ(0)',
+        willChange: 'transform',
       }}
     >
       {cats.map(c => (
-        <span
+        <img
           key={c.id}
+          src={c.src}
+          alt=""
+          draggable={false}
+          width={c.size}
+          height={c.size}
+          decoding="async"
+          loading="eager"
           style={{
             position: 'absolute',
             top: 0,
             left: `${c.left}vw`,
-            fontSize: c.size,
+            width: c.size,
+            height: c.size,
             opacity: c.opacity,
-            lineHeight: 1,
             willChange: 'transform',
+            userSelect: 'none',
             animation: `catRainFall ${c.duration}s linear ${c.delay}s infinite`,
             animationPlayState: hidden ? 'paused' : 'running',
             ['--dx']: `${c.dx}px`,
+            ['--r0']: c.r0,
+            ['--r1']: c.r1,
           }}
-        >
-          {c.emoji}
-        </span>
+        />
       ))}
     </div>
   )
