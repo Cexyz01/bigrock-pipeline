@@ -46,7 +46,10 @@ export default function useTilt3D({ max = TILT_MAX_DEG, onTap } = {}) {
     const cy = rect.top + rect.height / 2
     const nx = (e.clientX - cx) / (rect.width / 2)
     const ny = (e.clientY - cy) / (rect.height / 2)
-    setTilt(clamp(ny * -max, -max, max), clamp(nx * max, -max, max), true)
+    // rotateY is negated so that pushing the cursor right lifts the RIGHT
+    // edge toward the viewer (corner closest to cursor comes forward),
+    // matching the standard Pokémon-style tilt feel.
+    setTilt(clamp(ny * -max, -max, max), clamp(nx * -max, -max, max), true)
   }, [setTilt, max])
 
   const onMouseLeave = useCallback(() => setTilt(0, 0, true), [setTilt])
@@ -62,7 +65,8 @@ export default function useTilt3D({ max = TILT_MAX_DEG, onTap } = {}) {
     const dx = t.clientX - touchRef.current.x
     const dy = t.clientY - touchRef.current.y
     if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchRef.current.moved = true
-    setTilt(clamp(dy * -0.12, -max, max), clamp(dx * 0.12, -max, max), false)
+    // Swipe right → right edge lifts toward viewer (matches mouse logic).
+    setTilt(clamp(dy * -0.12, -max, max), clamp(dx * -0.12, -max, max), false)
   }, [setTilt, max])
 
   const onTouchEnd = useCallback((e) => {
