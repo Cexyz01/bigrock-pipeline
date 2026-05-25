@@ -6,6 +6,42 @@ import Card from '../ui/Card'
 import Btn from '../ui/Btn'
 import HangingIDCard from '../profile/HangingIDCard'
 
+async function compressImage(file, targetBytes) {
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload = () => res(r.result)
+    r.onerror = rej
+    r.readAsDataURL(file)
+  })
+  const img = await new Promise((res, rej) => {
+    const i = new Image()
+    i.onload = () => res(i)
+    i.onerror = rej
+    i.src = dataUrl
+  })
+  let maxSide = 1024
+  let quality = 0.85
+  for (let i = 0; i < 6; i++) {
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+    const w = Math.round(img.width * scale)
+    const h = Math.round(img.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = h
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality))
+    if (blob && blob.size <= targetBytes) {
+      return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
+    }
+    if (quality > 0.5) quality -= 0.1
+    else maxSide = Math.round(maxSide * 0.8)
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = 800; canvas.height = Math.round(800 * img.height / img.width)
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.7))
+  return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
+}
+
 export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -13,21 +49,26 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
 
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
-    if (file.size > 1024 * 1024) {
-      addToast('Image too large (max 1MB)', 'error')
-      return
-    }
     setUploading(true)
-    const { url, error } = await uploadAvatar(user.id, file)
-    if (!error && url) {
-      await updateProfile(user.id, { avatar_url: url })
-      onProfileUpdate({ ...user, avatar_url: url })
-      addToast('Avatar updated!', 'success')
-    } else {
-      addToast('Upload error', 'error')
+    try {
+      const prepared = file.size > 900 * 1024 ? await compressImage(file, 900 * 1024) : file
+      const { url, error } = await uploadAvatar(user.id, prepared)
+      if (!error && url) {
+        await updateProfile(user.id, { avatar_url: url })
+        onProfileUpdate({ ...user, avatar_url: url })
+        addToast('Avatar updated!', 'success')
+      } else {
+        console.error('[avatar upload] failed:', error)
+        addToast('Upload error: ' + (error?.message || 'unknown'), 'error')
+      }
+    } catch (err) {
+      console.error('[avatar upload] threw:', err)
+      addToast('Upload error: ' + (err?.message || 'unknown'), 'error')
+    } finally {
+      setUploading(false)
     }
-    setUploading(false)
   }
 
   // #6: Delete avatar
@@ -71,7 +112,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
             </Btn>
           )}
         </div>
-        <div style={{ fontSize: 10, color: '#94A3B8', textAlign: 'center', marginTop: -20, marginBottom: 24 }}>Max 1MB</div>
+        <div style={{ fontSize: 10, color: '#94A3B8', textAlign: 'center', marginTop: -20, marginBottom: 24 }}>JPG/PNG — compressione automatica</div>
       </Fade>
 
       <Fade delay={200}>

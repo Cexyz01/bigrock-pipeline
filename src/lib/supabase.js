@@ -111,12 +111,25 @@ export async function getRecentlyActiveUsers(limit = 10) {
 // ── Avatar Upload ──
 
 export async function uploadAvatar(userId, file) {
-  const ext = file.name.split('.').pop()
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
   const path = `${userId}.${ext}`
-  const { data, error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
-  if (error) return { url: null, error }
-  const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-  return { url: urlData.publicUrl, error: null }
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { error } = await supabase.storage.from('avatars').upload(path, file, {
+      upsert: true,
+      contentType: file.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+      cacheControl: '3600',
+    })
+    if (!error) {
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+      const bust = `?v=${Date.now()}`
+      return { url: (urlData?.publicUrl || '') + bust, error: null }
+    }
+    lastError = error
+    console.warn(`[uploadAvatar] attempt ${attempt} failed:`, error)
+    if (attempt < 3) await new Promise(r => setTimeout(r, 400 * attempt))
+  }
+  return { url: null, error: lastError }
 }
 
 export async function updateProfileFlag(userId, flag, value) {
