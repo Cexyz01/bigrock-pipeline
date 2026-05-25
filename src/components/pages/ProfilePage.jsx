@@ -6,6 +6,7 @@ import Fade from '../ui/Fade'
 import Card from '../ui/Card'
 import Av from '../ui/Av'
 import Btn from '../ui/Btn'
+import HangingIDCard from '../profile/HangingIDCard'
 
 export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   const isMobile = useIsMobile()
@@ -55,7 +56,13 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
     <div style={{ maxWidth: 640 }}>
       <Fade>
         <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Profile</h1>
-        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>Customize your profile</p>
+        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 24 }}>Customize your profile</p>
+      </Fade>
+
+      <Fade delay={50}>
+        <div style={{ marginBottom: 16 }}>
+          <HangingIDCard user={user} />
+        </div>
       </Fade>
 
       <Fade delay={100}>
