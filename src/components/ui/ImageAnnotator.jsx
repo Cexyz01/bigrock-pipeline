@@ -59,7 +59,7 @@ function eraseStrokeAtPoint(stroke, ex, ey, r) {
     .map(points => ({ ...stroke, points }))
 }
 
-export default function ImageAnnotator({ src, onClose, addToast }) {
+export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext, index, total }) {
   const { strokes: saved, save } = useImageAnnotation(src)
   const [strokes, setStrokes] = useState(saved)
   const [tool, setTool] = useState('pen')
@@ -445,10 +445,12 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
       else if (e.key === 'b' || e.key === 'B') setTool('pen')
       else if (e.key === 'e' || e.key === 'E') setTool('eraser')
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo() }
+      else if (e.key === 'ArrowLeft' && onPrev)  { e.preventDefault(); onPrev() }
+      else if (e.key === 'ArrowRight' && onNext) { e.preventDefault(); onNext() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [onPrev, onNext])
 
   return createPortal(
     <div style={{
@@ -499,6 +501,18 @@ export default function ImageAnnotator({ src, onClose, addToast }) {
         <button onClick={undo} style={toolBtnStyle(false)}>↶ Undo</button>
         <button onClick={clearAll} style={toolBtnStyle(false)}>🗑 Pulisci</button>
         <button onClick={resetZoom} title="Reset zoom (1:1)" style={toolBtnStyle(false)}>⌖ 1:1</button>
+        {(onPrev || onNext) && (
+          <>
+            <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.15)' }} />
+            <button onClick={onPrev} disabled={!onPrev} title="Precedente (←)" style={toolBtnStyle(false)}>‹</button>
+            {typeof index === 'number' && typeof total === 'number' && (
+              <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 600, minWidth: 36, textAlign: 'center' }}>
+                {index + 1} / {total}
+              </span>
+            )}
+            <button onClick={onNext} disabled={!onNext} title="Successivo (→)" style={toolBtnStyle(false)}>›</button>
+          </>
+        )}
         <button onClick={handleClose} style={toolBtnStyle(false)}>✕ Chiudi</button>
       </div>
 

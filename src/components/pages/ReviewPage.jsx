@@ -602,7 +602,7 @@ function WipBlock({ wip, user, addToast }) {
           </div>
         )}
       </div>
-      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
+      <ImageLightbox src={lightboxUrl} images={images} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
     </div>
   )
 }
