@@ -11,6 +11,7 @@ const CMDS = [
   { id: 'flip',   icon: '🙃', label: 'Flip',   needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 5  },
   { id: 'gravity',icon: '🏚️', label: 'Gravity',needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 6  },
   { id: 'cats',   icon: '🐱', label: 'Cats',   needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
+  { id: 'turtles',icon: '🐢', label: 'Turtles',needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
   { id: 'play',   icon: '🎮', label: 'Play',   needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
   { id: 'matrix', icon: '🟢', label: 'Matrix', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
   { id: 'online', icon: '👁', label: 'Online', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
@@ -37,6 +38,7 @@ const HELP = [
   ['flip [nome] [sec]', 'Capovolgi schermo (tutti o persona)'],
   ['gravity [nome] [sec]','Terremoto! Tutto crolla a terra (6s default)'],
   ['cats <nome> [on|off]','Pioggia di gatti persistente (toggle se omesso)'],
+  ['turtles <nome> [on|off]','Tartarughe che camminano sui bordi (toggle se omesso)'],
   ['play <nome> [gioco]','Sfida a minigioco (connect4, othello, chess, uno, snake, trivia)'],
   ['users',             'Lista utenti registrati'],
   ['online',            'Ultimi 10 visitatori del sito'],
@@ -195,6 +197,19 @@ export default function AdminConsole({ user, profiles, channelRef, matrixMode, o
           if (error) { setLastResult({ text: `Errore: ${error.message}`, c: '#ff5555' }); return; }
           broadcast({ type: 'cats', targetId, enabled: next });
           setLastResult({ text: `${next ? '🐈 Gatti ATTIVATI' : '🚫 Gatti spenti'} → ${targetName}`, c: next ? '#00ff41' : '#ffd700' });
+        })();
+        break;
+      }
+      case 'turtles': {
+        if (!targetId) { setLastResult({ text: 'Seleziona un utente!', c: '#ff5555' }); return; }
+        setLastResult({ text: `🐢 Toggle tartarughe per ${targetName}...`, c: '#F28C28' });
+        (async () => {
+          const { data: fresh } = await supabase.from('profiles').select('turtle_walk_enabled').eq('id', targetId).single();
+          const next = !fresh?.turtle_walk_enabled;
+          const { error } = await updateProfile(targetId, { turtle_walk_enabled: next });
+          if (error) { setLastResult({ text: `Errore: ${error.message}`, c: '#ff5555' }); return; }
+          broadcast({ type: 'turtles', targetId, enabled: next });
+          setLastResult({ text: `${next ? '🐢 Tartarughe ATTIVATE' : '🚫 Tartarughe spente'} → ${targetName}`, c: next ? '#00ff41' : '#ffd700' });
         })();
         break;
       }
@@ -552,6 +567,30 @@ export default function AdminConsole({ user, profiles, channelRef, matrixMode, o
           if (error) { dlog(`  ❌ Errore: ${error.message}`, '#ff5555'); return; }
           broadcast({ type: 'cats', targetId: target.id, enabled: next });
           dlog(`  ${next ? '🐈 Gatti ATTIVATI' : '🚫 Gatti spenti'} per ${target.full_name}`, next ? '#00ff41' : '#ffd700');
+        })();
+        break;
+      }
+      case 'turtles': {
+        if (!args.length) { dlog('  Uso: turtles <nome> [on|off]', '#ff5555'); break; }
+        const last = args[args.length - 1].toLowerCase();
+        const explicit = last === 'on' || last === 'off';
+        const nameQ = explicit ? args.slice(0, -1).join(' ') : args.join(' ');
+        if (!nameQ) { dlog('  Specifica un utente!', '#ff5555'); break; }
+        const target = findUser(nameQ);
+        if (!target) { dlog(`  Utente "${nameQ}" non trovato`, '#ff5555'); break; }
+        dlog(`  🐢 Toggle tartarughe per ${target.full_name}...`, '#F28C28');
+        (async () => {
+          let next;
+          if (explicit) {
+            next = last === 'on';
+          } else {
+            const { data: fresh } = await supabase.from('profiles').select('turtle_walk_enabled').eq('id', target.id).single();
+            next = !fresh?.turtle_walk_enabled;
+          }
+          const { error } = await updateProfile(target.id, { turtle_walk_enabled: next });
+          if (error) { dlog(`  ❌ Errore: ${error.message}`, '#ff5555'); return; }
+          broadcast({ type: 'turtles', targetId: target.id, enabled: next });
+          dlog(`  ${next ? '🐢 Tartarughe ATTIVATE' : '🚫 Tartarughe spente'} per ${target.full_name}`, next ? '#00ff41' : '#ffd700');
         })();
         break;
       }

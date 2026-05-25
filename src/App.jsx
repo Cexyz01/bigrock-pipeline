@@ -5,6 +5,7 @@ import { AnnotationsProvider } from './hooks/useImageAnnotations'
 import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import CatRain from './components/admin/CatRain'
+import TurtleWalk from './components/admin/TurtleWalk'
 import useIsMobile from './hooks/useIsMobile'
 import {
   supabase, signOut,
@@ -111,6 +112,7 @@ export default function App() {
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false)
   const [matrixMode, setMatrixMode] = useState(false)
   const [catRain, setCatRain] = useState(false)
+  const [turtleWalk, setTurtleWalk] = useState(false)
   const [pendingGameInvite, setPendingGameInvite] = useState(null) // { gameId, game, role }
   const [activeGameId, setActiveGameId] = useState(null)
   const [pendingTradeInvite, setPendingTradeInvite] = useState(null) // { tradeId, trade, role }
@@ -373,6 +375,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     setCatRain(!!user.cat_rain_enabled)
+    setTurtleWalk(!!user.turtle_walk_enabled)
   }, [user])
 
   // Admin effects broadcast channel (all users receive) + Presence tracking
@@ -391,6 +394,7 @@ export default function App() {
           case 'flip': setAdminFx(p => ({ ...p, flipped: payload.duration })); break
           case 'gravity': setAdminFx(p => ({ ...p, gravity: payload.duration })); break
           case 'cats': setCatRain(!!payload.enabled); break
+          case 'turtles': setTurtleWalk(!!payload.enabled); break
         }
       })
       .subscribe(async (status) => {
@@ -1247,6 +1251,7 @@ export default function App() {
       {isMobile && <InstallBanner />}
       <AdminEffects effects={adminFx} userId={user.id} matrixMode={matrixMode} onClear={clearAdminFx} />
       {catRain && <CatRain />}
+      {turtleWalk && <TurtleWalk />}
       {adminConsoleOpen && hasPermission(user, 'access_admin_console') && (
         <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} matrixMode={matrixMode} onMatrixToggle={() => setMatrixMode(p => !p)} onGameChallenge={handleGameChallenge} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
       )}
