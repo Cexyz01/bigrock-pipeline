@@ -149,7 +149,7 @@ export default function TasksPage({
     return [...assetArr, ...shotArr, ...(noneGroup ? [noneGroup] : [])]
   }, [filteredTasks, shots, assets])
 
-  const selectStyle = { padding: '7px 14px', fontSize: 12, borderRadius: 12 }
+  const selectStyle = { padding: '7px 14px', fontSize: 12, borderRadius: 12, width: 170, flex: '0 0 auto' }
 
   // Drag-reorder within the same group (asset/shot/none).
   const handleTaskDrop = useCallback((draggedId, targetId) => {
