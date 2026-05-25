@@ -16,6 +16,7 @@ export const IconGantt = (p) => <I {...p} d={<><rect x="3" y="5" width="10" heig
 export const IconUsers = (p) => <I {...p} d={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>} />
 export const IconBell = (p) => <I {...p} d={<><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></>} />
 export const IconCalendar = (p) => <I {...p} d={<><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></>} />
+export const IconClock = (p) => <I {...p} d={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />
 export const IconUser = (p) => <I {...p} d={<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>} />
 export const IconMessageCircle = (p) => <I {...p} d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
 export const IconPlus = (p) => <I {...p} d="M12 5v14M5 12h14" />
@@ -30,6 +31,8 @@ export const IconEdit = (p) => <I {...p} d={<><path d="M11 4H4a2 2 0 0 0-2 2v14a
 export const IconUpload = (p) => <I {...p} d={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>} />
 export const IconImage = (p) => <I {...p} d={<><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></>} />
 export const IconChevronDown = (p) => <I {...p} d="M6 9l6 6 6-6" />
+export const IconChevronLeft = (p) => <I {...p} d="M15 18l-6-6 6-6" />
+export const IconChevronRight = (p) => <I {...p} d="M9 18l6-6-6-6" />
 export const IconArrowRight = (p) => <I {...p} d={<><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></>} />
 export const IconActivity = (p) => <I {...p} d="M22 12h-4l-3 9L9 3l-3 9H2" />
 export const IconTarget = (p) => <I {...p} d={<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>} />
