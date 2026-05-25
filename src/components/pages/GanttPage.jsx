@@ -998,6 +998,18 @@ export default function GanttPage({
                       const showDaysBadge = w >= 90
                       return (
                         <>
+                          {t.status === 'approved' && (
+                            <span title="Completata" style={{
+                              flexShrink: 0,
+                              width: 18, height: 18, borderRadius: '50%',
+                              background: '#10B981', color: '#fff',
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, fontWeight: 900, lineHeight: 1,
+                              boxShadow: '0 0 0 2px #fff',
+                              marginRight: 6, marginLeft: 2,
+                              position: 'relative',
+                            }}>✓</span>
+                          )}
                           <span style={{
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             flex: 1, paddingLeft: w < 50 ? 0 : 4, position: 'relative',
