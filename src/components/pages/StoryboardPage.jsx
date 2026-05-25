@@ -469,6 +469,7 @@ function ToolIcon({ id, active }) {
 function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescription, getDeptStatus, getDeptDisabled, getTasks, openCellImage, openRef, creativeMode, stickers, autoEditId, onStickerUpdate, onStickerDelete, onBringForward, onSendBack, onUndo, onCommitUndo, onCreateSticker }) {
   const DEPT_LABELS = ['Item', 'Reference', 'Description', ...depts.map(d => d.label)]
   const DEPT_COLORS = [null, null, null, ...depts.map(d => d.color)]
+  const isMobile = useIsMobile()
   const containerRef = useRef(null)
   const fileInputRef = useRef(null)
   const [scale, setScale] = useState(0.55)
@@ -1458,8 +1459,13 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         transition: 'background 0.2s',
       }}>
 
-      {/* Zoom controls */}
-      <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 20, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {/* Zoom controls — on mobile the bottom is occupied by the tool palette,
+          so the zoom stack lives at top-right where the page header has free room. */}
+      <div style={{
+        position: 'absolute',
+        ...(isMobile ? { top: 16, right: 16 } : { bottom: 16, right: 16 }),
+        zIndex: 20, display: 'flex', flexDirection: 'column', gap: 4,
+      }}>
         <button onClick={() => setScale(s => Math.min(5, s * 1.2))} style={zoomBtnStyle}>+</button>
         <button onClick={() => setScale(0.55)} style={{ ...zoomBtnStyle, fontSize: 10, fontWeight: 600 }}>{Math.round(scale * 100)}%</button>
         <button onClick={() => setScale(s => Math.max(0.1, s * 0.8))} style={zoomBtnStyle}>&minus;</button>
@@ -1471,10 +1477,18 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           Image button opens the file picker. */}
       {creativeMode && (
         <div style={{
-          position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
+          // On mobile pin the toolbar to the bottom-center so it doesn't collide
+          // with the page header (Storyboard title, tabs, mode toggle) which on
+          // narrow screens wraps to two rows and sat directly above the buttons.
+          position: 'absolute',
+          ...(isMobile
+            ? { bottom: 16, left: '50%', transform: 'translateX(-50%)' }
+            : { top: 16, left: '50%', transform: 'translateX(-50%)' }),
+          zIndex: 20,
           display: 'flex', gap: 4, padding: 5, borderRadius: 12,
           background: 'rgba(255,255,255,0.96)', border: '1px solid #E2E8F0',
           boxShadow: '0 6px 20px rgba(0,0,0,0.12)', backdropFilter: 'blur(8px)',
+          maxWidth: 'calc(100vw - 24px)', overflowX: 'auto',
         }}>
           {TOOLS.map(t => (
             <button key={t.id} onClick={() => setActiveTool(t.id)} title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
@@ -1507,7 +1521,11 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       {/* Hint chip when a drawing tool is armed */}
       {creativeMode && (effectiveTool === 'text' || effectiveTool === 'rect' || effectiveTool === 'ellipse' || effectiveTool === 'arrow') && !draft && (
         <div style={{
-          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 19,
+          position: 'absolute',
+          ...(isMobile
+            ? { bottom: 64, left: '50%', transform: 'translateX(-50%)' }
+            : { top: 64, left: '50%', transform: 'translateX(-50%)' }),
+          zIndex: 19,
           padding: '4px 10px', fontSize: 11, color: '#fff', background: 'rgba(15,23,42,0.85)',
           borderRadius: 999, pointerEvents: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
         }}>
@@ -1519,10 +1537,15 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           the toolbar; pinned in screen-space so it doesn't pan with the board. */}
       {creativeMode && effectiveTool === 'pen' && (
         <div onMouseDown={e => e.stopPropagation()} style={{
-          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 19,
+          position: 'absolute',
+          ...(isMobile
+            ? { bottom: 64, left: '50%', transform: 'translateX(-50%)' }
+            : { top: 64, left: '50%', transform: 'translateX(-50%)' }),
+          zIndex: 19,
           padding: '8px 12px', background: 'rgba(255,255,255,0.97)', borderRadius: 12,
           border: '1px solid #E2E8F0', boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
           display: 'flex', alignItems: 'center', gap: 12,
+          maxWidth: 'calc(100vw - 24px)',
         }}>
           {/* Visual preview of the current brush — diameter scales with penSize. */}
           <div title={`Spessore ${penSize}px`} style={{
