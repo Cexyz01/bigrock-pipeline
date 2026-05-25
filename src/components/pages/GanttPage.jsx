@@ -921,23 +921,34 @@ export default function GanttPage({
                       }
                     }}
                     onDoubleClick={(ev) => { ev.stopPropagation(); setSelectedTaskId(t.id) }}
-                    style={{
+                    style={(() => {
+                      // Completed tasks (status === 'approved') get a thick
+                      // green ring so they stand out at a glance in the
+                      // planning view. Selection ring sits outside it.
+                      const isDone = t.status === 'approved'
+                      const isSel = selectedIds.has(t.id)
+                      const doneRing = isDone ? `0 0 0 3px #10B981` : ''
+                      const selRing = isSel ? `0 0 0 ${isDone ? 5 : 2}px ${ACCENT}` : ''
+                      const ambient = isDragging
+                        ? `0 8px 24px ${taskDept.color}66`
+                        : '0 1px 3px rgba(0,0,0,0.12)'
+                      const selGlow = isSel ? `0 4px 14px ${ACCENT}55` : ''
+                      const shadow = [doneRing, selRing, selGlow, ambient].filter(Boolean).join(', ')
+                      return {
                       position: 'absolute', left: x, top: 6, width: w, height: ROW_H - 12,
                       background: isUnassigned
                         ? `linear-gradient(135deg, #CBD5E1 0%, #94A3B8 100%)`
                         : `linear-gradient(135deg, ${taskDept.color} 0%, ${shade(taskDept.color, -10)} 100%)`,
                       opacity: isUnassigned ? 0.55 : 1,
                       borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
-                      boxShadow: selectedIds.has(t.id)
-                        ? `0 0 0 2px ${ACCENT}, 0 4px 14px ${ACCENT}55`
-                        : (isDragging ? `0 8px 24px ${taskDept.color}66` : '0 1px 3px rgba(0,0,0,0.12)'),
-                      outline: selectedIds.has(t.id) ? `1px solid ${ACCENT}` : 'none',
+                      boxShadow: shadow,
+                      outline: isSel ? `1px solid ${ACCENT}` : 'none',
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: w < 50 ? '0 4px' : '0 10px', color: '#fff', fontSize: 12, fontWeight: 600,
                       transition: isDragging ? 'none' : 'box-shadow 0.15s ease, transform 0.15s ease',
                       transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
                       userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                    }}
+                      } })()}
                     title={`${fullLabel}\n${t.start_date} · ${t.duration_days} giorni\nAssegnati: ${assigneeCount}/${requiredCount}`}
                   >
                     {/* Weekend / pause dim overlays — positions are relative to the bar's left edge,
