@@ -79,6 +79,18 @@ function measureDescH(text, maxW, fontSize = 12, lineHeight = 1.5, padV = 24) {
 // LIGHTBOX
 // ══════════════════════════════════════════════════
 
+// Lightbox sources at two tiers:
+//  - LIGHTBOX_BASE_W: initial paint. Big enough that at scale 1 the image is
+//    sharp on a 4K display (a 16:9 image rendered at 88vw on a 3840px-wide
+//    screen needs ~3380 source px to hit 1:1; we round up).
+//  - LIGHTBOX_HD_W: requested once the user starts zooming past 1×. Cloudinary
+//    caps at the original size (fit=limit), so this just unlocks whatever
+//    headroom the source has.
+const LIGHTBOX_BASE_W = 3840
+const LIGHTBOX_HD_W = 8000
+const HD_ZOOM_THRESHOLD = 1.05
+const MAX_ZOOM = 20
+
 function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClose, onNav }) {
   // Pan/zoom transform held in a ref and applied imperatively to the stage so
   // wheel-zoom and right-click pan don't trigger React re-renders during the
@@ -88,6 +100,11 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
   const xformRef = useRef({ scale: 1, panX: 0, panY: 0 })
   const panningRef = useRef(null)
   const [zoomLabel, setZoomLabel] = useState(1)
+  // Swap to a much larger Cloudinary derivation once the user starts zooming.
+  // Stays on per-image until the image changes, so panning around at high
+  // zoom doesn't yo-yo back to the small source.
+  const [hd, setHd] = useState(false)
+  const [hdLoaded, setHdLoaded] = useState(false)
 
   const applyXform = useCallback(() => {
     const el = stageRef.current
@@ -102,8 +119,12 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
     setZoomLabel(1)
   }, [applyXform])
 
-  // Reset view whenever the active image changes (nav or initial open).
-  useEffect(() => { resetZoom() }, [index, resetZoom])
+  // Reset view + HD state whenever the active image changes (nav or initial open).
+  useEffect(() => {
+    resetZoom()
+    setHd(false)
+    setHdLoaded(false)
+  }, [index, resetZoom])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -126,7 +147,7 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
     const cy = e.clientY - wrap.top
     const cur = xformRef.current
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
-    const nextScale = Math.max(0.2, Math.min(10, cur.scale * factor))
+    const nextScale = Math.max(0.2, Math.min(MAX_ZOOM, cur.scale * factor))
     if (nextScale === cur.scale) return
     const k = nextScale / cur.scale
     const nextPanX = cx - (cx - cur.panX) * k
@@ -134,6 +155,7 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
     xformRef.current = { scale: nextScale, panX: nextPanX, panY: nextPanY }
     applyXform()
     setZoomLabel(nextScale)
+    if (nextScale > HD_ZOOM_THRESHOLD) setHd(true)
   }, [applyXform])
   useEffect(() => {
     const el = wrapRef.current
@@ -193,6 +215,13 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
           {!audio && (
             <>
               <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontFamily: 'monospace' }}>{Math.round(zoomLabel * 100)}%</span>
+              {hd && (
+                <span title={hdLoaded ? 'Sorgente alta risoluzione' : 'Carico alta risoluzione...'} style={{
+                  background: hdLoaded ? 'rgba(80,200,120,0.18)' : 'rgba(255,255,255,0.1)',
+                  color: hdLoaded ? '#9be7b1' : 'rgba(255,255,255,0.7)',
+                  fontSize: 10, fontWeight: 700, padding: '3px 7px', borderRadius: 6, letterSpacing: 0.5,
+                }}>HD{hdLoaded ? '' : '…'}</span>
+              )}
               <button onClick={resetZoom} title="Reset zoom (0)" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 18, padding: '6px 12px', cursor: 'pointer', color: '#fff', fontSize: 12, fontWeight: 600 }}>1:1</button>
             </>
           )}
@@ -231,8 +260,12 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
             }}
           >
             <Img
-              src={img.image_url} w={2400} h={2400} fit="limit" alt=""
+              src={img.image_url}
+              w={hd ? LIGHTBOX_HD_W : LIGHTBOX_BASE_W}
+              h={hd ? LIGHTBOX_HD_W : LIGHTBOX_BASE_W}
+              fit="limit" alt=""
               draggable={false}
+              onLoad={() => { if (hd) setHdLoaded(true) }}
               style={{
                 maxWidth: '88vw', maxHeight: '80vh',
                 borderRadius: 6, objectFit: 'contain', display: 'block',
@@ -252,7 +285,7 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
           padding: '6px 14px', borderRadius: 999, pointerEvents: 'none', zIndex: 2,
           letterSpacing: 0.2,
         }}>
-          Rotella per zoomare · Tasto destro per spostare · 0 per reset
+          Rotella per zoomare (fino a {MAX_ZOOM}00%) · Tasto destro per spostare · 0 per reset
         </div>
       )}
       {images.length > 1 && <>
