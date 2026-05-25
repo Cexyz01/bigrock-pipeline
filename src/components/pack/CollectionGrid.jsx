@@ -7,7 +7,6 @@ import {
 } from '../../lib/cardConstants'
 
 const D = TCG_THEME
-const RARITY_RANK = { common: 0, rare: 1, gold: 2, diamond: 3, rainbow: 4 }
 
 // Inject stagger CSS once
 if (typeof document !== 'undefined' && !document.getElementById('coll-grid-css')) {
@@ -28,7 +27,7 @@ if (typeof document !== 'undefined' && !document.getElementById('coll-grid-css')
 export default function CollectionGrid({
   cards, ownedSet, seenCards, onCardClick, onCardSeen,
   copyInfoMap, copyCountMap, copiesPerRarity,
-  sort, search, ownedOnly,
+  search, ownedOnly,
   isMobile, onResetFilters,
 }) {
   const visible = useMemo(() => {
@@ -48,28 +47,8 @@ export default function CollectionGrid({
         })
       }
     }
-    const sorted = [...list]
-    switch (sort) {
-      case 'rarity':
-        sorted.sort((a, b) => (RARITY_RANK[b.rarity] ?? -1) - (RARITY_RANK[a.rarity] ?? -1) || a.number - b.number)
-        break
-      case 'name':
-        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '') || a.number - b.number)
-        break
-      case 'new':
-        sorted.sort((a, b) => {
-          const an = ownedSet.has(a.number) && seenCards && !seenCards.has(a.number) ? 0 : 1
-          const bn = ownedSet.has(b.number) && seenCards && !seenCards.has(b.number) ? 0 : 1
-          if (an !== bn) return an - bn
-          return a.number - b.number
-        })
-        break
-      case 'number':
-      default:
-        sorted.sort((a, b) => a.number - b.number)
-    }
-    return sorted
-  }, [cards, ownedSet, seenCards, sort, search, ownedOnly])
+    return [...list].sort((a, b) => a.number - b.number)
+  }, [cards, ownedSet, search, ownedOnly])
 
   if (visible.length === 0) {
     return <EmptyState ownedOnly={ownedOnly} search={search} onReset={onResetFilters} />

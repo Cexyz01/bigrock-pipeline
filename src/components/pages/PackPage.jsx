@@ -33,10 +33,9 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [userCards, setUserCards] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Filters / sort / search
+  // Filters / search
   const [rarityFilter, setRarityFilter] = useState('all')
   const [poolFilter, setPoolFilter] = useState('all')
-  const [sort, setSort] = useState('number')
   const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
 
@@ -417,7 +416,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                 <CollectionFilters
                   poolFilter={poolFilter} setPoolFilter={setPoolFilter}
                   rarityFilter={rarityFilter} setRarityFilter={setRarityFilter}
-                  sort={sort} setSort={setSort}
                   search={search} setSearch={setSearch}
                   ownedOnly={ownedOnly} setOwnedOnly={setOwnedOnly}
                   poolCounts={poolCounts}
@@ -438,7 +436,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                   copyInfoMap={copyInfoMap}
                   copyCountMap={copyCountMap}
                   copiesPerRarity={copiesPerRarity}
-                  sort={sort}
                   search={search}
                   ownedOnly={ownedOnly}
                   isMobile={isMobile}

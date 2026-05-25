@@ -6,17 +6,9 @@ const D = TCG_THEME
 const RARITIES = ['all', 'common', 'rare', 'gold', 'diamond', 'rainbow']
 const RARITY_LABELS = { all: 'All', common: 'Common', rare: 'Rare', gold: 'Gold', diamond: 'Diamond', rainbow: 'Rainbow' }
 
-const SORT_OPTIONS = [
-  { id: 'number', label: 'Numero' },
-  { id: 'rarity', label: 'Rarità' },
-  { id: 'name',   label: 'Nome' },
-  { id: 'new',    label: 'Novità' },
-]
-
 export default function CollectionFilters({
   poolFilter, setPoolFilter,
   rarityFilter, setRarityFilter,
-  sort, setSort,
   search, setSearch,
   ownedOnly, setOwnedOnly,
   poolCounts,
@@ -72,28 +64,6 @@ export default function CollectionFilters({
           {ownedOnly ? '✓ Solo possedute' : 'Solo possedute'}
         </button>
 
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '3px', borderRadius: 10,
-          background: D.card, border: `1px solid ${D.border}`,
-        }} role="radiogroup" aria-label="Ordinamento">
-          {SORT_OPTIONS.map(opt => (
-            <button
-              key={opt.id}
-              type="button"
-              role="radio"
-              aria-checked={sort === opt.id}
-              onClick={() => setSort(opt.id)}
-              style={{
-                padding: '4px 10px', borderRadius: 7, border: 'none', cursor: 'pointer',
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-                background: sort === opt.id ? '#F28C28' : 'transparent',
-                color: sort === opt.id ? '#fff' : D.muted,
-                transition: 'all 0.15s ease',
-              }}
-            >{opt.label}</button>
-          ))}
-        </div>
       </div>
 
       {/* Row 2: Pool chips */}
