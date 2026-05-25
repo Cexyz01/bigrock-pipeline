@@ -258,6 +258,7 @@ function ScriptTab({ user, currentProject, isMobile }) {
       setFilename(data?.script_filename ?? file.name)
       setUpdatedAt(data?.updated_at ?? new Date().toISOString())
     } catch (e) {
+      console.error('[script upload] failed', e)
       setErr('Impossibile leggere il documento: ' + (e?.message || 'errore sconosciuto'))
     } finally {
       setUploading(false)
@@ -337,15 +338,16 @@ async function extractDocx(arrayBuffer) {
   return (value || '').trim()
 }
 
-// pdf.js needs its worker URL set once before getDocument(). Vite resolves
-// the `?url` import to a hashed asset URL we can hand to the worker option.
+// pdf.js needs its worker registered once before getDocument(). Using Vite's
+// `?worker` suffix lets Vite emit a proper module Worker — more reliable than
+// passing a URL string, which can break on MIME-type mismatches in production.
 let pdfjsLibPromise = null
 async function getPdfjs() {
   if (!pdfjsLibPromise) {
     pdfjsLibPromise = (async () => {
       const pdfjs = await import('pdfjs-dist')
-      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+      const { default: PdfWorker } = await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')
+      pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker()
       return pdfjs
     })()
   }
@@ -354,7 +356,9 @@ async function getPdfjs() {
 
 async function extractPdf(arrayBuffer) {
   const pdfjs = await getPdfjs()
-  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
+  // Clone the buffer — pdfjs may detach it, breaking any retry attempts.
+  const data = arrayBuffer.slice(0)
+  const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise
   const paragraphs = []
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
