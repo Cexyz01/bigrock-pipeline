@@ -1,95 +1,73 @@
-import { useRef, useEffect } from 'react'
+import { useMemo, useEffect } from 'react'
 
-// Variety of cat emojis (and some paws/fish for flavor)
-const CATS = ['🐱', '🐈', '🐈‍⬛', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🐾', '🐟']
+// Only the two cats the user wants: orange tabby + black cat
+const CATS = ['🐈', '🐈‍⬛']
+
+const COUNT = 28
+
+// Inject keyframes once
+function injectKeyframes() {
+  if (document.getElementById('cat-rain-kf')) return
+  const style = document.createElement('style')
+  style.id = 'cat-rain-kf'
+  style.textContent = `
+    @keyframes catRainFall {
+      0%   { transform: translate3d(0, -10vh, 0) rotate(var(--r0)); }
+      100% { transform: translate3d(var(--dx), 110vh, 0) rotate(var(--r1)); }
+    }
+  `
+  document.head.appendChild(style)
+}
 
 export default function CatRain() {
-  const canvasRef = useRef(null)
+  useEffect(() => { injectKeyframes() }, [])
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    let animId
-    let dpr = Math.min(window.devicePixelRatio || 1, 2)
-
-    const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2)
-      canvas.width = window.innerWidth * dpr
-      canvas.height = window.innerHeight * dpr
-      canvas.style.width = window.innerWidth + 'px'
-      canvas.style.height = window.innerHeight + 'px'
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    }
-    resize()
-    window.addEventListener('resize', resize)
-
-    // Spawn a population of cats
-    const density = Math.floor((window.innerWidth * window.innerHeight) / 22000)
-    const count = Math.max(18, Math.min(60, density))
-    const cats = Array.from({ length: count }, () => spawn(true))
-
-    function spawn(initial = false) {
-      const size = 22 + Math.random() * 28
-      return {
-        emoji: CATS[Math.floor(Math.random() * CATS.length)],
-        x: Math.random() * window.innerWidth,
-        y: initial ? Math.random() * window.innerHeight : -size - Math.random() * 200,
-        vy: 0.4 + Math.random() * 1.6,
-        vx: (Math.random() - 0.5) * 0.4,
-        size,
-        rot: Math.random() * Math.PI * 2,
-        vr: (Math.random() - 0.5) * 0.02,
-        opacity: 0.55 + Math.random() * 0.4,
-      }
-    }
-
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-      for (const c of cats) {
-        c.y += c.vy
-        c.x += c.vx
-        c.rot += c.vr
-
-        // Recycle when off-screen
-        if (c.y > window.innerHeight + c.size) {
-          Object.assign(c, spawn(false))
-          continue
-        }
-        if (c.x < -c.size) c.x = window.innerWidth + c.size
-        if (c.x > window.innerWidth + c.size) c.x = -c.size
-
-        ctx.save()
-        ctx.globalAlpha = c.opacity
-        ctx.translate(c.x, c.y)
-        ctx.rotate(c.rot)
-        ctx.font = `${c.size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(c.emoji, 0, 0)
-        ctx.restore()
-      }
-
-      animId = requestAnimationFrame(draw)
-    }
-
-    animId = requestAnimationFrame(draw)
-
-    return () => {
-      cancelAnimationFrame(animId)
-      window.removeEventListener('resize', resize)
-    }
-  }, [])
+  const cats = useMemo(() => Array.from({ length: COUNT }, (_, i) => {
+    const size = 22 + Math.floor(Math.random() * 26)            // 22..48 px
+    const left = Math.random() * 100                            // vw
+    const duration = 7 + Math.random() * 10                     // 7..17 s
+    const delay = -Math.random() * duration                     // start at random offset
+    const dx = (Math.random() - 0.5) * 80                       // horizontal drift in px
+    const r0 = `${(Math.random() - 0.5) * 60}deg`
+    const r1 = `${(Math.random() - 0.5) * 60 + (Math.random() > 0.5 ? 360 : -360)}deg`
+    const opacity = 0.6 + Math.random() * 0.4
+    const emoji = CATS[i % CATS.length]
+    return { id: i, emoji, size, left, duration, delay, dx, r0, r1, opacity }
+  }), [])
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      aria-hidden
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 9996,
         pointerEvents: 'none',
+        overflow: 'hidden',
+        contain: 'strict',
       }}
-    />
+    >
+      {cats.map(c => (
+        <span
+          key={c.id}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: `${c.left}vw`,
+            fontSize: c.size,
+            opacity: c.opacity,
+            lineHeight: 1,
+            willChange: 'transform',
+            animation: `catRainFall ${c.duration}s linear ${c.delay}s infinite`,
+            // CSS variables consumed by the keyframe
+            ['--dx']: `${c.dx}px`,
+            ['--r0']: c.r0,
+            ['--r1']: c.r1,
+          }}
+        >
+          {c.emoji}
+        </span>
+      ))}
+    </div>
   )
 }
