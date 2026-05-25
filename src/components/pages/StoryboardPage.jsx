@@ -89,7 +89,7 @@ function measureDescH(text, maxW, fontSize = 12, lineHeight = 1.5, padV = 24) {
 const LIGHTBOX_BASE_W = 3840
 const LIGHTBOX_HD_W = 8000
 const HD_ZOOM_THRESHOLD = 1.05
-const MAX_ZOOM = 20
+const MAX_ZOOM = 40
 
 function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClose, onNav }) {
   // Pan/zoom transform held in a ref and applied imperatively to the stage so
