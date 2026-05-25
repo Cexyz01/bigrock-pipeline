@@ -1,21 +1,15 @@
 import { useState, useRef } from 'react'
-import { DEPTS, MOOD_EMOJIS, isStaff, displayRole } from '../../lib/constants'
+import { MOOD_EMOJIS } from '../../lib/constants'
 import { uploadAvatar, updateProfile } from '../../lib/supabase'
-import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
 import Card from '../ui/Card'
-import Av from '../ui/Av'
 import Btn from '../ui/Btn'
 import HangingIDCard from '../profile/HangingIDCard'
 
 export default function ProfilePage({ user, onProfileUpdate, addToast }) {
-  const isMobile = useIsMobile()
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const fileRef = useRef(null)
-
-  const staff = isStaff(user)
-  const dept = DEPTS.find(d => d.id === user.department)
 
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -53,64 +47,42 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <Fade>
-        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a' }}>Profile</h1>
-        <p style={{ fontSize: 14, color: '#64748B', marginBottom: 24 }}>Customize your profile</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 4px', color: '#1a1a1a', textAlign: 'center' }}>Profile</h1>
+        <p style={{ fontSize: 13, color: '#64748B', marginBottom: 16, textAlign: 'center' }}>Trascina il tesserino o cambia il tuo avatar</p>
       </Fade>
 
       <Fade delay={50}>
-        <div style={{ marginBottom: 16 }}>
-          <HangingIDCard user={user} />
-        </div>
+        <HangingIDCard user={user} />
       </Fade>
 
-      <Fade delay={100}>
-        <Card style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'center' : 'center', gap: isMobile ? 16 : 24, marginBottom: 28, textAlign: isMobile ? 'center' : 'left' }}>
-            <div style={{ position: 'relative' }}>
-              <Av name={user.full_name} size={84} url={user.avatar_url} mood={user.mood_emoji} />
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, color: '#1a1a1a' }}>{user.full_name}</div>
-              <div style={{ fontSize: 13, color: '#64748B' }}>{user.email}</div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-                <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
-                  style={{ padding: '7px 16px', fontSize: 12 }}>
-                  Change Avatar
-                </Btn>
-                {/* #6: Delete avatar button */}
-                {user.avatar_url && (
-                  <Btn variant="danger" onClick={handleDeleteAvatar} loading={deleting}
-                    style={{ padding: '7px 16px', fontSize: 12 }}>
-                    Remove
-                  </Btn>
-                )}
-              </div>
-              <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 6 }}>Max 1MB</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 10 : 16 }}>
-            <InfoField label="Role" value={displayRole(user.role)} />
-            {/* #7: Staff don't show department */}
-            {!staff && <InfoField label="Department" value={dept ? dept.label : 'Unassigned'} />}
-            <InfoField label="Email" value={user.email} />
-            <InfoField label="Member since" value={user.created_at ? new Date(user.created_at).toLocaleDateString('en') : '-'} />
-          </div>
-        </Card>
+      <Fade delay={120}>
+        <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 4, marginBottom: 28, flexWrap: 'wrap' }}>
+          <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}
+            style={{ padding: '8px 18px', fontSize: 12 }}>
+            Cambia Avatar
+          </Btn>
+          {user.avatar_url && (
+            <Btn variant="danger" onClick={handleDeleteAvatar} loading={deleting}
+              style={{ padding: '8px 18px', fontSize: 12 }}>
+              Rimuovi
+            </Btn>
+          )}
+        </div>
+        <div style={{ fontSize: 10, color: '#94A3B8', textAlign: 'center', marginTop: -20, marginBottom: 24 }}>Max 1MB</div>
       </Fade>
 
       <Fade delay={200}>
         <Card>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#1a1a1a' }}>Mood of the Day</div>
-          <div style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>Choose an emoji that represents how you feel today</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4, color: '#1a1a1a' }}>Mood del giorno</div>
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 16 }}>Scegli un emoji che ti rappresenta oggi — apparirà sull'avatar</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
             {MOOD_EMOJIS.map(e => (
               <button key={e} onClick={() => handleMood(e)}
                 style={{
-                  width: 48, height: 48, borderRadius: 16, fontSize: 22,
+                  width: 42, height: 42, borderRadius: 12, fontSize: 20,
                   background: user.mood_emoji === e ? 'rgba(242,140,40,0.08)' : '#F8FAFC',
                   border: user.mood_emoji === e ? '2px solid #F28C28' : '1px solid #E2E8F0',
                   cursor: 'pointer', transition: 'all 0.12s ease',
@@ -120,15 +92,6 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
           </div>
         </Card>
       </Fade>
-    </div>
-  )
-}
-
-function InfoField({ label, value }) {
-  return (
-    <div style={{ padding: '12px 16px', background: '#F8FAFC', borderRadius: 16, border: '1px solid #E2E8F0' }}>
-      <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{value}</div>
     </div>
   )
 }
