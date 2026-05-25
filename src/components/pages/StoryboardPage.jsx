@@ -938,7 +938,12 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
         // Convert absolute board points → coords local to the new sticker's top-left.
         // Storing local coords means moving / duplicating the sticker doesn't require
         // re-baselining the path — just translate the sticker's (x, y).
-        const rel = livePath.points.map(([x, y]) => [Math.round(x - minX), Math.round(y - minY)])
+        // Keep one decimal of precision so the path doesn't snap to the integer
+        // grid (which produces visible stairstep on thin strokes at 1:1 zoom).
+        const rel = livePath.points.map(([x, y]) => [
+          Math.round((x - minX) * 10) / 10,
+          Math.round((y - minY) * 10) / 10,
+        ])
         // New format with explicit natural extent + sub-polylines (one to start;
         // the eraser may split it later).
         const payload = { w, h, segs: [rel] }
