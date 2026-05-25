@@ -17,6 +17,16 @@ export default function FloatingCard({ float, onMove, onClick, onPickup, onRetur
   const flightRef = useRef(null)
   const [grabbing, setGrabbing] = useState(false)
   const [flying, setFlying] = useState(false)
+  const [hovered, setHovered] = useState(false)
+
+  const handlePointerEnter = (e) => {
+    if (e.pointerType === 'touch') return
+    setHovered(true)
+  }
+  const handlePointerLeave = (e) => {
+    if (e.pointerType === 'touch') return
+    setHovered(false)
+  }
 
   useEffect(() => () => {
     if (flightRef.current) cancelAnimationFrame(flightRef.current)
@@ -140,6 +150,8 @@ export default function FloatingCard({ float, onMove, onClick, onPickup, onRetur
     <div
       onPointerDown={handlePointerDown}
       onContextMenu={handleContextMenu}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       style={{
         position: 'fixed',
         left: float.x,
@@ -152,8 +164,14 @@ export default function FloatingCard({ float, onMove, onClick, onPickup, onRetur
         WebkitUserSelect: 'none',
         filter: grabbing || flying
           ? 'drop-shadow(0 22px 36px rgba(0,0,0,0.55))'
-          : 'drop-shadow(0 14px 28px rgba(0,0,0,0.45))',
-        transform: grabbing ? 'scale(1.04)' : 'scale(1)',
+          : hovered
+            ? 'drop-shadow(0 18px 30px rgba(0,0,0,0.5))'
+            : 'drop-shadow(0 14px 28px rgba(0,0,0,0.45))',
+        transform: grabbing
+          ? 'translateY(0) scale(1.04)'
+          : hovered && !flying
+            ? 'translateY(-4px) scale(1.03)'
+            : 'translateY(0) scale(1)',
         transition: 'transform 0.22s cubic-bezier(0.22,1,0.36,1), filter 0.22s ease',
         willChange: 'left, top, transform',
       }}
