@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, TASK_STATUSES, isDeptEnabled, hasPermission, isAdmin } from '../../lib/constants'
+import { DEPTS, TASK_STATUSES, hasPermission, isAdmin } from '../../lib/constants'
 import { updateProject } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
@@ -173,22 +173,10 @@ function StatsTab({ shots, assets, tasks, profiles, currentProject, isMobile }) 
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, color: '#1a1a1a' }}>Departments</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {DEPTS.map(dept => {
-              const onShots = SHOT_DEPT_IDS.includes(dept.id)
-              const onAssets = ASSET_DEPT_IDS.includes(dept.id)
-              const isDone = st => st === 'approved' || st === 'review'
-              const shotsT = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id)).length : 0
-              const shotsD = onShots ? shots.filter(sh => isDeptEnabled(sh, dept.id) && isDone(sh[`status_${dept.id}`])).length : 0
-              const assetsT = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id)).length : 0
-              const assetsD = onAssets ? assets.filter(a => isDeptEnabled(a, dept.id) && isDone(a[`status_${dept.id}`])).length : 0
-              const t = shotsT + assetsT
-              const d = shotsD + assetsD
               const deptTasks = tasks.filter(tk => tk.department === dept.id)
-              const deptDone = deptTasks.filter(tk => tk.status === 'approved' || tk.status === 'review').length
-
-              const parts = []
-              if (onShots) parts.push(`${shotsD}/${shotsT} shots`)
-              if (onAssets) parts.push(`${assetsD}/${assetsT} assets`)
-              parts.push(`${deptDone}/${deptTasks.length} tasks`)
+              const deptDone = deptTasks.filter(tk => tk.status === 'approved').length
+              const total = deptTasks.length
+              const pct = total > 0 ? Math.round((deptDone / total) * 100) : 0
 
               return (
                 <div key={dept.id}>
@@ -198,10 +186,10 @@ function StatsTab({ shots, assets, tasks, profiles, currentProject, isMobile }) 
                       {dept.label}
                     </span>
                     <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>
-                      {parts.join(' · ')}
+                      {deptDone}/{total} tasks
                     </span>
                   </div>
-                  <Bar value={t > 0 ? Math.round((d / t) * 100) : 0} h={5} />
+                  <Bar value={pct} h={5} />
                 </div>
               )
             })}
