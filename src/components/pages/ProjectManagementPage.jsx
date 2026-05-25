@@ -5,6 +5,7 @@ import { getCloudinaryUsage } from '../../lib/miro'
 import Btn from '../ui/Btn'
 import Modal from '../ui/Modal'
 import Input from '../ui/Input'
+import DateInput from '../ui/DateInput'
 import Av from '../ui/Av'
 import Card from '../ui/Card'
 import { IconPlus, IconTrash, IconEdit } from '../ui/Icons'
@@ -338,11 +339,11 @@ function ProjectsTab({ user, projects, onRefreshProjects, addToast, requestConfi
       <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Data inizio</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={dateInputStyle} />
+          <DateInput value={startDate} onChange={setStartDate} placeholder="—" />
         </div>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Data fine</label>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={dateInputStyle} />
+          <DateInput value={endDate} onChange={setEndDate} minDate={startDate || undefined} placeholder="—" popoverAlign="right" />
         </div>
       </div>
     </>

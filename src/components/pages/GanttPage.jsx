@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { ACCENT, DEPTS, hasPermission } from '../../lib/constants'
 import Btn from '../ui/Btn'
 import Fade from '../ui/Fade'
+import DateInput from '../ui/DateInput'
 import { IconChevronDown } from '../ui/Icons'
 import TaskDetailModal from '../tasks/TaskDetailModal'
 import Modal from '../ui/Modal'
@@ -629,14 +630,18 @@ export default function GanttPage({
             {canEdit && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 999 }}>
                 <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>Progetto:</span>
-                <input type="date" value={currentProject?.start_date || ''}
-                  onChange={e => onUpdateProjectDates(e.target.value, currentProject?.end_date || '')}
-                  style={{ fontSize: 12, border: 'none', background: 'transparent', outline: 'none', color: '#1a1a1a', fontFamily: 'inherit' }} />
+                <DateInput value={currentProject?.start_date || ''}
+                  onChange={v => onUpdateProjectDates(v, currentProject?.end_date || '')}
+                  compact placeholder="—" showIcon={false}
+                  inputStyle={{ border: 'none', background: 'transparent', padding: '2px 4px', boxShadow: 'none' }}
+                  style={{ width: 110 }} />
                 <span style={{ fontSize: 11, color: '#94A3B8' }}>→</span>
-                <input type="date" value={currentProject?.end_date || ''}
-                  min={currentProject?.start_date || undefined}
-                  onChange={e => onUpdateProjectDates(currentProject?.start_date || '', e.target.value)}
-                  style={{ fontSize: 12, border: 'none', background: 'transparent', outline: 'none', color: '#1a1a1a', fontFamily: 'inherit' }} />
+                <DateInput value={currentProject?.end_date || ''}
+                  minDate={currentProject?.start_date || undefined}
+                  onChange={v => onUpdateProjectDates(currentProject?.start_date || '', v)}
+                  compact placeholder="—" showIcon={false}
+                  inputStyle={{ border: 'none', background: 'transparent', padding: '2px 4px', boxShadow: 'none' }}
+                  style={{ width: 110 }} />
               </div>
             )}
             <div style={{ display: 'inline-flex', background: '#fff', borderRadius: 999, padding: 3, gap: 2, border: '1px solid #E2E8F0' }}>
@@ -1159,11 +1164,11 @@ function PauseManagerModal({ pauses, onClose, onCreate, onDelete, projectStart, 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
             <div>
               <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Inizio</div>
-              <input type="date" value={start} onChange={e => setStart(e.target.value)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+              <DateInput value={start} onChange={setStart} placeholder="Data inizio" />
             </div>
             <div>
               <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Fine</div>
-              <input type="date" value={end} min={start || undefined} onChange={e => setEnd(e.target.value)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+              <DateInput value={end} minDate={start || undefined} onChange={setEnd} placeholder="Data fine" popoverAlign="right" />
             </div>
           </div>
           <input type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder="Etichetta (es. Pausa estiva)"

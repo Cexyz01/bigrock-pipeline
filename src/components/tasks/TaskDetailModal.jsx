@@ -6,6 +6,7 @@ import Btn from '../ui/Btn'
 import Av from '../ui/Av'
 import StatusBadge from '../ui/StatusBadge'
 import Input from '../ui/Input'
+import DateInput from '../ui/DateInput'
 import Select from '../ui/Select'
 import ImageLightbox from '../ui/ImageLightbox'
 import { IconX, IconImage, IconSend, IconCheck, IconTrash, IconStar } from '../ui/Icons'
@@ -367,9 +368,9 @@ export default function TaskDetailModal({
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1.4 }}>
               <span style={fieldLabel}>Inizio</span>
-              <input type="date" value={editStartDate}
-                onChange={e => setEditStartDate(e.target.value)} onBlur={blurStartDate}
-                style={compactInput} />
+              <DateInput value={editStartDate}
+                onChange={v => { setEditStartDate(v); if (v !== (task.start_date || '')) saveField('start_date', v || null) }}
+                compact placeholder="—" />
             </div>
             <div style={{ flex: 1 }}>
               <span style={fieldLabel}>Durata (g)</span>

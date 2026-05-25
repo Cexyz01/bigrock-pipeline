@@ -9,6 +9,7 @@ import Modal from '../ui/Modal'
 import StatusBadge from '../ui/StatusBadge'
 import ImageLightbox from '../ui/ImageLightbox'
 import { IconX } from '../ui/Icons'
+import DateInput from '../ui/DateInput'
 import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
 import AnnotatedImage from '../ui/AnnotatedImage'
@@ -47,8 +48,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
     getAllWipUpdates().then(setAllWips)
   }, [tasks])
 
-  const handleStartDateChange = async (e) => {
-    const val = e.target.value
+  const handleStartDateChange = async (val) => {
     setProjectStart(val)
     if (!currentProject) return
     setSavingStart(true)
@@ -56,8 +56,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
     setSavingStart(false)
   }
 
-  const handleEndDateChange = async (e) => {
-    const val = e.target.value
+  const handleEndDateChange = async (val) => {
     setProjectEnd(val)
     if (!currentProject) return
     setSavingEnd(true)
@@ -170,18 +169,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
             {user && hasPermission(user, 'access_activity') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <label style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>Project start:</label>
-                <input
-                  type="date"
-                  value={projectStart}
-                  onChange={handleStartDateChange}
-                  style={{
-                    padding: '5px 10px', borderRadius: 8, fontSize: 12,
-                    border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#1a1a1a',
-                    outline: 'none', cursor: 'pointer',
-                  }}
-                  onFocus={e => e.target.style.borderColor = 'rgba(242,140,40,0.4)'}
-                  onBlur={e => e.target.style.borderColor = '#E2E8F0'}
-                />
+                <DateInput value={projectStart} onChange={handleStartDateChange} compact placeholder="—" style={{ width: 140 }} />
                 {savingStart && <span style={{ fontSize: 10, color: '#94A3B8' }}>...</span>}
                 {projectStart && (
                   <button
@@ -198,18 +186,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
             {user && hasPermission(user, 'access_activity') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <label style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>Project end:</label>
-                <input
-                  type="date"
-                  value={projectEnd}
-                  onChange={handleEndDateChange}
-                  style={{
-                    padding: '5px 10px', borderRadius: 8, fontSize: 12,
-                    border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#1a1a1a',
-                    outline: 'none', cursor: 'pointer',
-                  }}
-                  onFocus={e => e.target.style.borderColor = 'rgba(242,140,40,0.4)'}
-                  onBlur={e => e.target.style.borderColor = '#E2E8F0'}
-                />
+                <DateInput value={projectEnd} onChange={handleEndDateChange} compact placeholder="—" minDate={projectStart || undefined} style={{ width: 140 }} popoverAlign="right" />
                 {savingEnd && <span style={{ fontSize: 10, color: '#94A3B8' }}>...</span>}
                 {projectEnd && (
                   <button

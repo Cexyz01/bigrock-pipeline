@@ -4,6 +4,7 @@ import Modal from '../ui/Modal'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
 import Btn from '../ui/Btn'
+import DateInput from '../ui/DateInput'
 import AssigneePicker from './AssigneePicker'
 
 export default function CreateTaskModal({ open, onClose, shots, assets = [], students, user, onCreate, prefill, projectStartDate }) {
@@ -116,9 +117,9 @@ export default function CreateTaskModal({ open, onClose, shots, assets = [], stu
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Inizio (opzionale)</div>
-            <input type="date" value={form.start_date}
-              onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
-              style={{ width: '100%', fontSize: 13, color: '#1a1a1a', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', outline: 'none', background: '#F8FAFC', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+            <DateInput value={form.start_date}
+              onChange={v => setForm(f => ({ ...f, start_date: v }))}
+              placeholder="—" />
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6, fontWeight: 500 }}>Durata (giorni)</div>
