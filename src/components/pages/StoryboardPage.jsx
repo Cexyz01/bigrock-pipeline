@@ -1832,9 +1832,16 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
             pen (which appends) and the eraser (which cuts points). */}
         {creativeMode && (
           <svg width={boardW} height={boardH} viewBox={`0 0 ${boardW} ${boardH}`}
+            shapeRendering="geometricPrecision"
             style={{
               position: 'absolute', left: 0, top: 0,
               pointerEvents: 'none', zIndex: 99999, overflow: 'visible',
+              // Promote to its own compositor layer so the browser re-rasterises
+              // it at the parent's CSS scale (otherwise the SVG is painted at
+              // 1x and bitmap-upscaled when the user zooms in, which is what
+              // produces the residual stairstep on thin strokes).
+              willChange: 'transform',
+              transform: 'translateZ(0)',
             }}>
             {stickers.filter(s => s.kind === 'stroke').map(s => {
               const data = parseStroke(s.text_content)
