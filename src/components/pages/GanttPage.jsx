@@ -922,24 +922,27 @@ export default function GanttPage({
                     }}
                     onDoubleClick={(ev) => { ev.stopPropagation(); setSelectedTaskId(t.id) }}
                     style={(() => {
-                      // Completed tasks (status === 'approved') get a thick
-                      // green ring so they stand out at a glance in the
-                      // planning view. Selection ring sits outside it.
+                      // Completed tasks (status === 'approved') are painted
+                      // solid green with reduced opacity so they recede a bit
+                      // visually while staying unmistakably "done".
                       const isDone = t.status === 'approved'
                       const isSel = selectedIds.has(t.id)
-                      const doneRing = isDone ? `0 0 0 3px #10B981` : ''
-                      const selRing = isSel ? `0 0 0 ${isDone ? 5 : 2}px ${ACCENT}` : ''
+                      const selRing = isSel ? `0 0 0 2px ${ACCENT}` : ''
                       const ambient = isDragging
                         ? `0 8px 24px ${taskDept.color}66`
                         : '0 1px 3px rgba(0,0,0,0.12)'
                       const selGlow = isSel ? `0 4px 14px ${ACCENT}55` : ''
-                      const shadow = [doneRing, selRing, selGlow, ambient].filter(Boolean).join(', ')
+                      const shadow = [selRing, selGlow, ambient].filter(Boolean).join(', ')
+                      const bg = isDone
+                        ? `linear-gradient(135deg, #10B981 0%, #059669 100%)`
+                        : (isUnassigned
+                          ? `linear-gradient(135deg, #CBD5E1 0%, #94A3B8 100%)`
+                          : `linear-gradient(135deg, ${taskDept.color} 0%, ${shade(taskDept.color, -10)} 100%)`)
+                      const op = isDone ? 0.55 : (isUnassigned ? 0.55 : 1)
                       return {
                       position: 'absolute', left: x, top: 6, width: w, height: ROW_H - 12,
-                      background: isUnassigned
-                        ? `linear-gradient(135deg, #CBD5E1 0%, #94A3B8 100%)`
-                        : `linear-gradient(135deg, ${taskDept.color} 0%, ${shade(taskDept.color, -10)} 100%)`,
-                      opacity: isUnassigned ? 0.55 : 1,
+                      background: bg,
+                      opacity: op,
                       borderRadius: 8, cursor: canEdit ? (drag ? 'grabbing' : 'grab') : 'pointer',
                       boxShadow: shadow,
                       outline: isSel ? `1px solid ${ACCENT}` : 'none',
