@@ -534,6 +534,23 @@ export default function TaskDetailModal({
               ↩ Riporta in WIP
             </Btn>
           )}
+          {task.status !== 'approved' && (
+            <Btn variant="success" loading={actionLoading === 'force-done'}
+              onClick={() => requestConfirm(
+                'Sei sicuro di voler saltare la review e spostare questo task direttamente in DONE?',
+                async () => {
+                  setActionLoading('force-done')
+                  await onUpdate(task.id, { status: 'approved' })
+                  if (addToast) addToast('Task spostato in Done', 'success')
+                  setActionLoading(null)
+                  onClose()
+                }
+              )}
+              style={{ width: '100%', justifyContent: 'center', background: '#94A3B8', borderColor: '#94A3B8' }}
+              title="Salta la review e segna come completato">
+              ⇥ Move to Done
+            </Btn>
+          )}
           <Btn variant="danger" onClick={handleDelete} style={{ width: '100%', justifyContent: 'center' }}>Delete</Btn>
         </div>
       )}
