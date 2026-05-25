@@ -13,7 +13,7 @@ import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
 import AnnotatedImage from '../ui/AnnotatedImage'
 
-export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate, currentProject }) {
+export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate, currentProject, pauses = [] }) {
   const isMobile = useIsMobile()
   const [days, setDays] = useState(14)
   const [selectedCell, setSelectedCell] = useState(null)
@@ -78,6 +78,20 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
     p.role === 'studente' && (projectMemberIds ? projectMemberIds.has(p.id) : true)
   )
 
+  // Build a Set of paused dates (YYYY-MM-DD) from project pauses ranges.
+  const pausedDates = useMemo(() => {
+    const set = new Set()
+    for (const p of pauses) {
+      if (!p?.start_date || !p?.end_date) continue
+      const start = new Date(p.start_date)
+      const end = new Date(p.end_date)
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        set.add(d.toISOString().split('T')[0])
+      }
+    }
+    return set
+  }, [pauses])
+
   const dates = useMemo(() => {
     const today = new Date()
     const all = Array.from({ length: days }, (_, i) => {
@@ -85,10 +99,14 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
       d.setDate(d.getDate() - (days - 1 - i))
       return d.toISOString().split('T')[0]
     })
-    // Filter out dates before project start
-    if (projectStart) return all.filter(d => d >= projectStart)
-    return all
-  }, [days, projectStart])
+    return all.filter(dateStr => {
+      if (projectStart && dateStr < projectStart) return false
+      const dow = new Date(dateStr).getDay() // 0 = Sun, 6 = Sat
+      if (dow === 0 || dow === 6) return false
+      if (pausedDates.has(dateStr)) return false
+      return true
+    })
+  }, [days, projectStart, pausedDates])
 
   // Index WIPs by student+date for fast lookup
   const wipsByStudentDate = useMemo(() => {
