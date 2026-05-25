@@ -583,16 +583,19 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     descRefCache.current = {}
   }, [])
 
-  // Convert screen coordinates to board coordinates (inverse of the pan+scale transform)
-  const screenToBoard = useCallback((clientX, clientY) => {
+  // Convert screen coordinates to board coordinates (inverse of the pan+scale transform).
+  // Rounds to integer board units by default (sticker placement wants stable coords);
+  // pass `precise: true` to get sub-pixel floats — used by the pen so dense pointer
+  // samples don't all snap to the same integer at 1:1 zoom (visible as stairstep).
+  const screenToBoard = useCallback((clientX, clientY, opts) => {
     const el = containerRef.current
     if (!el) return { x: 200, y: 200 }
     const rect = el.getBoundingClientRect()
     const ap = pan || { x: 40, y: 20 }
-    return {
-      x: Math.round((clientX - rect.left - ap.x) / scale),
-      y: Math.round((clientY - rect.top - ap.y) / scale),
-    }
+    const x = (clientX - rect.left - ap.x) / scale
+    const y = (clientY - rect.top - ap.y) / scale
+    if (opts && opts.precise) return { x, y }
+    return { x: Math.round(x), y: Math.round(y) }
   }, [pan, scale])
 
   // Board coords for the center of the currently visible viewport (used by toolbar adds)
@@ -799,7 +802,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     // per gesture on mouseup → one stroke = one undo entry.
     if (creativeMode && effectiveTool === 'pen') {
       e.preventDefault()
-      const b = screenToBoard(e.clientX, e.clientY)
+      const b = screenToBoard(e.clientX, e.clientY, { precise: true })
       setLivePath({ points: [[b.x, b.y]] })
       return
     }
@@ -873,7 +876,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
       const samples = (events && events.length > 0) ? events : [e]
       const newPts = []
       for (const ev of samples) {
-        const b = screenToBoard(ev.clientX, ev.clientY)
+        const b = screenToBoard(ev.clientX, ev.clientY, { precise: true })
         newPts.push([b.x, b.y])
       }
       setLivePath(p => {
