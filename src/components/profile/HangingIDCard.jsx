@@ -83,22 +83,33 @@ export default function HangingIDCard({ user }) {
     e.preventDefault()
     const rect = containerRef.current.getBoundingClientRect()
     const s = stateRef.current
-    s.dragging = true
-    s.pivot = { x: rect.left + rect.width / 2, y: rect.top + 22 }
-    s.angVel = 0
-    s.samples = [{ angle: s.angle, time: performance.now() }]
 
     const getXY = (ev) => {
       if (ev.touches && ev.touches[0]) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
       return { x: ev.clientX, y: ev.clientY }
     }
 
+    const { x: startX, y: startY } = getXY(e)
+    const pivotX = rect.left + rect.width / 2
+    const pivotY = rect.top + 22
+
+    // Offset between pointer's polar angle (from pivot) and current card angle.
+    // Keeping this constant during drag means the card follows the finger without snapping.
+    const initialPointerAngle = Math.atan2(startX - pivotX, Math.max(20, startY - pivotY))
+    s.dragOffset = s.angle - initialPointerAngle
+    s.dragStartX = startX
+    s.dragging = true
+    s.pivot = { x: pivotX, y: pivotY }
+    s.angVel = 0
+    s.samples = [{ angle: s.angle, time: performance.now() }]
+
     const onMove = (ev) => {
       if (ev.cancelable) ev.preventDefault()
       const { x, y } = getXY(ev)
       const dx = x - s.pivot.x
       const dy = Math.max(20, y - s.pivot.y)
-      let a = Math.atan2(dx, dy)
+      const pointerAngle = Math.atan2(dx, dy)
+      let a = pointerAngle + s.dragOffset
       const MAX = Math.PI * 0.45
       a = Math.max(-MAX, Math.min(MAX, a))
       s.angle = a
@@ -115,10 +126,10 @@ export default function HangingIDCard({ user }) {
       const dA = Math.abs(last.angle - first.angle)
 
       if (dt < 220 && dA < 0.04) {
-        const dir = Math.abs(s.angle) > 0.02
-          ? -Math.sign(s.angle)
-          : (Math.random() > 0.5 ? 1 : -1)
-        s.angVel += dir * 0.07
+        // Click — nudge toward the side that was clicked (right of pivot → right swing)
+        const sideDx = s.dragStartX - s.pivot.x
+        const dir = Math.abs(sideDx) < 4 ? (Math.random() > 0.5 ? 1 : -1) : Math.sign(sideDx)
+        s.angVel += dir * 0.08
       } else if (samples.length >= 2) {
         const recent = samples.slice(-3)
         const f = recent[0]
@@ -265,7 +276,7 @@ export default function HangingIDCard({ user }) {
                 opacity: 0.95,
               }}
             >
-              BIGROCKHUB
+              BIGROCKER
             </div>
             <div
               style={{
