@@ -67,7 +67,7 @@ export default function ProfilePage({ user, onProfileUpdate, addToast }) {
           {user.avatar_url && (
             <Btn variant="danger" onClick={handleDeleteAvatar} loading={deleting}
               style={{ padding: '8px 18px', fontSize: 12 }}>
-              Rimuovi
+              Rimuovi avatar
             </Btn>
           )}
         </div>
