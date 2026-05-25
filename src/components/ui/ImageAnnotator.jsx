@@ -59,10 +59,16 @@ function eraseStrokeAtPoint(stroke, ex, ey, r) {
     .map(points => ({ ...stroke, points }))
 }
 
+// True on phones/tablets — no fine pointer, no hover. We default the tool to
+// "view" (pan/pinch) there so a stray tap on an image doesn't immediately
+// scribble on it; the user has to opt into the pen.
+const IS_TOUCH = typeof window !== 'undefined'
+  && window.matchMedia?.('(hover: none) and (pointer: coarse)').matches
+
 export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext, index, total }) {
   const { strokes: saved, save } = useImageAnnotation(src)
   const [strokes, setStrokes] = useState(saved)
-  const [tool, setTool] = useState('pen')
+  const [tool, setTool] = useState(IS_TOUCH ? 'view' : 'pen')
   const [color, setColor] = useState(COLORS[0])
   const [size, setSize] = useState(0.005) // fraction of image width
   const [drawing, setDrawing] = useState(false)
@@ -257,9 +263,48 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     updateCursorVisual()
   }
 
-  // ── Drawing / pan handlers ──
+  // ── Drawing / pan / pinch handlers ──
+  // Active pointers (mouse + touches) tracked by id so we can detect the
+  // second finger landing and switch to a pinch-zoom gesture on mobile.
+  const pointersRef = useRef(new Map())
+  const pinchRef = useRef(null) // { startDist, startMidX, startMidY, startScale, startPanX, startPanY }
+
   const onPointerDown = (e) => {
     if (!rect.w) return
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    // Second pointer landed → upgrade to pinch (zoom + two-finger pan).
+    // Abort any in-progress drawing so the second finger doesn't leave a
+    // dangling stroke behind.
+    if (pointersRef.current.size === 2) {
+      e.preventDefault()
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      if (drawing) {
+        if (tool === 'pen') setStrokes(prev => prev.slice(0, -1))
+        setDrawing(false)
+        pendingPenPointsRef.current = []
+        pendingErasePointsRef.current = []
+        if (flushRafRef.current) {
+          cancelAnimationFrame(flushRafRef.current)
+          flushRafRef.current = 0
+        }
+      }
+      panningRef.current = null
+      const wrap = wrapRef.current.getBoundingClientRect()
+      const pts = [...pointersRef.current.values()]
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1
+      const cur = xformRef.current
+      pinchRef.current = {
+        startDist: dist,
+        startMidX: (pts[0].x + pts[1].x) / 2 - wrap.left,
+        startMidY: (pts[0].y + pts[1].y) / 2 - wrap.top,
+        startScale: cur.scale,
+        startPanX: cur.panX, startPanY: cur.panY,
+      }
+      hideCursor()
+      return
+    }
+
     // Right-mouse / middle-mouse → pan, regardless of where on the surface.
     if (e.button === 2 || e.button === 1) {
       e.preventDefault()
@@ -276,6 +321,17 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     if (!isInsideImage(e.clientX, e.clientY)) { handleClose(); return }
     e.preventDefault()
     e.currentTarget.setPointerCapture?.(e.pointerId)
+    // View tool: pan-only. On mobile this is the default so a stray tap on an
+    // image opens the lightbox without leaving scribbles.
+    if (tool === 'view') {
+      const cur = xformRef.current
+      panningRef.current = {
+        startX: e.clientX, startY: e.clientY,
+        originPanX: cur.panX, originPanY: cur.panY,
+      }
+      hideCursor()
+      return
+    }
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
     if (tool === 'pen') {
       setDrawing(true)
@@ -343,6 +399,30 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
 
   const onPointerMove = (e) => {
     if (!rect.w) return
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+    // Pinch zoom (two-finger): scale around the midpoint and let the midpoint
+    // drag the image at the same time, so it feels like the same gesture you
+    // use everywhere else on mobile.
+    if (pinchRef.current && pointersRef.current.size >= 2) {
+      const wrap = wrapRef.current?.getBoundingClientRect()
+      if (!wrap) return
+      const pts = [...pointersRef.current.values()]
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1
+      const midX = (pts[0].x + pts[1].x) / 2 - wrap.left
+      const midY = (pts[0].y + pts[1].y) / 2 - wrap.top
+      const s = pinchRef.current
+      const nextScale = Math.max(0.2, Math.min(8, s.startScale * (dist / s.startDist)))
+      const k = nextScale / s.startScale
+      xformRef.current = {
+        scale: nextScale,
+        panX: midX - (s.startMidX - s.startPanX) * k,
+        panY: midY - (s.startMidY - s.startPanY) * k,
+      }
+      applyXform()
+      return
+    }
     // Panning takes priority — neither the cursor ring nor drawing fires.
     if (panningRef.current) {
       const p = panningRef.current
@@ -356,7 +436,8 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     }
     const wrap = wrapRef.current?.getBoundingClientRect()
     const inside = isInsideImage(e.clientX, e.clientY)
-    if (wrap && inside) moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
+    // Brush-size ring is mouse-only — under a finger it's invisible anyway.
+    if (wrap && inside && e.pointerType !== 'touch') moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
     else hideCursor()
     if (!drawing) return
     if (!inside) return
@@ -369,7 +450,17 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     requestFlush()
   }
 
-  const onPointerUp = () => {
+  const onPointerUp = (e) => {
+    if (e && e.pointerId !== undefined) pointersRef.current.delete(e.pointerId)
+    // End-of-pinch: drop the gesture even if one finger remains, so the
+    // surviving finger doesn't suddenly start drawing.
+    if (pinchRef.current) {
+      if (pointersRef.current.size < 2) {
+        pinchRef.current = null
+        panningRef.current = null
+      }
+      return
+    }
     if (panningRef.current) { panningRef.current = null; return }
     // Flush any queued points so the gesture ends with a consistent state.
     if (flushRafRef.current) {
@@ -442,6 +533,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') handleClose()
+      else if (e.key === 'v' || e.key === 'V') setTool('view')
       else if (e.key === 'b' || e.key === 'B') setTool('pen')
       else if (e.key === 'e' || e.key === 'E') setTool('eraser')
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo() }
@@ -465,6 +557,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         flexWrap: 'wrap',
       }}>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setTool('view')} title="Mano (V) — pan/zoom" style={toolBtnStyle(tool === 'view')}>✋ Mano</button>
           <button onClick={() => setTool('pen')} title="Penna (B)" style={toolBtnStyle(tool === 'pen')}>✏️ Penna</button>
           <button onClick={() => setTool('eraser')} title="Gomma (E)" style={toolBtnStyle(tool === 'eraser')}>🩹 Gomma</button>
         </div>
