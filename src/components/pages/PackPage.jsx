@@ -14,6 +14,7 @@ import PackTrading from '../pack/PackTrading'
 import CollectionHeader from '../pack/CollectionHeader'
 import CollectionFilters from '../pack/CollectionFilters'
 import CollectionGrid from '../pack/CollectionGrid'
+import FloatingCard from '../pack/FloatingCard'
 import Fade from '../ui/Fade'
 import useIsMobile from '../../hooks/useIsMobile'
 import useTilt3D from '../../hooks/useTilt3D'
@@ -52,6 +53,52 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [openingPackType, setOpeningPackType] = useState(null)
   const [flyRect, setFlyRect] = useState(null)
   const [preOpenOwned, setPreOpenOwned] = useState(null)
+
+  // Free-table floating cards (in-memory only — reset on reload)
+  const [floats, setFloats] = useState([])
+  const floatZRef = (typeof window !== 'undefined') ? (window.__bigrockFloatZ ||= { v: 8500 }) : { v: 8500 }
+
+  const liftedMap = useMemo(() => {
+    const m = {}
+    for (const f of floats) m[f.cardNumber] = (m[f.cardNumber] || 0) + 1
+    return m
+  }, [floats])
+
+  const handleLift = useCallback((info) => {
+    const uid = 'f_' + Math.random().toString(36).slice(2, 10)
+    floatZRef.v += 1
+    setFloats(prev => [
+      ...prev,
+      {
+        uid,
+        cardNumber: info.card.number,
+        card: info.card,
+        x: info.x,
+        y: info.y,
+        width: info.width,
+        copyInfo: info.copyInfo,
+        totalCopies: info.totalCopies,
+        z: floatZRef.v,
+      },
+    ])
+    return uid
+  }, [floatZRef])
+
+  const handleFloatMove = useCallback((uid, x, y) => {
+    setFloats(prev => prev.map(f => f.uid === uid ? { ...f, x, y } : f))
+  }, [])
+
+  const handleFloatPickup = useCallback((uid) => {
+    floatZRef.v += 1
+    const z = floatZRef.v
+    setFloats(prev => prev.map(f => f.uid === uid ? { ...f, z } : f))
+  }, [floatZRef])
+
+  const handleFloatClick = useCallback((f) => {
+    const card = cards.find(c => c.number === f.cardNumber) || f.card
+    setSelected(card)
+    setSelectedOwned(true)
+  }, [cards])
 
   // "New" badge tracking
   const SEEN_KEY = `tcg_seen_${user.id}`
@@ -440,6 +487,9 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                   ownedOnly={ownedOnly}
                   isMobile={isMobile}
                   onResetFilters={resetFilters}
+                  liftedMap={liftedMap}
+                  onLift={handleLift}
+                  onLiftMove={handleFloatMove}
                 />
               </div>
             </div>
@@ -476,6 +526,22 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
         isMobile={isMobile}
         onClose={() => setSelected(null)}
       />,
+      document.body
+    )}
+
+    {/* Free-table: floating cards (in-memory, reset on reload) */}
+    {floats.length > 0 && createPortal(
+      <>
+        {floats.map(f => (
+          <FloatingCard
+            key={f.uid}
+            float={f}
+            onMove={handleFloatMove}
+            onPickup={handleFloatPickup}
+            onClick={handleFloatClick}
+          />
+        ))}
+      </>,
       document.body
     )}
 
