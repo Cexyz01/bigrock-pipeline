@@ -242,18 +242,18 @@ function ScriptTab({ user, currentProject, isMobile }) {
     if (!file) return
     setErr('')
     const lower = file.name.toLowerCase()
-    if (!lower.endsWith('.docx')) {
-      setErr('Solo file .docx sono supportati (Word moderno).')
+    const isDocx = lower.endsWith('.docx')
+    const isPdf = lower.endsWith('.pdf')
+    if (!isDocx && !isPdf) {
+      setErr('Solo file .docx o .pdf sono supportati.')
       return
     }
     setUploading(true)
     try {
-      // Dynamic import keeps mammoth (~500KB) out of the main bundle —
+      // Dynamic imports keep mammoth/pdfjs out of the main bundle —
       // only producers/admins who actually upload pay the cost.
-      const { default: mammoth } = await import('mammoth')
       const buf = await file.arrayBuffer()
-      const { value } = await mammoth.extractRawText({ arrayBuffer: buf })
-      const text = (value || '').trim()
+      const text = isDocx ? await extractDocx(buf) : await extractPdf(buf)
       if (!text) {
         setErr('Il documento sembra vuoto.')
         return
@@ -299,12 +299,12 @@ function ScriptTab({ user, currentProject, isMobile }) {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
                 onChange={e => handleFile(e.target.files?.[0])}
                 style={{ display: 'none' }}
               />
               <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}>
-                📄 {filename ? 'Carica nuova versione' : 'Carica sceneggiatura (.docx)'}
+                📄 {filename ? 'Carica nuova versione' : 'Carica sceneggiatura (.docx / .pdf)'}
               </Btn>
             </div>
           </div>
@@ -334,13 +334,60 @@ function ScriptTab({ user, currentProject, isMobile }) {
             padding: '60px 20px', fontStyle: 'italic',
           }}>
             {canEdit
-              ? 'Nessuna sceneggiatura ancora. Carica un .docx per iniziare.'
+              ? 'Nessuna sceneggiatura ancora. Carica un .docx o .pdf per iniziare.'
               : 'La sceneggiatura non è ancora stata pubblicata.'}
           </div>
         )}
       </Card>
     </Fade>
   )
+}
+
+async function extractDocx(arrayBuffer) {
+  const { default: mammoth } = await import('mammoth')
+  const { value } = await mammoth.extractRawText({ arrayBuffer })
+  return (value || '').trim()
+}
+
+// pdf.js needs its worker URL set once before getDocument(). Vite resolves
+// the `?url` import to a hashed asset URL we can hand to the worker option.
+let pdfjsLibPromise = null
+async function getPdfjs() {
+  if (!pdfjsLibPromise) {
+    pdfjsLibPromise = (async () => {
+      const pdfjs = await import('pdfjs-dist')
+      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
+      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+      return pdfjs
+    })()
+  }
+  return pdfjsLibPromise
+}
+
+async function extractPdf(arrayBuffer) {
+  const pdfjs = await getPdfjs()
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
+  const paragraphs = []
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const content = await page.getTextContent()
+    // Group items by their Y position so original line breaks survive.
+    const lines = []
+    let lastY = null
+    let buf = []
+    for (const item of content.items) {
+      const y = item.transform?.[5]
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        if (buf.length) lines.push(buf.join('').trim())
+        buf = []
+      }
+      buf.push(item.str)
+      lastY = y
+    }
+    if (buf.length) lines.push(buf.join('').trim())
+    paragraphs.push(lines.filter(Boolean).join('\n'))
+  }
+  return paragraphs.join('\n\n').trim()
 }
 
 function formatDateTime(iso) {
