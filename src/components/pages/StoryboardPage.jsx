@@ -383,7 +383,8 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     return (
       <div style={{ height: cellH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Img src={thumbUrl(images[0].image_url, 800, 450)} alt="" onClick={() => onClickImage(0)}
-          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+          draggable={false} onDragStart={(e) => e.preventDefault()}
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
       </div>
     )
   }
@@ -397,7 +398,8 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
             <AudioMiniPlayer url={img.image_url} />
           ) : (
             <Img src={thumbUrl(img.image_url, 560, 316)} alt="" onClick={() => onClickImage(i)}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+              draggable={false} onDragStart={(e) => e.preventDefault()}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
           )}
         </div>
       ))}
@@ -423,7 +425,9 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
   return (
     <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ height: cellH, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '1px solid #E8ECF1', background: '#fff', transition: 'all 0.15s ease', transform: hov ? 'translateY(-1px)' : 'none', boxShadow: hov ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Img src={refThumbUrl(url, 800, 450)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+      <Img src={refThumbUrl(url, 800, 450)} alt=""
+        draggable={false} onDragStart={(e) => e.preventDefault()}
+        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', userSelect: 'none', WebkitUserDrag: 'none' }} />
     </div>
   )
 })

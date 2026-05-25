@@ -1,6 +1,8 @@
 import { useRef } from 'react'
 import { ScaledCard, RARITY_COLORS } from './CardRenderer'
 
+const DRAG_THRESHOLD = 5
+
 // Inject CSS once
 if (typeof document !== 'undefined' && !document.getElementById('pack-card-css')) {
   const s = document.createElement('style')
@@ -55,10 +57,17 @@ function ariaLabelFor(card, owned, copyCount) {
   return `${name}, ${rarity}, posseduta`
 }
 
-export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo, totalCopies, copyCount }) {
+export default function PackCard({
+  card, owned, isNew, onSeen, onClick,
+  copyInfo, totalCopies, copyCount,
+  liftedCount = 0, onLift, onLiftMove, enableDrag = true,
+}) {
   const ref = useRef(null)
   const hoveredRef = useRef(false)
   const seenFiredRef = useRef(false)
+  const dragRef = useRef(null)
+  const visibleCount = Math.max(0, copyCount - liftedCount)
+  const allLifted = owned && copyCount > 0 && visibleCount === 0
 
   const handleEnter = (e) => {
     if (e.pointerType === 'touch') return
@@ -94,12 +103,61 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
     }
   }
 
-  const handleClick = () => {
+  const fireClick = () => {
     if (isNew && onSeen && !seenFiredRef.current) {
       seenFiredRef.current = true
       onSeen(card.number)
     }
     onClick(card, owned)
+  }
+
+  const handlePointerDown = (e) => {
+    if (e.button != null && e.button !== 0 && e.pointerType === 'mouse') return
+    const startX = e.clientX, startY = e.clientY
+    dragRef.current = { dragging: false, lifted: false, uid: null }
+
+    const move = (ev) => {
+      const s = dragRef.current
+      if (!s) return
+      const dx = ev.clientX - startX, dy = ev.clientY - startY
+      if (!s.dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+        s.dragging = true
+        if (enableDrag && owned && onLift && visibleCount > 0) {
+          const rect = ref.current?.getBoundingClientRect()
+          if (rect) {
+            s.lifted = true
+            s.rectX = rect.left
+            s.rectY = rect.top
+            s.uid = onLift({
+              card,
+              x: rect.left,
+              y: rect.top,
+              width: rect.width,
+              copyInfo,
+              totalCopies,
+            })
+            const el = ref.current
+            if (el) {
+              el.style.animation = 'none'
+              el.style.transform = 'none'
+              hoveredRef.current = false
+            }
+          }
+        }
+      }
+      if (s.lifted && s.uid && onLiftMove) {
+        onLiftMove(s.uid, s.rectX + (ev.clientX - startX), s.rectY + (ev.clientY - startY))
+      }
+    }
+    const up = () => {
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerup', up)
+      const s = dragRef.current
+      dragRef.current = null
+      if (s && !s.dragging) fireClick()
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
   }
 
   return (
@@ -109,9 +167,14 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
       className="pack-card"
       onPointerEnter={handleEnter}
       onPointerLeave={handleLeave}
-      onClick={handleClick}
+      onPointerDown={handlePointerDown}
       aria-label={ariaLabelFor(card, owned, copyCount)}
       aria-disabled={!owned}
+      style={{
+        opacity: allLifted ? 0.18 : 1,
+        transition: 'opacity 0.18s ease',
+        touchAction: 'manipulation',
+      }}
     >
       <ScaledCard card={card} owned={owned} copyInfo={copyInfo} totalCopies={totalCopies} />
 
@@ -133,7 +196,7 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
         </span>
       )}
 
-      {owned && copyCount >= 2 && (
+      {owned && visibleCount >= 2 && (
         <span style={{
           position: 'absolute', top: -6, right: -6, zIndex: 10,
           background: '#F28C28', color: '#fff',
@@ -142,7 +205,7 @@ export default function PackCard({ card, owned, isNew, onSeen, onClick, copyInfo
           boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
           border: '2px solid #222',
         }} aria-hidden>
-          x{copyCount}
+          x{visibleCount}
         </span>
       )}
     </button>

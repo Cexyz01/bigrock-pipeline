@@ -29,6 +29,7 @@ export default function CollectionGrid({
   copyInfoMap, copyCountMap, copiesPerRarity,
   search, ownedOnly,
   isMobile, onResetFilters,
+  liftedMap, onLift, onLiftMove,
 }) {
   const visible = useMemo(() => {
     let list = cards
@@ -84,6 +85,10 @@ export default function CollectionGrid({
               copyInfo={copyInfoMap[card.number]}
               totalCopies={copiesPerRarity?.[card.rarity]}
               copyCount={copyCountMap[card.number] || 0}
+              liftedCount={liftedMap?.[card.number] || 0}
+              onLift={onLift}
+              onLiftMove={onLiftMove}
+              enableDrag={!isMobile}
             />
           </li>
         )
