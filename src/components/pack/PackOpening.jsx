@@ -97,7 +97,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
     const nx = (e.clientX - vcx) / vcx
     const ny = (e.clientY - vcy) / vcy
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
-    setTiltY(clamp(nx * 25, -25, 25))
+    setTiltY(clamp(nx * -25, -25, 25))
     setTiltX(clamp(ny * -20, -20, 20))
   }, [flyPhase])
 
@@ -116,7 +116,7 @@ export default function PackOpening({ pack, cards, onClose, packType, copiesPerR
     tiltRafRef.current = requestAnimationFrame(() => {
       tiltRafRef.current = null
       const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
-      setTiltY(clamp(dx * 0.15, -25, 25))
+      setTiltY(clamp(dx * -0.15, -25, 25))
       setTiltX(clamp(dy * -0.15, -20, 20))
     })
   }, [flyPhase])

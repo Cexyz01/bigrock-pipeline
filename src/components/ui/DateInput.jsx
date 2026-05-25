@@ -10,7 +10,11 @@ function formatDate(ymd) {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`
 }
 
-export default function DateInput({ value, onChange, placeholder = 'Seleziona data', style = {}, minDate, maxDate }) {
+export default function DateInput({
+  value, onChange, placeholder = 'Seleziona data',
+  style = {}, inputStyle = {}, minDate, maxDate,
+  compact = false, popoverAlign = 'left', showIcon = true,
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -21,24 +25,35 @@ export default function DateInput({ value, onChange, placeholder = 'Seleziona da
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
+  const basePadding = compact ? '5px 10px' : '11px 14px'
+  const baseFont = compact ? 12 : 13
+  const baseRadius = compact ? 8 : 10
+  const iconSize = compact ? 13 : 16
+
   return (
     <div ref={ref} style={{ position: 'relative', ...style }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         style={{
-          width: '100%', background: '#F8FAFC', border: `1px solid ${open ? '#F28C28' : '#E2E8F0'}`, borderRadius: 10,
-          padding: '11px 14px', color: value ? '#1a1a1a' : '#94A3B8', fontSize: 13, textAlign: 'left',
+          width: '100%', background: '#F8FAFC', border: `1px solid ${open ? '#F28C28' : '#E2E8F0'}`, borderRadius: baseRadius,
+          padding: basePadding, color: value ? '#1a1a1a' : '#94A3B8', fontSize: baseFont, textAlign: 'left',
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
           transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
           boxShadow: open ? '0 0 0 3px rgba(242,140,40,0.08)' : 'none',
+          fontFamily: 'inherit',
+          ...inputStyle,
         }}
       >
-        <span>{value ? formatDate(value) : placeholder}</span>
-        <IconCalendar size={16} color="#94A3B8" />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value ? formatDate(value) : placeholder}</span>
+        {showIcon && <IconCalendar size={iconSize} color="#94A3B8" />}
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 100, width: 280, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', borderRadius: 14 }}>
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)',
+          [popoverAlign]: 0,
+          zIndex: 100, width: 280, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', borderRadius: 14,
+        }}>
           <Calendar
             value={value}
             onChange={(v) => { onChange(v); setOpen(false) }}
