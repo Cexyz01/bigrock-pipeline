@@ -863,14 +863,29 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 
   const handleMouseMove = useCallback((e) => {
     if (livePath) {
-      const b = screenToBoard(e.clientX, e.clientY)
+      // Browsers coalesce pointer events down to one per paint frame, which
+      // makes fast pen strokes spiky (smoothPath has too few samples to fit a
+      // nice curve through). getCoalescedEvents returns the raw sub-frame
+      // samples the OS actually captured — feed them all in so the Q-curve
+      // smoothing has dense input.
+      const events = (typeof e.getCoalescedEvents === 'function')
+        ? e.getCoalescedEvents() : null
+      const samples = (events && events.length > 0) ? events : [e]
+      const newPts = []
+      for (const ev of samples) {
+        const b = screenToBoard(ev.clientX, ev.clientY)
+        newPts.push([b.x, b.y])
+      }
       setLivePath(p => {
         if (!p) return p
-        // Skip duplicate samples (the browser fires move events even when the cursor
-        // hasn't actually moved). Cheap optimisation: compare against the last point.
-        const last = p.points[p.points.length - 1]
-        if (last && last[0] === b.x && last[1] === b.y) return p
-        return { points: [...p.points, [b.x, b.y]] }
+        const merged = p.points.slice()
+        let last = merged[merged.length - 1]
+        for (const pt of newPts) {
+          if (last && last[0] === pt[0] && last[1] === pt[1]) continue
+          merged.push(pt); last = pt
+        }
+        if (merged.length === p.points.length) return p
+        return { points: merged }
       })
       return
     }
@@ -1101,11 +1116,11 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 
   useEffect(() => {
     if (dragging || draft || marquee || livePath || erasing || strokeMarquee || strokeGroupAction) {
-      window.addEventListener('mousemove', handleMouseMove)
-      window.addEventListener('mouseup', handleMouseUp)
+      window.addEventListener('pointermove', handleMouseMove)
+      window.addEventListener('pointerup', handleMouseUp)
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove)
-        window.removeEventListener('mouseup', handleMouseUp)
+        window.removeEventListener('pointermove', handleMouseMove)
+        window.removeEventListener('pointerup', handleMouseUp)
       }
     }
   }, [dragging, draft, marquee, livePath, erasing, strokeMarquee, strokeGroupAction, handleMouseMove, handleMouseUp])
