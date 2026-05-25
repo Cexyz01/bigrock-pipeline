@@ -378,7 +378,7 @@ export default function App() {
   // Admin effects broadcast channel (all users receive) + Presence tracking
   useEffect(() => {
     if (!user) return
-    const ch = supabase.channel('admin-fx', { config: { presence: { key: user.id } } })
+    const ch = supabase.channel('admin-fx', { config: { presence: { key: user.id }, broadcast: { self: true } } })
       .on('broadcast', { event: 'admin-fx' }, ({ payload }) => {
         if (!payload) return
         const meTargeted = !payload.targetId || payload.targetId === user.id
