@@ -938,7 +938,7 @@ export default function GanttPage({
                         : (isUnassigned
                           ? `linear-gradient(135deg, #CBD5E1 0%, #94A3B8 100%)`
                           : `linear-gradient(135deg, ${taskDept.color} 0%, ${shade(taskDept.color, -10)} 100%)`)
-                      const op = isDone ? 0.55 : (isUnassigned ? 0.55 : 1)
+                      const op = isDone ? 0.35 : (isUnassigned ? 0.55 : 1)
                       return {
                       position: 'absolute', left: x, top: 6, width: w, height: ROW_H - 12,
                       background: bg,
