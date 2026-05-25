@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, TASK_STATUSES, isDeptEnabled, hasPermission, isAdmin } from '../../lib/constants'
 import { updateProject } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
@@ -214,17 +214,19 @@ function StatsTab({ shots, assets, tasks, profiles, currentProject, isMobile }) 
 
 // ──────────────────────────────────────────────────────────────
 // SCENEGGIATURA TAB — read-only ScrollReveal for everyone,
-// inline editor for producer/admin.
+// .docx upload for producer/admin (text extracted client-side via mammoth).
 // ──────────────────────────────────────────────────────────────
 function ScriptTab({ user, currentProject, isMobile }) {
   // Producer or admin can edit. "Producer" maps to manage_project_settings —
   // it's the permission that already gates project meta editing elsewhere.
   const canEdit = !!currentProject && (isAdmin(user) || hasPermission(user, 'manage_project_settings'))
 
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(currentProject?.script || '')
-  const [saving, setSaving] = useState(false)
+  const fileRef = useRef(null)
   const [script, setScript] = useState(currentProject?.script || '')
+  const [filename, setFilename] = useState(currentProject?.script_filename || '')
+  const [updatedAt, setUpdatedAt] = useState(currentProject?.updated_at || null)
+  const [uploading, setUploading] = useState(false)
+  const [err, setErr] = useState('')
 
   if (!currentProject) {
     return (
@@ -236,16 +238,43 @@ function ScriptTab({ user, currentProject, isMobile }) {
     )
   }
 
-  const handleSave = async () => {
-    setSaving(true)
-    const { data, error } = await updateProject(currentProject.id, { script: draft })
-    setSaving(false)
-    if (error) {
-      alert('Errore salvataggio: ' + error.message)
+  const handleFile = async (file) => {
+    if (!file) return
+    setErr('')
+    const lower = file.name.toLowerCase()
+    if (!lower.endsWith('.docx')) {
+      setErr('Solo file .docx sono supportati (Word moderno).')
       return
     }
-    setScript(data?.script ?? draft)
-    setEditing(false)
+    setUploading(true)
+    try {
+      // Dynamic import keeps mammoth (~500KB) out of the main bundle —
+      // only producers/admins who actually upload pay the cost.
+      const { default: mammoth } = await import('mammoth')
+      const buf = await file.arrayBuffer()
+      const { value } = await mammoth.extractRawText({ arrayBuffer: buf })
+      const text = (value || '').trim()
+      if (!text) {
+        setErr('Il documento sembra vuoto.')
+        return
+      }
+      const { data, error } = await updateProject(currentProject.id, {
+        script: text,
+        script_filename: file.name,
+      })
+      if (error) {
+        setErr('Errore salvataggio: ' + error.message)
+        return
+      }
+      setScript(data?.script ?? text)
+      setFilename(data?.script_filename ?? file.name)
+      setUpdatedAt(data?.updated_at ?? new Date().toISOString())
+    } catch (e) {
+      setErr('Impossibile leggere il documento: ' + (e?.message || 'errore sconosciuto'))
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
   }
 
   return (
@@ -253,40 +282,44 @@ function ScriptTab({ user, currentProject, isMobile }) {
       <Card style={{ position: 'relative', paddingTop: isMobile ? 18 : 28 }}>
         {canEdit && (
           <div style={{
-            display: 'flex', justifyContent: 'flex-end', gap: 8,
-            marginBottom: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 12, marginBottom: 18, flexWrap: 'wrap',
           }}>
-            {editing ? (
-              <>
-                <Btn variant="default" onClick={() => { setDraft(script); setEditing(false) }} disabled={saving}>
-                  Annulla
-                </Btn>
-                <Btn variant="primary" onClick={handleSave} loading={saving}>
-                  Salva
-                </Btn>
-              </>
-            ) : (
-              <Btn variant="primary" onClick={() => { setDraft(script); setEditing(true) }}>
-                ✏️ Modifica testo
+            <div style={{ fontSize: 13, color: '#64748B', minWidth: 0 }}>
+              {filename ? (
+                <span>
+                  <span style={{ fontWeight: 600, color: '#1a1a1a' }}>{filename}</span>
+                  {updatedAt && <span> · aggiornata il {formatDateTime(updatedAt)}</span>}
+                </span>
+              ) : (
+                <span style={{ fontStyle: 'italic' }}>Nessun documento caricato</span>
+              )}
+            </div>
+            <div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={e => handleFile(e.target.files?.[0])}
+                style={{ display: 'none' }}
+              />
+              <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}>
+                📄 {filename ? 'Carica nuova versione' : 'Carica sceneggiatura (.docx)'}
               </Btn>
-            )}
+            </div>
           </div>
         )}
 
-        {editing ? (
-          <textarea
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            placeholder="Scrivi qui la sceneggiatura del progetto..."
-            style={{
-              width: '100%', minHeight: 480, boxSizing: 'border-box',
-              padding: '16px 18px', fontSize: 15, lineHeight: 1.6,
-              fontFamily: 'inherit', color: '#1a1a1a',
-              border: '1px solid #E8ECF1', borderRadius: 12,
-              background: '#FAFBFD', outline: 'none', resize: 'vertical',
-            }}
-          />
-        ) : script.trim() ? (
+        {err && (
+          <div style={{
+            background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C',
+            padding: '10px 14px', borderRadius: 10, fontSize: 13, marginBottom: 14,
+          }}>
+            {err}
+          </div>
+        )}
+
+        {script.trim() ? (
           <div style={{ padding: isMobile ? '4px 4px 12px' : '8px 24px 24px' }}>
             <ScrollReveal
               fontSize={isMobile ? 17 : 22}
@@ -301,13 +334,24 @@ function ScriptTab({ user, currentProject, isMobile }) {
             padding: '60px 20px', fontStyle: 'italic',
           }}>
             {canEdit
-              ? 'Nessuna sceneggiatura ancora. Clicca "Modifica testo" per iniziare.'
+              ? 'Nessuna sceneggiatura ancora. Carica un .docx per iniziare.'
               : 'La sceneggiatura non è ancora stata pubblicata.'}
           </div>
         )}
       </Card>
     </Fade>
   )
+}
+
+function formatDateTime(iso) {
+  try {
+    return new Date(iso).toLocaleDateString('it', {
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
 }
 
 // Italian-locale short date for the meta strip — "dal 12 mar 2026"
