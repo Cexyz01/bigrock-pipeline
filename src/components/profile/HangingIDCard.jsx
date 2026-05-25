@@ -71,7 +71,10 @@ export default function HangingIDCard({ user }) {
         }
       }
       if (swingRef.current) {
-        swingRef.current.style.transform = `translateX(-50%) rotate(${s.angle}rad)`
+        // Note: CSS rotate(+θ) is clockwise on screen, which for a down-hanging
+        // assembly swings the bottom LEFT. We keep the internal convention
+        // "s.angle > 0 means card leans right" and negate only at render time.
+        swingRef.current.style.transform = `translateX(-50%) rotate(${-s.angle}rad)`
       }
       raf = requestAnimationFrame(tick)
     }
