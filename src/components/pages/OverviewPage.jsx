@@ -232,16 +232,25 @@ function ScriptTab({ user, currentProject, isMobile }) {
     const lower = file.name.toLowerCase()
     const isDocx = lower.endsWith('.docx')
     const isPdf = lower.endsWith('.pdf')
-    if (!isDocx && !isPdf) {
-      setErr('Solo file .docx o .pdf sono supportati.')
+    // Screenwriting tools often save plain text under their own extension
+    // (.fountain, .script, .fdx-as-text). Treat any non-binary script as text.
+    const isText = /\.(txt|script|fountain|md|rtf|fdx)$/.test(lower)
+    if (!isDocx && !isPdf && !isText) {
+      setErr('Formato non supportato. Usa .docx, .pdf, .txt, .script o .fountain.')
       return
     }
     setUploading(true)
     try {
       // Dynamic imports keep mammoth/pdfjs out of the main bundle —
       // only producers/admins who actually upload pay the cost.
-      const buf = await file.arrayBuffer()
-      const text = isDocx ? await extractDocx(buf) : await extractPdf(buf)
+      let text
+      if (isDocx) {
+        text = await extractDocx(await file.arrayBuffer())
+      } else if (isPdf) {
+        text = await extractPdf(await file.arrayBuffer())
+      } else {
+        text = (await file.text()).trim()
+      }
       if (!text) {
         setErr('Il documento sembra vuoto.')
         return
@@ -288,12 +297,12 @@ function ScriptTab({ user, currentProject, isMobile }) {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                accept=".docx,.pdf,.txt,.script,.fountain,.md,.rtf,.fdx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf,text/plain"
                 onChange={e => handleFile(e.target.files?.[0])}
                 style={{ display: 'none' }}
               />
               <Btn variant="primary" onClick={() => fileRef.current?.click()} loading={uploading}>
-                📄 {filename ? 'Carica nuova versione' : 'Carica sceneggiatura (.docx / .pdf)'}
+                📄 {filename ? 'Carica nuova versione' : 'Carica sceneggiatura'}
               </Btn>
             </div>
           </div>
@@ -323,7 +332,7 @@ function ScriptTab({ user, currentProject, isMobile }) {
             padding: '60px 20px', fontStyle: 'italic',
           }}>
             {canEdit
-              ? 'Nessuna sceneggiatura ancora. Carica un .docx o .pdf per iniziare.'
+              ? 'Nessuna sceneggiatura ancora. Carica un file (.docx, .pdf, .txt, .script, .fountain) per iniziare.'
               : 'La sceneggiatura non è ancora stata pubblicata.'}
           </div>
         )}
