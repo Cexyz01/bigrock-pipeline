@@ -37,6 +37,9 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
 
   useEffect(() => {
     if (!current) return
+    // Arrow nav + Escape are owned by ImageAnnotator when the staff path is
+    // active — registering them here too would double-fire and skip 2 images.
+    if (canAnnotate) return
     const onKey = (e) => {
       if (e.key === 'Escape') onClose()
       else if (canNavigate && e.key === 'ArrowLeft')  { e.preventDefault(); prev() }
@@ -44,7 +47,7 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, onClose, canNavigate])
+  }, [current, onClose, canNavigate, canAnnotate])
 
   useLayoutEffect(() => {
     if (!wrapRef.current) return
