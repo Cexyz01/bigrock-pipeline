@@ -83,13 +83,15 @@ function dilate(src, w, h, r) {
 }
 
 function erode(src, w, h, r) {
+  // Out-of-bounds is treated as foreground (we only fail erosion on an
+  // *in-bounds* 0), so objects touching the image border don't get amputated
+  // by the kernel falling off the edge.
   const tmp = new Uint8Array(w * h)
   for (let y = 0; y < h; y++) {
     const row = y * w
     for (let x = 0; x < w; x++) {
       let v = 1
       const x0 = Math.max(0, x - r), x1 = Math.min(w - 1, x + r)
-      if (x - r < 0 || x + r >= w) { tmp[row + x] = 0; continue }
       for (let xx = x0; xx <= x1; xx++) if (!src[row + xx]) { v = 0; break }
       tmp[row + x] = v
     }
@@ -98,7 +100,6 @@ function erode(src, w, h, r) {
   for (let x = 0; x < w; x++) {
     for (let y = 0; y < h; y++) {
       let v = 1
-      if (y - r < 0 || y + r >= h) { out[y * w + x] = 0; continue }
       const y0 = Math.max(0, y - r), y1 = Math.min(h - 1, y + r)
       for (let yy = y0; yy <= y1; yy++) if (!tmp[yy * w + x]) { v = 0; break }
       out[y * w + x] = v
