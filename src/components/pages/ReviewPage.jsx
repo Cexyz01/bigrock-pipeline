@@ -432,6 +432,29 @@ function WipCarousel({ wips, user, addToast }) {
     if (slide) slide.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
   }, [wips.length])
 
+  // Flat list across all WIPs so arrow-key nav in the lightbox flows past the
+  // current WIP boundary into the next one. We also need to map an image back
+  // to its WIP so closing the lightbox can snap the carousel to where the user
+  // ended up.
+  const flatImages = useMemo(() => {
+    const out = []
+    wips.forEach((w, wi) => {
+      ;(w.images || [])
+        .filter(u => !isAudioUrl(u) && !isVideoUrl(u))
+        .forEach(src => out.push({ src, wipIdx: wi }))
+    })
+    return out
+  }, [wips])
+  const flatSrcs = useMemo(() => flatImages.map(e => e.src), [flatImages])
+  const [lightboxUrl, setLightboxUrl] = useState(null)
+
+  const closeLightbox = useCallback((finalSrc) => {
+    setLightboxUrl(null)
+    if (!finalSrc) return
+    const entry = flatImages.find(e => e.src === finalSrc)
+    if (entry && entry.wipIdx !== activeIdx) scrollTo(entry.wipIdx)
+  }, [flatImages, activeIdx, scrollTo])
+
   // Track which slide is currently snapped into view via scroll position.
   useEffect(() => {
     const el = scrollerRef.current
@@ -468,10 +491,17 @@ function WipCarousel({ wips, user, addToast }) {
             flex: '0 0 100%', minWidth: 0,
             scrollSnapAlign: 'start',
           }}>
-            <WipBlock wip={w} user={user} addToast={addToast} />
+            <WipBlock wip={w} user={user} addToast={addToast} onImageClick={setLightboxUrl} />
           </div>
         ))}
       </div>
+      <ImageLightbox
+        src={lightboxUrl}
+        images={flatSrcs}
+        onClose={closeLightbox}
+        user={user}
+        addToast={addToast}
+      />
 
       {!single && (
         <>
@@ -535,13 +565,12 @@ function carouselArrowStyle(side) {
   }
 }
 
-function WipBlock({ wip, user, addToast }) {
+function WipBlock({ wip, user, addToast, onImageClick }) {
   const author = wip.author || {}
   const images = (wip.images || []).filter(u => !isAudioUrl(u) && !isVideoUrl(u))
   const audios = (wip.images || []).filter(isAudioUrl)
   const videos = (wip.images || []).filter(isVideoUrl)
   const date = wip.created_at ? new Date(wip.created_at) : null
-  const [lightboxUrl, setLightboxUrl] = useState(null)
 
   return (
     <div style={{
@@ -583,7 +612,7 @@ function WipBlock({ wip, user, addToast }) {
               <AnnotatedImage
                 key={i}
                 src={src} alt=""
-                onClick={() => setLightboxUrl(src)}
+                onClick={() => onImageClick(src)}
                 style={{
                   width: '100%', height: images.length === 1 ? 480 : 320,
                   borderRadius: 12, background: '#000',
@@ -610,7 +639,6 @@ function WipBlock({ wip, user, addToast }) {
           </div>
         )}
       </div>
-      <ImageLightbox src={lightboxUrl} images={images} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
     </div>
   )
 }

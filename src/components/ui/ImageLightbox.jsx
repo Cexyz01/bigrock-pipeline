@@ -36,6 +36,9 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
   const canNavigate = list.length > 1
   const prev = () => setIdx(i => (i - 1 + list.length) % list.length)
   const next = () => setIdx(i => (i + 1) % list.length)
+  // Callers may want to know which image was on screen when the lightbox was
+  // dismissed (e.g. to snap a parent carousel to the matching WIP).
+  const handleClose = () => onClose(current)
 
   const canAnnotate = isStaff(user)
   const { strokes } = useImageAnnotation(current)
@@ -48,7 +51,7 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
     // active — registering them here too would double-fire and skip 2 images.
     if (canAnnotate) return
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') handleClose()
       else if (canNavigate && e.key === 'ArrowLeft')  { e.preventDefault(); prev() }
       else if (canNavigate && e.key === 'ArrowRight') { e.preventDefault(); next() }
     }
@@ -78,7 +81,7 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
       <ImageAnnotator
         key={current}
         src={current}
-        onClose={onClose}
+        onClose={handleClose}
         addToast={addToast}
         onPrev={canNavigate ? prev : undefined}
         onNext={canNavigate ? next : undefined}
@@ -90,7 +93,7 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
 
   return createPortal(
     <div
-      onClick={onClose}
+      onClick={handleClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 99999,
         background: 'rgba(0,0,0,0.88)',
