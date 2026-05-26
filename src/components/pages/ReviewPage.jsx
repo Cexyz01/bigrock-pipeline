@@ -422,7 +422,9 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
 // of older WIPs obvious.
 function WipCarousel({ wips, user, addToast }) {
   const scrollerRef = useRef(null)
+  const slideRefs = useRef([])
   const [activeIdx, setActiveIdx] = useState(0)
+  const [activeHeight, setActiveHeight] = useState(null)
 
   const scrollTo = useCallback((idx) => {
     const el = scrollerRef.current
@@ -473,6 +475,18 @@ function WipCarousel({ wips, user, addToast }) {
     return () => { el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
   }, [])
 
+  // Match scroller height to the active slide so a tall WIP (e.g. many videos)
+  // doesn't leave whitespace below the shorter WIPs.
+  useEffect(() => {
+    const slide = slideRefs.current[activeIdx]
+    if (!slide) return
+    const update = () => setActiveHeight(slide.offsetHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(slide)
+    return () => ro.disconnect()
+  }, [activeIdx, wips.length])
+
   const single = wips.length === 1
 
   return (
@@ -484,13 +498,20 @@ function WipCarousel({ wips, user, addToast }) {
           scrollSnapType: 'x mandatory',
           scrollbarWidth: 'none', msOverflowStyle: 'none',
           paddingBottom: single ? 0 : 4,
+          alignItems: 'flex-start',
+          height: activeHeight ? activeHeight + (single ? 0 : 4) : undefined,
+          transition: 'height 0.2s ease',
         }}
       >
-        {wips.map(w => (
-          <div key={w.id} style={{
-            flex: '0 0 100%', minWidth: 0,
-            scrollSnapAlign: 'start',
-          }}>
+        {wips.map((w, i) => (
+          <div
+            key={w.id}
+            ref={el => { slideRefs.current[i] = el }}
+            style={{
+              flex: '0 0 100%', minWidth: 0,
+              scrollSnapAlign: 'start',
+            }}
+          >
             <WipBlock wip={w} user={user} addToast={addToast} onImageClick={setLightboxUrl} />
           </div>
         ))}

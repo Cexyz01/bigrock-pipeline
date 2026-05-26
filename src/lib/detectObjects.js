@@ -175,16 +175,38 @@ export async function detectObjects(src, opts = {}) {
 
   const img = await loadImageCORS(src)
   const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight))
-  const w = Math.max(1, Math.round(img.naturalWidth * scale))
-  const h = Math.max(1, Math.round(img.naturalHeight * scale))
+  const w0 = Math.max(1, Math.round(img.naturalWidth * scale))
+  const h0 = Math.max(1, Math.round(img.naturalHeight * scale))
 
+  // Pass 1 — draw the image into a plain canvas just so we can estimate the
+  // background colour from its border before we decide how to fill the pad.
+  const tmpCanvas = document.createElement('canvas')
+  tmpCanvas.width = w0; tmpCanvas.height = h0
+  const tmpCtx = tmpCanvas.getContext('2d', { willReadFrequently: true })
+  tmpCtx.drawImage(img, 0, 0, w0, h0)
+  const bgData = tmpCtx.getImageData(0, 0, w0, h0).data
+  const bg = estimateBackground(bgData, w0, h0)
+
+  // Pass 2 — render the image on a padded canvas pre-filled with the
+  // estimated background. The pad is wider than the closing radius so a
+  // character whose outline reaches the original image edge cannot have its
+  // dilated outline touch the canvas border. This means the background
+  // outside every figure is always reachable from the canvas border (no
+  // sealed-off corridors between vertically-adjacent figures), and the
+  // hole-fill only fills genuine interior pockets — never merges two
+  // characters into one blob.
+  const closeR = Math.max(1, Math.round(Math.min(w0, h0) * closeFrac))
+  const pad = closeR + 4
+  const w = w0 + pad * 2
+  const h = h0 + pad * 2
   const canvas = document.createElement('canvas')
   canvas.width = w; canvas.height = h
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  ctx.drawImage(img, 0, 0, w, h)
+  ctx.fillStyle = `rgb(${Math.round(bg.r)}, ${Math.round(bg.g)}, ${Math.round(bg.b)})`
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(img, pad, pad, w0, h0)
   const { data } = ctx.getImageData(0, 0, w, h)
 
-  const bg = estimateBackground(data, w, h)
   const tol2 = tol * tol
   const mask = new Uint8Array(w * h)
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
@@ -192,35 +214,31 @@ export async function detectObjects(src, opts = {}) {
     if (dr * dr + dg * dg + db * db > tol2) mask[p] = 1
   }
 
-  const closeR = Math.max(1, Math.round(Math.min(w, h) * closeFrac))
   const closed = erode(dilate(mask, w, h, closeR), w, h, closeR)
-  // Reclassify interior background pockets (e.g. character skin that the
-  // colour test mis-flagged as background) as foreground, so each outlined
-  // figure becomes one solid blob instead of a hollow ring.
   const filled = fillHoles(closed, w, h)
 
   const comps = connectedComponents(filled, w, h)
-  const minArea = w * h * minAreaFrac
+  const minArea = w0 * h0 * minAreaFrac
   const filtered = comps.filter(c => c.area >= minArea)
 
-  // Tilt-tolerant reading order: components on roughly the same horizontal
-  // band are sorted left-to-right; bands stack top-to-bottom.
-  const rowTol = h * 0.06
+  const rowTol = h0 * 0.06
   filtered.sort((a, b) => {
     const dy = a.cy - b.cy
     if (Math.abs(dy) > rowTol) return dy
     return a.cx - b.cx
   })
 
+  // Translate centroids and bboxes back into the original (un-padded) image
+  // coordinate system, normalised to [0..1] of the original image.
   return filtered.map(c => ({
-    x: c.cx / w,
-    y: c.cy / h,
+    x: (c.cx - pad) / w0,
+    y: (c.cy - pad) / h0,
     bbox: {
-      x: c.minX / w,
-      y: c.minY / h,
-      w: (c.maxX - c.minX + 1) / w,
-      h: (c.maxY - c.minY + 1) / h,
+      x: (c.minX - pad) / w0,
+      y: (c.minY - pad) / h0,
+      w: (c.maxX - c.minX + 1) / w0,
+      h: (c.maxY - c.minY + 1) / h0,
     },
-    area: c.area / (w * h),
+    area: c.area / (w0 * h0),
   }))
 }
