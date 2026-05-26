@@ -84,6 +84,27 @@ export default function CatRain() {
     const SLEEP_TICKS = 22 // frames of low-motion-while-touching before sleep
     const WAKE_PEN = 1.8  // overlap that wakes a sleeping cat
 
+    // Invisible cursor body — pushes cats around like a hand swiping.
+    const CURSOR_R = 65
+    const cursor = { x: -9999, y: -9999, px: -9999, py: -9999, vx: 0, vy: 0, active: false, init: false }
+    const setCursor = (cx, cy) => {
+      if (!cursor.init) { cursor.px = cx; cursor.py = cy; cursor.init = true }
+      cursor.x = cx; cursor.y = cy
+      cursor.active = true
+    }
+    const onMouseMove = (e) => setCursor(e.clientX, e.clientY)
+    const onMouseLeave = () => { cursor.active = false; cursor.init = false }
+    const onTouch = (e) => {
+      if (e.touches && e.touches.length > 0) setCursor(e.touches[0].clientX, e.touches[0].clientY)
+      else { cursor.active = false; cursor.init = false }
+    }
+    window.addEventListener('mousemove', onMouseMove, { passive: true })
+    window.addEventListener('mouseout', onMouseLeave)
+    window.addEventListener('blur', onMouseLeave)
+    window.addEventListener('touchstart', onTouch, { passive: true })
+    window.addEventListener('touchmove', onTouch, { passive: true })
+    window.addEventListener('touchend', onTouch, { passive: true })
+
     // Uniform grid for O(n*k) broadphase. Cell sized for the largest cat.
     const CELL = 70
     let cols = Math.ceil(W / CELL) + 1
@@ -179,8 +200,59 @@ export default function CatRain() {
       }
     }
 
+    const resolveCursor = () => {
+      if (!cursor.active) return
+      const gx0 = Math.max(0, Math.floor((cursor.x - CURSOR_R) / CELL))
+      const gx1 = Math.min(cols - 1, Math.floor((cursor.x + CURSOR_R) / CELL))
+      const gy0 = Math.max(0, Math.floor((cursor.y - CURSOR_R) / CELL))
+      const gy1 = Math.min(rows - 1, Math.floor((cursor.y + CURSOR_R) / CELL))
+      for (let gy = gy0; gy <= gy1; gy++) {
+        for (let gx = gx0; gx <= gx1; gx++) {
+          const bucket = grid[gy * cols + gx]
+          if (!bucket) continue
+          for (const c of bucket) {
+            const dx = c.x - cursor.x
+            const dy = c.y - cursor.y
+            const rs = c.r + CURSOR_R
+            const d2 = dx * dx + dy * dy
+            if (d2 < rs * rs && d2 > 0.0001) {
+              const d = Math.sqrt(d2)
+              const nx = dx / d
+              const ny = dy / d
+              const pen = rs - d
+              if (c.sleeping) { c.sleeping = false; c.sleepTicks = 0 }
+              // Cursor is kinematic — push the cat the full overlap.
+              c.x += nx * pen
+              c.y += ny * pen
+              // Impulse from cursor velocity (livelier than just position push)
+              const rvx = c.vx - cursor.vx
+              const rvy = c.vy - cursor.vy
+              const vn = rvx * nx + rvy * ny
+              if (vn < 0) {
+                const j2 = -(1 + 0.4) * vn
+                c.vx += j2 * nx
+                c.vy += j2 * ny
+              }
+              // Tangential cursor motion adds spin
+              c.vr += (-cursor.vx * ny + cursor.vy * nx) * 0.008
+            }
+          }
+        }
+      }
+    }
+
     const step = (dt) => {
       const rotDamp = Math.exp(-ROT_DRAG * dt)
+      // Cursor velocity (px/s) — clamped so a window-edge teleport doesn't yeet everything.
+      if (cursor.active && dt > 0) {
+        const cap = 4000
+        cursor.vx = Math.max(-cap, Math.min(cap, (cursor.x - cursor.px) / dt))
+        cursor.vy = Math.max(-cap, Math.min(cap, (cursor.y - cursor.py) / dt))
+      } else {
+        cursor.vx = 0; cursor.vy = 0
+      }
+      cursor.px = cursor.x
+      cursor.py = cursor.y
       // Integrate (skip sleepers)
       for (const c of cats) {
         c.contacts = 0
@@ -210,6 +282,7 @@ export default function CatRain() {
       // Broadphase via uniform grid + narrow resolve (iterated for stability).
       for (let iter = 0; iter < ITERS; iter++) {
         rebuildGrid()
+        resolveCursor()
         for (let gy = 0; gy < rows; gy++) {
           for (let gx = 0; gx < cols; gx++) {
             const bucket = grid[gy * cols + gx]
@@ -292,6 +365,12 @@ export default function CatRain() {
       running = false
       window.removeEventListener('resize', resize)
       window.removeEventListener('resize', recomputeGrid)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseout', onMouseLeave)
+      window.removeEventListener('blur', onMouseLeave)
+      window.removeEventListener('touchstart', onTouch)
+      window.removeEventListener('touchmove', onTouch)
+      window.removeEventListener('touchend', onTouch)
     }
   }, [reduced])
 
