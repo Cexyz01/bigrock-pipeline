@@ -838,9 +838,10 @@ function NumberingPreview({ items, color, size, minAreaFrac, rect, onToggle }) {
         const bw = it.bbox?.w ?? 0
         const cx = (bx + bw * 0.3) * rect.w
         const cy = by * rect.h
-        const txt = it.kept ? String(++visible) : '×'
-        const padX = fs * 0.5
-        const halfW = Math.max(fs * 0.7, fs * 0.35 * txt.length + padX)
+        const txt = it.kept ? `${++visible}.` : '×'
+        // Invisible hitbox so clicks land even on the empty space "around"
+        // the numeral — the visible numeral itself is a small click target.
+        const halfW = Math.max(fs * 0.7, fs * 0.5 * txt.length)
         const halfH = fs * 0.7
         return (
           <g
@@ -852,20 +853,17 @@ function NumberingPreview({ items, color, size, minAreaFrac, rect, onToggle }) {
             <rect
               x={cx - halfW} y={cy - halfH}
               width={halfW * 2} height={halfH * 2}
-              rx={halfH} ry={halfH}
               fill="transparent"
-              stroke={it.kept ? color : '#94a3b8'}
-              strokeWidth={fs * 0.12}
-              strokeDasharray={it.kept ? undefined : `${fs * 0.2} ${fs * 0.15}`}
             />
             <text
               x={cx} y={cy}
               fontSize={fs}
-              fill={it.kept ? color : '#cbd5e1'}
+              fill={it.kept ? color : '#94a3b8'}
               textAnchor="middle"
               dominantBaseline="central"
               fontWeight="800"
               fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
+              opacity={it.kept ? 1 : 0.5}
               style={{ userSelect: 'none' }}
             >{txt}</text>
           </g>

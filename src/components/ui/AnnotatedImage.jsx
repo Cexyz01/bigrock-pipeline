@@ -52,33 +52,20 @@ export function AnnotationOverlay({ strokes, rect }) {
         if (s.type === 'label') {
           const fs = (s.size || 0.045) * rect.w
           const cx = s.x * rect.w, cy = s.y * rect.h
-          const txt = String(s.text ?? '')
-          // Width grows for multi-digit numbers so the pill hugs the text.
-          const padX = fs * 0.5
-          const halfW = Math.max(fs * 0.7, fs * 0.35 * txt.length + padX)
-          const halfH = fs * 0.7
+          const txt = `${s.text ?? ''}.`
           const stroke = s.color || '#ef4444'
           return (
-            <g key={i}>
-              <rect
-                x={cx - halfW} y={cy - halfH}
-                width={halfW * 2} height={halfH * 2}
-                rx={halfH} ry={halfH}
-                fill="none"
-                stroke={stroke}
-                strokeWidth={fs * 0.12}
-              />
-              <text
-                x={cx} y={cy}
-                fontSize={fs}
-                fill={stroke}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontWeight="800"
-                fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
-                style={{ userSelect: 'none' }}
-              >{txt}</text>
-            </g>
+            <text
+              key={i}
+              x={cx} y={cy}
+              fontSize={fs}
+              fill={stroke}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontWeight="800"
+              fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
+              style={{ userSelect: 'none' }}
+            >{txt}</text>
           )
         }
         if (!s.points || s.points.length === 0) return null
