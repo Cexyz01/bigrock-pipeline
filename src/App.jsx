@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { isStaff, isAdmin, isSuperAdmin, hasPermission, SUPER_ADMIN_EMAILS, isAudioUrl } from './lib/constants'
+import { isStaff, isAdmin, isSuperAdmin, hasPermission, SUPER_ADMIN_EMAILS, isAudioUrl, isVideoUrl } from './lib/constants'
 import { AnnotationsProvider } from './hooks/useImageAnnotations'
 import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
@@ -804,11 +804,13 @@ export default function App() {
   // ── WIP Updates ──
 
   const handleCreateWipUpdate = async (taskId, note, files) => {
-    // 1. Upload files to Cloudinary (images via uploadWipImage, audio via uploadWipFile)
+    // 1. Upload files to Cloudinary. Images use the dedicated image/upload
+    //    endpoint; audio + video both go through auto/upload (uploadWipFile).
     const imageUrls = []
     for (let i = 0; i < files.length; i++) {
-      const isAudio = files[i].type?.startsWith('audio/')
-      const { url, error } = isAudio
+      const t = files[i].type || ''
+      const isMedia = t.startsWith('audio/') || t.startsWith('video/')
+      const { url, error } = isMedia
         ? await uploadWipFile(taskId, files[i])
         : await uploadWipImage(taskId, files[i])
       if (url) imageUrls.push(url)
@@ -859,15 +861,24 @@ export default function App() {
     setWipViews(await getWipViews(user.id))
   }
 
-  const handleCommitForReview = async (taskId) => {
+  const handleCommitForReview = async (taskId, selectedIds = null) => {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
 
-    // 1. Get all WIP updates and reduce to latest-with-files PER assignee.
-    //    Multi-assignee tasks: each student's latest WIP gets pushed to storyboard.
+    // 1. Get all WIP updates. If staff selected a subset, persist the selection
+    //    (review carousel filters on selected_for_review) and use only those
+    //    for the storyboard push. Fallback: no selection → latest per user.
     const updates = await getWipUpdates(taskId)
+    const selectedSet = Array.isArray(selectedIds) && selectedIds.length > 0 ? new Set(selectedIds) : null
+    if (selectedSet) {
+      try {
+        await supabase.from('task_wip_updates').update({ selected_for_review: false }).eq('task_id', taskId)
+        await supabase.from('task_wip_updates').update({ selected_for_review: true }).in('id', Array.from(selectedSet))
+      } catch (err) { console.warn('Persisting WIP selection failed:', err) }
+    }
+    const pool = selectedSet ? updates.filter(u => selectedSet.has(u.id)) : updates
     const latestPerUser = new Map()
-    for (const u of updates) {
+    for (const u of pool) {
       if (!u.images || u.images.length === 0) continue
       if (!latestPerUser.has(u.user_id)) latestPerUser.set(u.user_id, u)
     }
@@ -886,7 +897,7 @@ export default function App() {
         if (isAssetTask) {
           try { await supabase.from('miro_wip_images').delete().eq('task_id', taskId).eq('uploaded_by', uploaderId) } catch (err) { console.warn('Per-user clean failed:', err) }
         }
-        const imageUrls = wip.images.filter(url => !isAudioUrl(url))
+        const imageUrls = wip.images.filter(url => !isAudioUrl(url) && !isVideoUrl(url))
         const audioUrls = wip.images.filter(url => isAudioUrl(url))
 
         // Shot tasks: send to Miro edge function (also writes miro_wip_images rows)

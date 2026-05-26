@@ -901,11 +901,18 @@ export async function uploadTimelineFile(shotId, file) {
   }
 }
 
-// Upload a WIP file (image or audio) via Cloudinary auto upload
+// Upload a WIP file (image, audio, or video) via Cloudinary auto upload.
+// Cloudinary's auto/upload endpoint handles all three resource types, so this
+// is the right path for any non-image content. Size cap is generous for video.
 export async function uploadWipFile(taskId, file) {
   try {
     if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
-    if (file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
+    const isVideo = file.type?.startsWith('video/')
+    const cap = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024
+    if (file.size > cap) {
+      const mb = isVideo ? 100 : 10
+      return { url: null, error: { message: `File too large (max ${mb}MB)` } }
+    }
 
     const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
     let sigRes

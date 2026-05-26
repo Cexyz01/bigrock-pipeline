@@ -242,10 +242,13 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
   const [showRejectBox, setShowRejectBox] = useState(false)
   const [rejectComment, setRejectComment] = useState('')
 
-  // Every WIP with content, newest first. Staff want to scroll back through
-  // the student's earlier deliveries on this task — not just the latest one.
+  // Staff tick which WIPs to send before committing — show only those here.
+  // Fallback for legacy tasks (no row flagged): show every non-empty WIP so
+  // tasks that pre-date the selection feature don't render blank carousels.
   const wipsByUser = useMemo(() => {
-    return wips.filter(w => (w.images && w.images.length > 0) || w.note)
+    const nonEmpty = wips.filter(w => (w.images && w.images.length > 0) || w.note)
+    const selected = nonEmpty.filter(w => w.selected_for_review)
+    return selected.length > 0 ? selected : nonEmpty
   }, [wips])
 
   const handleApprove = async () => {

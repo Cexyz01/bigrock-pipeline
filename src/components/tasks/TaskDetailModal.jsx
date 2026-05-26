@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl, hasPermission } from '../../lib/constants'
+import { DEPTS, isStaff, isSuperAdmin, displayRole, isAudioUrl, isVideoUrl, hasPermission } from '../../lib/constants'
 import { getWipUpdates, getWipComments, deleteWipComment, toggleWipStoryboardPin } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import Btn from '../ui/Btn'
@@ -18,6 +18,7 @@ import AnnotatedImage from '../ui/AnnotatedImage'
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for video (Cloudinary free tier cap)
 
 export default function TaskDetailModal({
   task, user, staff, profiles, students: studentsProp = null, projectStartDate = null,
@@ -197,7 +198,12 @@ export default function TaskDetailModal({
       return
     }
     const toAdd = selected.slice(0, available)
-    const getMaxSize = (f) => f.type?.startsWith('audio/') ? MAX_AUDIO_SIZE : MAX_FILE_SIZE
+    const getMaxSize = (f) => {
+      const t = f.type || ''
+      if (t.startsWith('video/')) return MAX_VIDEO_SIZE
+      if (t.startsWith('audio/')) return MAX_AUDIO_SIZE
+      return MAX_FILE_SIZE
+    }
     const oversized = toAdd.filter(f => f.size > getMaxSize(f))
     if (oversized.length > 0) {
       if (addToast) addToast(`${oversized.length} file(s) too large`, 'danger')
@@ -246,10 +252,26 @@ export default function TaskDetailModal({
     setPublishing(false)
   }
 
+  // Staff picks which WIPs to send to the review carousel. Default empty so the
+  // "Submit for Review" button stays disabled until at least one is ticked.
+  const [selectedReviewIds, setSelectedReviewIds] = useState(() => new Set())
+  // Reset selection when the task identity changes (modal re-used for next task).
+  useEffect(() => { setSelectedReviewIds(new Set()) }, [task.id])
+  const toggleReviewSelect = (wipId) => {
+    setSelectedReviewIds(prev => {
+      const next = new Set(prev)
+      if (next.has(wipId)) next.delete(wipId)
+      else next.add(wipId)
+      return next
+    })
+  }
+  const canSelectForReview = staff && task.status === 'wip'
+
   // Staff commits for review
   const handleCommitReview = async () => {
+    if (selectedReviewIds.size === 0) return
     setActionLoading('commit')
-    await onCommitForReview(task.id)
+    await onCommitForReview(task.id, Array.from(selectedReviewIds))
     setActionLoading(null)
     onClose()
   }
@@ -484,7 +506,16 @@ export default function TaskDetailModal({
             )
           })()}
           {task.status === 'wip' && hasWipUpdates && (
-            <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ width: '100%', justifyContent: 'center' }}>Submit for Review</Btn>
+            <Btn
+              variant="primary"
+              loading={actionLoading === 'commit'}
+              onClick={handleCommitReview}
+              disabled={selectedReviewIds.size === 0}
+              title={selectedReviewIds.size === 0 ? 'Seleziona almeno un WIP da inviare in review' : undefined}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              Submit for Review{selectedReviewIds.size > 0 ? ` (${selectedReviewIds.size})` : ''}
+            </Btn>
           )}
           {task.status === 'wip' && (
             <Btn variant="info" loading={actionLoading === 'reset-todo'}
@@ -672,6 +703,20 @@ export default function TaskDetailModal({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  {canSelectForReview && (
+                    <label
+                      title="Includi in review"
+                      onClick={e => e.stopPropagation()}
+                      style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedReviewIds.has(update.id)}
+                        onChange={() => toggleReviewSelect(update.id)}
+                        style={{ width: 18, height: 18, accentColor: '#F28C28', cursor: 'pointer', margin: 0 }}
+                      />
+                    </label>
+                  )}
                   <Av name={update.author?.full_name} size={26} url={update.author?.avatar_url} />
                   <div style={{ flex: 1 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{update.author?.full_name}</span>
@@ -710,6 +755,13 @@ export default function TaskDetailModal({
                           <div key={imgIdx} style={{ gridColumn: 'span 2', borderRadius: 8, border: '1px solid #E2E8F0', padding: 8, background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 20 }}>&#9835;</span>
                             <audio controls src={imgUrl} style={{ width: '100%', height: 36 }} preload="metadata" />
+                          </div>
+                        )
+                      }
+                      if (isVideoUrl(imgUrl)) {
+                        return (
+                          <div key={imgIdx} style={{ gridColumn: 'span 2', borderRadius: 8, border: '1px solid #E2E8F0', background: '#000', overflow: 'hidden' }}>
+                            <video controls src={imgUrl} style={{ width: '100%', display: 'block', maxHeight: 260 }} preload="metadata" />
                           </div>
                         )
                       }
@@ -780,18 +832,23 @@ export default function TaskDetailModal({
       {/* Student: WIP publish form */}
       {!staff && isOwner && task.status === 'wip' && (
         <div style={{ borderTop: '1px solid #E8ECF1', padding: isMobile ? 12 : 16, background: '#FAFBFD', flexShrink: 0 }}>
-          <input ref={fileInputRef} type="file" accept={task.department === 'sound' ? 'image/*,audio/mpeg,audio/wav,audio/ogg,audio/aac,audio/mp4,audio/x-m4a,audio/flac,audio/webm,.mp3,.wav,.ogg,.aac,.m4a,.flac' : 'image/*'} multiple onChange={handleFilesSelect} style={{ display: 'none' }} />
+          <input ref={fileInputRef} type="file" accept={task.department === 'sound' ? 'image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,audio/mpeg,audio/wav,audio/ogg,audio/aac,audio/mp4,audio/x-m4a,audio/flac,audio/webm,.mp3,.wav,.ogg,.aac,.m4a,.flac' : 'image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm'} multiple onChange={handleFilesSelect} style={{ display: 'none' }} />
           {wipPreviews.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
               {wipPreviews.map((preview, idx) => {
-                const isAudio = wipFiles[idx]?.type?.startsWith('audio/')
+                const t = wipFiles[idx]?.type || ''
+                const isAudio = t.startsWith('audio/')
+                const isVideo = t.startsWith('video/')
+                const isAv = isAudio || isVideo
                 return (
-                  <div key={idx} style={{ position: 'relative', ...(isAudio ? { width: 140, height: 70 } : { width: 70, height: 70 }), borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: '1px solid #E2E8F0', background: isAudio ? '#F8FAFC' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div key={idx} style={{ position: 'relative', ...(isAv ? { width: 140, height: 70 } : { width: 70, height: 70 }), borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: '1px solid #E2E8F0', background: isAv ? '#F8FAFC' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {isAudio ? (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: 4 }}>
                         <span style={{ fontSize: 18 }}>&#9835;</span>
                         <span style={{ fontSize: 9, color: '#64748B', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wipFiles[idx]?.name}</span>
                       </div>
+                    ) : isVideo ? (
+                      <video src={preview} muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     ) : (
                       <Img src={preview} alt={`WIP ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     )}
@@ -810,13 +867,26 @@ export default function TaskDetailModal({
             </div>
             <Btn variant="primary" loading={publishing} onClick={handlePublishWip} disabled={wipFiles.length === 0 && !wipNote.trim()} style={{ flexShrink: 0, padding: '10px 16px' }}>Publish</Btn>
           </div>
-          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files (images + audio) · Max 10MB audio / 4MB images' : 'images · Max 4MB'}</div>
+          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files · 4MB immagini · 10MB audio · 100MB video' : 'files · 4MB immagini · 100MB video'}</div>
         </div>
       )}
       {staff && task.status === 'wip' && hasWipUpdates && (
         <div style={{ borderTop: '1px solid #E8ECF1', padding: '12px 16px', background: '#FAFBFD', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12, color: '#64748B' }}>{wipUpdates.length} WIP update{wipUpdates.length === 1 ? '' : 's'}</span>
-          <Btn variant="primary" loading={actionLoading === 'commit'} onClick={handleCommitReview} style={{ padding: '10px 24px' }}>Submit for Review</Btn>
+          <span style={{ fontSize: 12, color: '#64748B' }}>
+            {selectedReviewIds.size === 0
+              ? `${wipUpdates.length} WIP · seleziona quali inviare`
+              : `${selectedReviewIds.size} di ${wipUpdates.length} WIP selezionati`}
+          </span>
+          <Btn
+            variant="primary"
+            loading={actionLoading === 'commit'}
+            onClick={handleCommitReview}
+            disabled={selectedReviewIds.size === 0}
+            title={selectedReviewIds.size === 0 ? 'Seleziona almeno un WIP da inviare in review' : undefined}
+            style={{ padding: '10px 24px' }}
+          >
+            Submit for Review{selectedReviewIds.size > 0 ? ` (${selectedReviewIds.size})` : ''}
+          </Btn>
         </div>
       )}
     </div>
