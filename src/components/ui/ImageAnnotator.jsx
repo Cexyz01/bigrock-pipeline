@@ -550,7 +550,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   // commits them as `type: 'label'` strokes. Confidence: pretty good for
   // turnarounds / asset sheets on flat backgrounds, mediocre for busy scenes.
   const [numbering, setNumbering] = useState(null)  // null | { items, color, busy }
-  const [numberSize, setNumberSize] = useState(0.045) // font size, fraction of image width
+  const [numberSize, setNumberSize] = useState(0.02) // font size, fraction of image width
   const numberingActive = !!numbering && !numbering.busy
 
   const runDetect = useCallback(async () => {
@@ -589,9 +589,13 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     if (!numbering) return
     const kept = numbering.items.filter(it => it.kept)
     if (kept.length === 0) { setNumbering(null); return }
+    // Park each badge in the top-left corner of its bbox with a small inset
+    // so it nests against the object instead of stamping over its centre.
+    const inset = numberSize * 0.8
     const labels = kept.map((it, i) => ({
       type: 'label',
-      x: it.x, y: it.y,
+      x: it.bbox.x + inset,
+      y: it.bbox.y + inset,
       text: String(i + 1),
       color: numbering.color,
       size: numberSize,
@@ -805,8 +809,10 @@ function NumberingPreview({ items, color, size, rect, onToggle }) {
       }}
     >
       {items.map((it, i) => {
-        const cx = it.x * rect.w, cy = it.y * rect.h
         const fs = size * rect.w
+        const inset = fs * 0.8
+        const cx = (it.bbox?.x ?? it.x) * rect.w + inset
+        const cy = (it.bbox?.y ?? it.y) * rect.h + inset
         const txt = it.kept ? String(++visible) : '×'
         const padX = fs * 0.5
         const halfW = Math.max(fs * 0.7, fs * 0.35 * txt.length + padX)
