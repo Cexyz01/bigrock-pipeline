@@ -687,7 +687,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             <label style={{ color: '#cbd5e1', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               Min
               <input
-                type="range" min="0.0002" max="0.03" step="0.0002" value={minAreaFrac}
+                type="range" min="0.0001" max="0.03" step="0.0001" value={minAreaFrac}
                 onChange={e => setMinAreaFrac(parseFloat(e.target.value))}
                 style={{ width: 160 }}
                 title="Dimensione minima oggetto"
