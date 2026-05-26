@@ -687,10 +687,16 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             <label style={{ color: '#cbd5e1', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               Min
               <input
-                type="range" min="0.0001" max="0.03" step="0.0001" value={minAreaFrac}
-                onChange={e => setMinAreaFrac(parseFloat(e.target.value))}
-                style={{ width: 160 }}
-                title="Dimensione minima oggetto"
+                type="range" min="0" max="1000" step="1"
+                value={Math.round(Math.log(minAreaFrac / 0.0001) / Math.log(0.03 / 0.0001) * 1000)}
+                onChange={e => {
+                  // Log-mapped slider — equal travel per order of magnitude so
+                  // the practical small-area range gets most of the bar.
+                  const t = parseFloat(e.target.value) / 1000
+                  setMinAreaFrac(0.0001 * Math.pow(0.03 / 0.0001, t))
+                }}
+                style={{ width: 180 }}
+                title="Dimensione minima oggetto (scala logaritmica)"
               />
             </label>
             <button onClick={cancelNumbering} style={toolBtnStyle(false)}>✕ Annulla</button>
