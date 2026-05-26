@@ -531,7 +531,11 @@ export default function TaskDetailModal({
           )}
           {task.status === 'review' && (
             <>
-              <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
+              {/* Hide Approve once the reject flow is active so the staff
+                  can't accidentally approve after typing a revision comment. */}
+              {!showRejectComment && (
+                <Btn variant="success" loading={actionLoading === 'approve'} onClick={() => handleAction('approve', { status: 'approved' }, 'Task approved!')} style={{ width: '100%', justifyContent: 'center' }}>Approve</Btn>
+              )}
               <Btn variant="info" loading={actionLoading === 'reject'} onClick={handleReject} style={{ width: '100%', justifyContent: 'center' }}>
                 {showRejectComment ? 'Invia' : 'Request Changes'}
               </Btn>

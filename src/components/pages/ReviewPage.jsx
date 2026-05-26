@@ -351,20 +351,25 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
           marginTop: 26, paddingTop: 22, borderTop: '1px solid #F1F5F9',
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         }}>
-          <button
-            onClick={handleApprove}
-            disabled={actionLoading !== null}
-            style={{
-              padding: '12px 28px', fontSize: 14, fontWeight: 700, borderRadius: 12,
-              background: '#22C55E', color: '#fff', border: 'none',
-              cursor: actionLoading ? 'not-allowed' : 'pointer',
-              opacity: actionLoading === 'approve' ? 0.5 : 1,
-              boxShadow: '0 4px 12px rgba(34,197,94,0.3)',
-              transition: 'all 0.15s ease',
-            }}
-            onMouseEnter={e => { if (!actionLoading) e.currentTarget.style.transform = 'translateY(-1px)' }}
-            onMouseLeave={e => e.currentTarget.style.transform = 'none'}
-          >{actionLoading === 'approve' ? '...' : '✓ Approve'}</button>
+          {/* Hide Approve once the reject/back-to-wip flow is active so the
+              staff can't accidentally approve after typing a revision comment.
+              It comes back when they hit Annulla. */}
+          {!showRejectBox && (
+            <button
+              onClick={handleApprove}
+              disabled={actionLoading !== null}
+              style={{
+                padding: '12px 28px', fontSize: 14, fontWeight: 700, borderRadius: 12,
+                background: '#22C55E', color: '#fff', border: 'none',
+                cursor: actionLoading ? 'not-allowed' : 'pointer',
+                opacity: actionLoading === 'approve' ? 0.5 : 1,
+                boxShadow: '0 4px 12px rgba(34,197,94,0.3)',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => { if (!actionLoading) e.currentTarget.style.transform = 'translateY(-1px)' }}
+              onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+            >{actionLoading === 'approve' ? '...' : '✓ Approve'}</button>
+          )}
 
           <button
             onClick={handleRejectClick}
