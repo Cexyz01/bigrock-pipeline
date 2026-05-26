@@ -50,11 +50,13 @@ export default function TasksPage({
       clearDeepLink()
     }
     if (deepLink?.type === 'shotFilter' && deepLink?.id) {
-      setFilter(f => ({ ...f, shot: deepLink.id, asset: '', dept: deepLink.dept || '' }))
+      // Clear status: cells now go blue even with 0 active WIPs (just past
+      // approvals) and a sticky "WIP" filter would render an empty list.
+      setFilter(f => ({ ...f, shot: deepLink.id, asset: '', dept: deepLink.dept || '', status: '' }))
       clearDeepLink()
     }
     if (deepLink?.type === 'assetFilter' && deepLink?.id) {
-      setFilter(f => ({ ...f, asset: deepLink.id, shot: '', dept: deepLink.dept || '' }))
+      setFilter(f => ({ ...f, asset: deepLink.id, shot: '', dept: deepLink.dept || '', status: '' }))
       clearDeepLink()
     }
   }, [deepLink, tasks])

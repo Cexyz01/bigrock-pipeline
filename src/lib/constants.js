@@ -46,19 +46,24 @@ export const SHOT_STATUSES = [
 // Derive a single per-(entity, dept) cell status from the task list.
 // Task statuses: 'todo' | 'wip' | 'review' | 'approved'.
 // Cells are now read-only and computed:
-//   - any wip OR review task  → 'in_progress' (blue dot, work happening)
-//   - >=1 task and all approved → 'approved' (green check)
-//   - otherwise (no tasks, only todo, or partial done) → 'not_started' (empty)
+//   - >=1 task and all approved             → 'approved'   (green check)
+//   - any wip/review OR any already done    → 'in_progress' (blue dot — progress made)
+//   - otherwise (no tasks or only todo)     → 'not_started' (empty)
+// A cell never regresses from blue back to empty just because every active
+// task got finished — staff want the blue indicator to stick once any progress
+// has been made on that (shot, dept) pair.
 export const deriveDeptStatus = (tasks) => {
   if (!tasks || tasks.length === 0) return 'not_started'
   let hasActive = false
+  let hasApproved = false
   let allApproved = true
   for (const t of tasks) {
     if (t.status === 'wip' || t.status === 'review') hasActive = true
+    if (t.status === 'approved') hasApproved = true
     if (t.status !== 'approved') allApproved = false
   }
-  if (hasActive) return 'in_progress'
   if (allApproved) return 'approved'
+  if (hasActive || hasApproved) return 'in_progress'
   return 'not_started'
 }
 
