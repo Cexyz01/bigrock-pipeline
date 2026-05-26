@@ -60,17 +60,10 @@ export default function CatRain() {
     })
 
     const tier = detectTier()
-    const SPAWN_MS = tier === 'low' ? 320 : 180
-    // Cap on total cats: fills ~half the screen at most so we don't melt the CPU.
-    const computeMax = () => {
-      const avg = 36 * 36
-      const target = tier === 'low' ? 0.30 : 0.55
-      const hardCap = tier === 'low' ? 120 : 240
-      return Math.min(hardCap, Math.max(20, Math.floor((W * H * target) / avg)))
-    }
-    let maxCats = computeMax()
-    const onResizeMax = () => { maxCats = computeMax() }
-    window.addEventListener('resize', onResizeMax)
+    const SPAWN_MS = tier === 'low' ? 320 : 160
+    // Safety ceiling only — the real gate is the "spawn point blocked" check
+    // below, so rain naturally stops when the pile fills the screen.
+    const HARD_CEILING = tier === 'low' ? 600 : 1500
 
     const cats = []
     let running = true
@@ -78,32 +71,45 @@ export default function CatRain() {
     let lastTime = performance.now()
 
     const GRAVITY = 1400  // px/s^2
-    const REST = 0.18     // bounce
+    const REST = 0.15     // bounce
     const AIR = 0.001     // linear air drag
-    const ROT_DRAG = 1.2  // angular air drag (always on — kills infinite spin)
+    const ROT_DRAG = 3.0  // angular air drag (always on — kills infinite spin)
+    const CONTACT_FRIC = 4 // extra damping multiplier per contact
     const FLOOR_FRIC = 6  // ground friction multiplier
-    const ITERS = 3       // solver iterations per frame
-    const SLOP = 0.6      // ignore micro-overlaps to kill jitter
-    const POS_PCT = 0.8   // positional correction percent
-    const SLEEP_V = 12    // sleep speed threshold (px/s)
-    const SLEEP_VR = 0.25 // sleep angular threshold (rad/s)
-    const SLEEP_TICKS = 25 // frames of low-motion-while-touching before sleep
-    const WAKE_PEN = 1.5  // overlap that wakes a sleeping cat
+    const ITERS = 4       // solver iterations per frame
+    const SLOP = 0.7      // ignore micro-overlaps to kill jitter
+    const POS_PCT = 0.7   // positional correction percent
+    const SLEEP_V = 9     // sleep speed threshold (px/s)
+    const SLEEP_VR = 0.2  // sleep angular threshold (rad/s)
+    const SLEEP_TICKS = 22 // frames of low-motion-while-touching before sleep
+    const WAKE_PEN = 1.8  // overlap that wakes a sleeping cat
+
+    // Uniform grid for O(n*k) broadphase. Cell sized for the largest cat.
+    const CELL = 70
+    let cols = Math.ceil(W / CELL) + 1
+    let rows = Math.ceil(H / CELL) + 2
+    let grid = new Array(cols * rows).fill(null)
+    const recomputeGrid = () => {
+      cols = Math.ceil(W / CELL) + 1
+      rows = Math.ceil(H / CELL) + 2
+      grid = new Array(cols * rows).fill(null)
+    }
+    window.addEventListener('resize', recomputeGrid)
 
     const spawn = () => {
-      if (cats.length >= maxCats) return
+      if (cats.length >= HARD_CEILING) return
       const size = 28 + Math.random() * 32
       const r = size * 0.42 // hitbox a touch smaller than visual
       // Try a few x positions: skip if spawn point is already blocked
       // (this is what makes the rain *stop* once the pile reaches the top).
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 6; attempt++) {
         const x = r + Math.random() * Math.max(1, W - 2 * r)
         const y = -r - 10
         let blocked = false
         for (const c of cats) {
-          if (c.y > 80) continue
+          if (c.y > 120) continue
           const dx = c.x - x, dy = c.y - y
-          const rs = c.r + r
+          const rs = c.r + r + 2
           if (dx * dx + dy * dy < rs * rs) { blocked = true; break }
         }
         if (!blocked) {
@@ -122,6 +128,54 @@ export default function CatRain() {
           })
           return
         }
+      }
+    }
+
+    const rebuildGrid = () => {
+      grid.fill(null)
+      for (const c of cats) {
+        const gx = Math.max(0, Math.min(cols - 1, Math.floor(c.x / CELL)))
+        const gy = Math.max(0, Math.min(rows - 1, Math.floor((c.y < 0 ? 0 : c.y) / CELL)))
+        const idx = gy * cols + gx
+        if (!grid[idx]) grid[idx] = []
+        grid[idx].push(c)
+      }
+    }
+
+    const resolvePair = (a, b, iter) => {
+      if (a.sleeping && b.sleeping) return
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const rs = a.r + b.r
+      const d2 = dx * dx + dy * dy
+      if (d2 >= rs * rs || d2 < 0.0001) return
+      const d = Math.sqrt(d2)
+      const nx = dx / d
+      const ny = dy / d
+      const pen = rs - d
+      if (iter === 0) { a.contacts++; b.contacts++ }
+      if (pen > WAKE_PEN) {
+        if (a.sleeping) { a.sleeping = false; a.sleepTicks = 0 }
+        if (b.sleeping) { b.sleeping = false; b.sleepTicks = 0 }
+      }
+      if (pen > SLOP) {
+        const corr = (pen - SLOP) * POS_PCT * 0.5
+        if (a.sleeping) {
+          b.x += nx * corr * 2; b.y += ny * corr * 2
+        } else if (b.sleeping) {
+          a.x -= nx * corr * 2; a.y -= ny * corr * 2
+        } else {
+          a.x -= nx * corr; a.y -= ny * corr
+          b.x += nx * corr; b.y += ny * corr
+        }
+      }
+      const rvx = b.vx - a.vx
+      const rvy = b.vy - a.vy
+      const vn = rvx * nx + rvy * ny
+      if (vn < 0) {
+        const j2 = -(1 + REST) * vn * 0.5
+        if (!a.sleeping) { a.vx -= j2 * nx; a.vy -= j2 * ny }
+        if (!b.sleeping) { b.vx += j2 * nx; b.vy += j2 * ny }
       }
     }
 
@@ -153,65 +207,48 @@ export default function CatRain() {
           c.contacts++
         }
       }
-      // Pairwise collisions — circle vs circle, position + impulse correction.
+      // Broadphase via uniform grid + narrow resolve (iterated for stability).
       for (let iter = 0; iter < ITERS; iter++) {
-        for (let i = 0; i < cats.length; i++) {
-          const a = cats[i]
-          for (let j = i + 1; j < cats.length; j++) {
-            const b = cats[j]
-            if (a.sleeping && b.sleeping) continue
-            const dx = b.x - a.x
-            const dy = b.y - a.y
-            const rs = a.r + b.r
-            const d2 = dx * dx + dy * dy
-            if (d2 < rs * rs && d2 > 0.0001) {
-              const d = Math.sqrt(d2)
-              const nx = dx / d
-              const ny = dy / d
-              const pen = rs - d
-              if (iter === 0) { a.contacts++; b.contacts++ }
-              // Wake sleepers that got pushed into substantially
-              if (pen > WAKE_PEN) {
-                if (a.sleeping) { a.sleeping = false; a.sleepTicks = 0 }
-                if (b.sleeping) { b.sleeping = false; b.sleepTicks = 0 }
+        rebuildGrid()
+        for (let gy = 0; gy < rows; gy++) {
+          for (let gx = 0; gx < cols; gx++) {
+            const bucket = grid[gy * cols + gx]
+            if (!bucket) continue
+            // Same-cell pairs
+            for (let i = 0; i < bucket.length; i++) {
+              for (let j = i + 1; j < bucket.length; j++) {
+                resolvePair(bucket[i], bucket[j], iter)
               }
-              // Positional correction with slop to kill jitter
-              if (pen > SLOP) {
-                const corr = (pen - SLOP) * POS_PCT * 0.5
-                if (a.sleeping) {
-                  b.x += nx * corr * 2; b.y += ny * corr * 2
-                } else if (b.sleeping) {
-                  a.x -= nx * corr * 2; a.y -= ny * corr * 2
-                } else {
-                  a.x -= nx * corr; a.y -= ny * corr
-                  b.x += nx * corr; b.y += ny * corr
-                }
-              }
-              const rvx = b.vx - a.vx
-              const rvy = b.vy - a.vy
-              const vn = rvx * nx + rvy * ny
-              if (vn < 0) {
-                const j2 = -(1 + REST) * vn * 0.5
-                if (!a.sleeping) { a.vx -= j2 * nx; a.vy -= j2 * ny }
-                if (!b.sleeping) { b.vx += j2 * nx; b.vy += j2 * ny }
-                // Rotational kick only on real impacts (not on resting contact)
-                if (-vn > 40) {
-                  const tangential = (rvx * -ny + rvy * nx) * 0.01
-                  if (!a.sleeping) a.vr -= tangential
-                  if (!b.sleeping) b.vr += tangential
-                }
+            }
+            // Forward neighbors only (avoid double-checking)
+            for (let dy = 0; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dy === 0 && dx <= 0) continue
+                const ngx = gx + dx, ngy = gy + dy
+                if (ngx < 0 || ngx >= cols || ngy >= rows) continue
+                const other = grid[ngy * cols + ngx]
+                if (!other) continue
+                for (const a of bucket) for (const b of other) resolvePair(a, b, iter)
               }
             }
           }
         }
       }
-      // Sleep pass — cats touching something with near-zero motion freeze.
+      // Per-contact damping + sleep pass. Extra friction scales with contacts
+      // so sandwiched cats lose energy fast and stop oscillating/spinning.
       for (const c of cats) {
         if (c.sleeping) continue
+        if (c.contacts > 0) {
+          const f = Math.exp(-CONTACT_FRIC * c.contacts * dt)
+          c.vx *= f
+          c.vy *= f
+          c.vr *= f
+        }
         const speed2 = c.vx * c.vx + c.vy * c.vy
+        const tickThresh = c.contacts >= 2 ? Math.floor(SLEEP_TICKS / 2) : SLEEP_TICKS
         if (c.contacts > 0 && speed2 < SLEEP_V * SLEEP_V && Math.abs(c.vr) < SLEEP_VR) {
           c.sleepTicks++
-          if (c.sleepTicks >= SLEEP_TICKS) {
+          if (c.sleepTicks >= tickThresh) {
             c.sleeping = true
             c.vx = 0; c.vy = 0; c.vr = 0
           }
@@ -254,7 +291,7 @@ export default function CatRain() {
     return () => {
       running = false
       window.removeEventListener('resize', resize)
-      window.removeEventListener('resize', onResizeMax)
+      window.removeEventListener('resize', recomputeGrid)
     }
   }, [reduced])
 
