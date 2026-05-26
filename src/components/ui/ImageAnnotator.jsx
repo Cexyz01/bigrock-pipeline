@@ -555,14 +555,15 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   // the preview without re-running detection. The slider in the toolbar
   // controls it. Detection runs once with a very low floor so the slider can
   // span the full useful range.
-  const [minAreaFrac, setMinAreaFrac] = useState(0.005)
+  const [minAreaFrac, setMinAreaFrac] = useState(0.001)
 
   const runDetect = useCallback(async () => {
     setNumbering({ items: [], busy: true })
     try {
       // Cast a wide net — the UI slider trims false positives without needing
-      // to re-run the pipeline.
-      const items = await detectObjects(src, { minAreaFrac: 0.001 })
+      // to re-run the pipeline. Floor must stay below the slider's minimum so
+      // every value the slider can reach has matching detections behind it.
+      const items = await detectObjects(src, { minAreaFrac: 0.0001 })
       if (!items.length) {
         addToast?.('Nessun oggetto rilevato. Prova a regolare lo sfondo o numera a mano.', 'warn')
         setNumbering(null)
@@ -686,7 +687,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             <label style={{ color: '#cbd5e1', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               Min
               <input
-                type="range" min="0.005" max="0.03" step="0.0005" value={minAreaFrac}
+                type="range" min="0.0002" max="0.03" step="0.0002" value={minAreaFrac}
                 onChange={e => setMinAreaFrac(parseFloat(e.target.value))}
                 style={{ width: 160 }}
                 title="Dimensione minima oggetto"
