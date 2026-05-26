@@ -79,9 +79,16 @@ export default function CatRain() {
 
     const GRAVITY = 1400  // px/s^2
     const REST = 0.18     // bounce
-    const AIR = 0.001     // air drag coeff
+    const AIR = 0.001     // linear air drag
+    const ROT_DRAG = 1.2  // angular air drag (always on — kills infinite spin)
     const FLOOR_FRIC = 6  // ground friction multiplier
     const ITERS = 3       // solver iterations per frame
+    const SLOP = 0.6      // ignore micro-overlaps to kill jitter
+    const POS_PCT = 0.8   // positional correction percent
+    const SLEEP_V = 12    // sleep speed threshold (px/s)
+    const SLEEP_VR = 0.25 // sleep angular threshold (rad/s)
+    const SLEEP_TICKS = 25 // frames of low-motion-while-touching before sleep
+    const WAKE_PEN = 1.5  // overlap that wakes a sleeping cat
 
     const spawn = () => {
       if (cats.length >= maxCats) return
@@ -109,6 +116,9 @@ export default function CatRain() {
             rot: (Math.random() - 0.5) * 0.8,
             vr: (Math.random() - 0.5) * 3,
             img,
+            contacts: 0,
+            sleepTicks: 0,
+            sleeping: false,
           })
           return
         }
@@ -116,17 +126,22 @@ export default function CatRain() {
     }
 
     const step = (dt) => {
-      // Integrate
+      const rotDamp = Math.exp(-ROT_DRAG * dt)
+      // Integrate (skip sleepers)
       for (const c of cats) {
+        c.contacts = 0
+        if (c.sleeping) continue
         c.vy += GRAVITY * dt
         c.vx *= 1 - AIR
         c.vy *= 1 - AIR
+        c.vr *= rotDamp
         c.x += c.vx * dt
         c.y += c.vy * dt
         c.rot += c.vr * dt
       }
       // Walls + floor
       for (const c of cats) {
+        if (c.sleeping) continue
         if (c.x - c.r < 0) { c.x = c.r; if (c.vx < 0) c.vx = -c.vx * REST }
         if (c.x + c.r > W) { c.x = W - c.r; if (c.vx > 0) c.vx = -c.vx * REST }
         if (c.y + c.r > H) {
@@ -135,15 +150,16 @@ export default function CatRain() {
           const f = Math.exp(-FLOOR_FRIC * dt)
           c.vx *= f
           c.vr *= f
+          c.contacts++
         }
       }
       // Pairwise collisions — circle vs circle, position + impulse correction.
-      // O(n^2) but n is capped so this stays well under a frame.
       for (let iter = 0; iter < ITERS; iter++) {
         for (let i = 0; i < cats.length; i++) {
           const a = cats[i]
           for (let j = i + 1; j < cats.length; j++) {
             const b = cats[j]
+            if (a.sleeping && b.sleeping) continue
             const dx = b.x - a.x
             const dy = b.y - a.y
             const rs = a.r + b.r
@@ -152,23 +168,55 @@ export default function CatRain() {
               const d = Math.sqrt(d2)
               const nx = dx / d
               const ny = dy / d
-              const overlap = (rs - d) * 0.5
-              a.x -= nx * overlap; a.y -= ny * overlap
-              b.x += nx * overlap; b.y += ny * overlap
+              const pen = rs - d
+              if (iter === 0) { a.contacts++; b.contacts++ }
+              // Wake sleepers that got pushed into substantially
+              if (pen > WAKE_PEN) {
+                if (a.sleeping) { a.sleeping = false; a.sleepTicks = 0 }
+                if (b.sleeping) { b.sleeping = false; b.sleepTicks = 0 }
+              }
+              // Positional correction with slop to kill jitter
+              if (pen > SLOP) {
+                const corr = (pen - SLOP) * POS_PCT * 0.5
+                if (a.sleeping) {
+                  b.x += nx * corr * 2; b.y += ny * corr * 2
+                } else if (b.sleeping) {
+                  a.x -= nx * corr * 2; a.y -= ny * corr * 2
+                } else {
+                  a.x -= nx * corr; a.y -= ny * corr
+                  b.x += nx * corr; b.y += ny * corr
+                }
+              }
               const rvx = b.vx - a.vx
               const rvy = b.vy - a.vy
               const vn = rvx * nx + rvy * ny
               if (vn < 0) {
                 const j2 = -(1 + REST) * vn * 0.5
-                a.vx -= j2 * nx; a.vy -= j2 * ny
-                b.vx += j2 * nx; b.vy += j2 * ny
-                // Tiny rotational kick on contact, sells the chaos.
-                const tangential = (rvx * -ny + rvy * nx) * 0.02
-                a.vr -= tangential
-                b.vr += tangential
+                if (!a.sleeping) { a.vx -= j2 * nx; a.vy -= j2 * ny }
+                if (!b.sleeping) { b.vx += j2 * nx; b.vy += j2 * ny }
+                // Rotational kick only on real impacts (not on resting contact)
+                if (-vn > 40) {
+                  const tangential = (rvx * -ny + rvy * nx) * 0.01
+                  if (!a.sleeping) a.vr -= tangential
+                  if (!b.sleeping) b.vr += tangential
+                }
               }
             }
           }
+        }
+      }
+      // Sleep pass — cats touching something with near-zero motion freeze.
+      for (const c of cats) {
+        if (c.sleeping) continue
+        const speed2 = c.vx * c.vx + c.vy * c.vy
+        if (c.contacts > 0 && speed2 < SLEEP_V * SLEEP_V && Math.abs(c.vr) < SLEEP_VR) {
+          c.sleepTicks++
+          if (c.sleepTicks >= SLEEP_TICKS) {
+            c.sleeping = true
+            c.vx = 0; c.vy = 0; c.vr = 0
+          }
+        } else {
+          c.sleepTicks = 0
         }
       }
     }
