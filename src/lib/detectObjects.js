@@ -108,6 +108,32 @@ function erode(src, w, h, r) {
   return out
 }
 
+// Reclassify any "background" pocket that's surrounded by foreground (i.e.
+// not reachable from the image border via background pixels) as foreground.
+// This is what turns an outlined character with light-skin interior — where
+// the skin gets confused for background — into a single solid blob instead
+// of a hollow ring that connected-components would break into 3-5 fragments.
+function fillHoles(mask, w, h) {
+  const visited = new Uint8Array(w * h)
+  const stack = new Int32Array(w * h)
+  let top = 0
+  const push = (i) => { if (!mask[i] && !visited[i]) { visited[i] = 1; stack[top++] = i } }
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x) }
+  for (let y = 1; y < h - 1; y++) { push(y * w); push(y * w + w - 1) }
+  while (top > 0) {
+    const p = stack[--top]
+    const x = p % w
+    const y = (p / w) | 0
+    if (x > 0 && !mask[p - 1] && !visited[p - 1]) { visited[p - 1] = 1; stack[top++] = p - 1 }
+    if (x < w - 1 && !mask[p + 1] && !visited[p + 1]) { visited[p + 1] = 1; stack[top++] = p + 1 }
+    if (y > 0 && !mask[p - w] && !visited[p - w]) { visited[p - w] = 1; stack[top++] = p - w }
+    if (y < h - 1 && !mask[p + w] && !visited[p + w]) { visited[p + w] = 1; stack[top++] = p + w }
+  }
+  const out = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) out[i] = (mask[i] || !visited[i]) ? 1 : 0
+  return out
+}
+
 function connectedComponents(mask, w, h) {
   const visited = new Uint8Array(w * h)
   const stack = new Int32Array(w * h)
@@ -168,8 +194,12 @@ export async function detectObjects(src, opts = {}) {
 
   const closeR = Math.max(1, Math.round(Math.min(w, h) * closeFrac))
   const closed = erode(dilate(mask, w, h, closeR), w, h, closeR)
+  // Reclassify interior background pockets (e.g. character skin that the
+  // colour test mis-flagged as background) as foreground, so each outlined
+  // figure becomes one solid blob instead of a hollow ring.
+  const filled = fillHoles(closed, w, h)
 
-  const comps = connectedComponents(closed, w, h)
+  const comps = connectedComponents(filled, w, h)
   const minArea = w * h * minAreaFrac
   const filtered = comps.filter(c => c.area >= minArea)
 
