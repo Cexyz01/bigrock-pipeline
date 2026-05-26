@@ -73,8 +73,9 @@ export default function CatRain() {
     const GRAVITY = 1400  // px/s^2
     const REST = 0.15     // bounce
     const AIR = 0.001     // linear air drag
-    const ROT_DRAG = 3.0  // angular air drag (always on — kills infinite spin)
-    const CONTACT_FRIC = 4 // extra damping multiplier per contact
+    const ROT_DRAG = 1.8  // angular air drag — middle ground: visible spin, eventual stop
+    const CONTACT_FRIC = 4 // extra LINEAR damping multiplier per contact
+    const CONTACT_ROT_FRIC = 1.5 // gentler rotational friction per contact (don't kill spin)
     const FLOOR_FRIC = 6  // ground friction multiplier
     const ITERS = 4       // solver iterations per frame
     const SLOP = 0.7      // ignore micro-overlaps to kill jitter
@@ -119,7 +120,9 @@ export default function CatRain() {
 
     const spawn = () => {
       if (cats.length >= HARD_CEILING) return
-      const size = 28 + Math.random() * 32
+      // 1% chance of a chonker — much bigger than the others.
+      const isGiant = Math.random() < 0.01
+      const size = isGiant ? 100 + Math.random() * 40 : 28 + Math.random() * 32
       const r = size * 0.42 // hitbox a touch smaller than visual
       // Try a few x positions: skip if spawn point is already blocked
       // (this is what makes the rain *stop* once the pile reaches the top).
@@ -141,7 +144,7 @@ export default function CatRain() {
             vy: 0,
             r, size,
             rot: (Math.random() - 0.5) * 0.8,
-            vr: (Math.random() - 0.5) * 3,
+            vr: (Math.random() - 0.5) * 4,
             img,
             contacts: 0,
             sleepTicks: 0,
@@ -197,6 +200,12 @@ export default function CatRain() {
         const j2 = -(1 + REST) * vn * 0.5
         if (!a.sleeping) { a.vx -= j2 * nx; a.vy -= j2 * ny }
         if (!b.sleeping) { b.vx += j2 * nx; b.vy += j2 * ny }
+        // Rotational kick only on genuine impacts (not jitter at rest).
+        if (-vn > 80) {
+          const tangential = (rvx * -ny + rvy * nx) * 0.006
+          if (!a.sleeping) a.vr -= tangential
+          if (!b.sleeping) b.vr += tangential
+        }
       }
     }
 
@@ -313,9 +322,10 @@ export default function CatRain() {
         if (c.sleeping) continue
         if (c.contacts > 0) {
           const f = Math.exp(-CONTACT_FRIC * c.contacts * dt)
+          const fr = Math.exp(-CONTACT_ROT_FRIC * c.contacts * dt)
           c.vx *= f
           c.vy *= f
-          c.vr *= f
+          c.vr *= fr
         }
         const speed2 = c.vx * c.vx + c.vy * c.vy
         const tickThresh = c.contacts >= 2 ? Math.floor(SLEEP_TICKS / 2) : SLEEP_TICKS
