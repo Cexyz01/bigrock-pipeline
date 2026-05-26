@@ -17,9 +17,22 @@ function detectTier() {
   return 'normal'
 }
 
+const FLOOR_KEY = 'catrain_floor_on'
+
 export default function CatRain() {
   const canvasRef = useRef(null)
   const [reduced, setReduced] = useState(false)
+  // Floor toggle. ON = cats pile up. OFF = cats fall off-screen so the
+  // teacher can keep working. Persisted across reloads / page changes.
+  const [floorOn, setFloorOn] = useState(() => {
+    if (typeof window === 'undefined') return true
+    try { return localStorage.getItem(FLOOR_KEY) !== '0' } catch { return true }
+  })
+  const floorRef = useRef(floorOn)
+  useEffect(() => {
+    floorRef.current = floorOn
+    try { localStorage.setItem(FLOOR_KEY, floorOn ? '1' : '0') } catch {}
+  }, [floorOn])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
@@ -283,18 +296,32 @@ export default function CatRain() {
         c.y += c.vy * dt
         c.rot += c.vr * dt
       }
-      // Walls + floor
+      // Walls + (maybe) floor. When floor is off, cats fall off-screen so
+      // the teacher can keep working — sleepers also wake so the pile drops.
+      const floorOnNow = floorRef.current
+      if (!floorOnNow) {
+        for (const c of cats) {
+          if (c.sleeping) { c.sleeping = false; c.sleepTicks = 0 }
+        }
+      }
       for (const c of cats) {
         if (c.sleeping) continue
         if (c.x - c.r < 0) { c.x = c.r; if (c.vx < 0) c.vx = -c.vx * REST }
         if (c.x + c.r > W) { c.x = W - c.r; if (c.vx > 0) c.vx = -c.vx * REST }
-        if (c.y + c.r > H) {
+        if (floorOnNow && c.y + c.r > H) {
           c.y = H - c.r
           if (c.vy > 0) c.vy = -c.vy * REST
           const f = Math.exp(-FLOOR_FRIC * dt)
           c.vx *= f
           c.vr *= f
           c.contacts++
+        }
+      }
+      // Cull cats that have fallen well past the bottom (only relevant when
+      // the floor is off — keeps the array bounded).
+      if (!floorOnNow) {
+        for (let i = cats.length - 1; i >= 0; i--) {
+          if (cats[i].y - cats[i].r > H + 100) cats.splice(i, 1)
         }
       }
       // Broadphase via uniform grid + narrow resolve (iterated for stability).
@@ -397,15 +424,73 @@ export default function CatRain() {
   if (reduced) return null
 
   return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9996,
-        pointerEvents: 'none',
-      }}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        aria-hidden
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9996,
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+          zIndex: 9998,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '8px 12px',
+          borderRadius: 999,
+          background: 'rgba(15,23,42,0.85)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          pointerEvents: 'auto',
+          userSelect: 'none',
+          font: '600 11px system-ui, sans-serif',
+          color: '#cbd5e1',
+          letterSpacing: 0.3,
+        }}
+      >
+        <span>Pavimento gatti</span>
+        <button
+          type="button"
+          aria-label={floorOn ? 'Disattiva pavimento' : 'Attiva pavimento'}
+          title={floorOn ? 'Disattiva pavimento (i gatti cadono)' : 'Attiva pavimento (i gatti si accumulano)'}
+          onClick={() => setFloorOn(v => !v)}
+          style={{
+            position: 'relative',
+            width: 44,
+            height: 22,
+            borderRadius: 999,
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            background: floorOn ? '#F28C28' : '#475569',
+            transition: 'background 0.2s',
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              top: 2,
+              left: floorOn ? 24 : 2,
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              background: '#fff',
+              transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+            }}
+          />
+        </button>
+      </div>
+    </>
   )
 }
