@@ -141,7 +141,7 @@ function connectedComponents(mask, w, h) {
 export async function detectObjects(src, opts = {}) {
   const {
     maxSize = 800,
-    tol = 48,           // RGB distance from background → foreground
+    tol = 32,           // RGB distance from background → foreground
     closeFrac = 0.012,  // closing radius as fraction of min(w, h)
     minAreaFrac = 0.003 // discard blobs smaller than this fraction of image area
   } = opts
