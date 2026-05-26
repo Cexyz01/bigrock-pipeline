@@ -558,11 +558,11 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   const [minAreaFrac, setMinAreaFrac] = useState(0.005)
 
   const runDetect = useCallback(async () => {
-    setNumbering({ items: [], color, busy: true })
+    setNumbering({ items: [], busy: true })
     try {
       // Cast a wide net — the UI slider trims false positives without needing
       // to re-run the pipeline.
-      const items = await detectObjects(src, { minAreaFrac: 0.0005 })
+      const items = await detectObjects(src, { minAreaFrac: 0.001 })
       if (!items.length) {
         addToast?.('Nessun oggetto rilevato. Prova a regolare lo sfondo o numera a mano.', 'warn')
         setNumbering(null)
@@ -570,7 +570,6 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       }
       setNumbering({
         items: items.map(it => ({ ...it, kept: true })),
-        color,
         busy: false,
       })
     } catch (err) {
@@ -578,7 +577,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       addToast?.('Impossibile analizzare l\'immagine (CORS?)', 'danger')
       setNumbering(null)
     }
-  }, [src, color, addToast])
+  }, [src, addToast])
 
   const toggleKeep = useCallback((idx) => {
     setNumbering(n => {
@@ -599,20 +598,20 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     if (!numbering) return
     const kept = numbering.items.filter(it => it.kept && it.area >= minAreaFrac)
     if (kept.length === 0) { setNumbering(null); return }
-    // Park each badge at 20% along the top edge of its bbox so it sits next
+    // Park each badge at 30% along the top edge of its bbox so it sits next
     // to the object's "shoulder" instead of dead-centre on the artwork.
     const labels = kept.map((it, i) => ({
       type: 'label',
-      x: it.bbox.x + it.bbox.w * 0.2,
+      x: it.bbox.x + it.bbox.w * 0.3,
       y: it.bbox.y,
       text: String(i + 1),
-      color: numbering.color,
+      color,
       size: numberSize,
     }))
     setStrokes(prev => [...prev, ...labels])
     setNumbering(null)
     scheduleSave()
-  }, [numbering, numberSize, minAreaFrac, scheduleSave])
+  }, [numbering, numberSize, minAreaFrac, color, scheduleSave])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -687,9 +686,9 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             <label style={{ color: '#cbd5e1', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               Min
               <input
-                type="range" min="0.0005" max="0.05" step="0.0005" value={minAreaFrac}
+                type="range" min="0.005" max="0.03" step="0.0005" value={minAreaFrac}
                 onChange={e => setMinAreaFrac(parseFloat(e.target.value))}
-                style={{ width: 140 }}
+                style={{ width: 160 }}
                 title="Dimensione minima oggetto"
               />
             </label>
@@ -759,7 +758,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
           {numbering && !numbering.busy && rect.w > 0 && (
             <NumberingPreview
               items={numbering.items}
-              color={numbering.color}
+              color={color}
               size={numberSize}
               minAreaFrac={minAreaFrac}
               rect={rect}
@@ -832,11 +831,11 @@ function NumberingPreview({ items, color, size, minAreaFrac, rect, onToggle }) {
       {items.map((it, i) => {
         if (it.area < minAreaFrac) return null
         const fs = size * rect.w
-        // Match the commit-time position: 20% along the top edge of the bbox.
+        // Match the commit-time position: 30% along the top edge of the bbox.
         const bx = it.bbox?.x ?? it.x
         const by = it.bbox?.y ?? it.y
         const bw = it.bbox?.w ?? 0
-        const cx = (bx + bw * 0.2) * rect.w
+        const cx = (bx + bw * 0.3) * rect.w
         const cy = by * rect.h
         const txt = it.kept ? String(++visible) : '×'
         const padX = fs * 0.5
