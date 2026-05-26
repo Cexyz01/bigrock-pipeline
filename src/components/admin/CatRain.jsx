@@ -92,7 +92,7 @@ export default function CatRain() {
 
     const spawn = () => {
       if (cats.length >= maxCats) return
-      const size = 28 + Math.random() * 18
+      const size = 28 + Math.random() * 32
       const r = size * 0.42 // hitbox a touch smaller than visual
       // Try a few x positions: skip if spawn point is already blocked
       // (this is what makes the rain *stop* once the pile reaches the top).
