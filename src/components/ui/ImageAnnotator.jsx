@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import Img from './Img'
 import { AnnotationOverlay } from './AnnotatedImage'
 import { useImageAnnotation } from '../../hooks/useImageAnnotations'
+import { detectObjects } from '../../lib/detectObjects'
 
 // Fullscreen pen-on-image editor. Opens over the current page (no nav). Pen
 // strokes are stored in normalised [0..1] of the image's natural size so they
@@ -38,6 +39,14 @@ function pointNearSegment(px, py, ax, ay, bx, by, r) {
 // "brush eraser" feel from the creative storyboard — gaps cut a stroke into
 // two instead of nuking the whole thing.
 function eraseStrokeAtPoint(stroke, ex, ey, r) {
+  // Label badges are atomic — within reach of the eraser, the whole thing dies.
+  if (stroke.type === 'label') {
+    const labelR = (stroke.size || 0.045) * 0.75
+    const dx = stroke.x - ex, dy = stroke.y - ey
+    const reach = r + labelR
+    if (dx * dx + dy * dy <= reach * reach) return []
+    return [stroke]
+  }
   const pts = stroke.points || []
   if (pts.length === 0) return [stroke]
   const r2 = r * r
@@ -534,6 +543,64 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     onClose?.()
   }
 
+  // ── Auto-numbering ────────────────────────────────────────────────────────
+  // Detects roughly-disjoint objects in the image and lets the user commit
+  // numbered badges over them. Preview-first UX: badges are shown over the
+  // image, clicking one removes it (renumbering the rest), then Conferma
+  // commits them as `type: 'label'` strokes. Confidence: pretty good for
+  // turnarounds / asset sheets on flat backgrounds, mediocre for busy scenes.
+  const [numbering, setNumbering] = useState(null)  // null | { items, color, busy }
+  const [numberSize, setNumberSize] = useState(0.045) // font size, fraction of image width
+  const numberingActive = !!numbering && !numbering.busy
+
+  const runDetect = useCallback(async () => {
+    setNumbering({ items: [], color, busy: true })
+    try {
+      const items = await detectObjects(src)
+      if (!items.length) {
+        addToast?.('Nessun oggetto rilevato. Prova a regolare lo sfondo o numera a mano.', 'warn')
+        setNumbering(null)
+        return
+      }
+      setNumbering({
+        items: items.map(it => ({ ...it, kept: true })),
+        color,
+        busy: false,
+      })
+    } catch (err) {
+      console.error('detectObjects failed', err)
+      addToast?.('Impossibile analizzare l\'immagine (CORS?)', 'danger')
+      setNumbering(null)
+    }
+  }, [src, color, addToast])
+
+  const toggleKeep = useCallback((idx) => {
+    setNumbering(n => {
+      if (!n) return n
+      const items = n.items.slice()
+      items[idx] = { ...items[idx], kept: !items[idx].kept }
+      return { ...n, items }
+    })
+  }, [])
+
+  const cancelNumbering = useCallback(() => setNumbering(null), [])
+
+  const confirmNumbering = useCallback(() => {
+    if (!numbering) return
+    const kept = numbering.items.filter(it => it.kept)
+    if (kept.length === 0) { setNumbering(null); return }
+    const labels = kept.map((it, i) => ({
+      type: 'label',
+      x: it.x, y: it.y,
+      text: String(i + 1),
+      color: numbering.color,
+      size: numberSize,
+    }))
+    setStrokes(prev => [...prev, ...labels])
+    setNumbering(null)
+    scheduleSave()
+  }, [numbering, numberSize, scheduleSave])
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') handleClose()
@@ -595,6 +662,22 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             : saveState === 'saved' ? '✓ Salvato'
             : ''}
         </span>
+        {numbering ? (
+          <>
+            <button
+              onClick={confirmNumbering}
+              disabled={numbering.busy}
+              style={{ ...toolBtnStyle(true), background: '#16a34a', borderColor: '#16a34a' }}
+            >
+              ✓ Conferma ({numbering.items.filter(it => it.kept).length})
+            </button>
+            <button onClick={cancelNumbering} style={toolBtnStyle(false)}>✕ Annulla</button>
+          </>
+        ) : (
+          <button onClick={runDetect} title="Rileva e numera gli oggetti" style={toolBtnStyle(false)}>
+            🔢 Numera
+          </button>
+        )}
         <button onClick={undo} style={toolBtnStyle(false)}>↶ Undo</button>
         <button onClick={clearAll} style={toolBtnStyle(false)}>🗑 Pulisci</button>
         <button onClick={resetZoom} title="Reset zoom (1:1)" style={toolBtnStyle(false)}>⌖ 1:1</button>
@@ -651,7 +734,34 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             </div>
           )}
           <AnnotationOverlay strokes={strokes} rect={rect} />
+          {numbering && !numbering.busy && rect.w > 0 && (
+            <NumberingPreview
+              items={numbering.items}
+              color={numbering.color}
+              size={numberSize}
+              rect={rect}
+              onToggle={toggleKeep}
+            />
+          )}
         </div>
+        {numbering?.busy && (
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(0,0,0,0.7)', color: '#fff',
+            padding: '14px 22px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 10,
+            pointerEvents: 'none',
+          }}>
+            <span style={{
+              width: 16, height: 16, borderRadius: '50%',
+              border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+            Analisi in corso…
+          </div>
+        )}
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
         {/* Hidden img for natural-size detection (so rect math works even before
             the visible img has rendered into its computed slot). */}
         <img
@@ -675,6 +785,62 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       </div>
     </div>,
     document.body,
+  )
+}
+
+function NumberingPreview({ items, color, size, rect, onToggle }) {
+  // Live preview of the auto-numbering candidates. Each badge is clickable to
+  // toggle inclusion; the visible number is computed from the surviving items
+  // so removing #3 collapses the rest, no gaps in the sequence.
+  let visible = 0
+  return (
+    <svg
+      width={rect.w}
+      height={rect.h}
+      style={{
+        position: 'absolute',
+        left: rect.x, top: rect.y,
+        pointerEvents: 'none',
+        overflow: 'visible',
+      }}
+    >
+      {items.map((it, i) => {
+        const cx = it.x * rect.w, cy = it.y * rect.h
+        const fs = size * rect.w
+        const txt = it.kept ? String(++visible) : '×'
+        const padX = fs * 0.5
+        const halfW = Math.max(fs * 0.7, fs * 0.35 * txt.length + padX)
+        const halfH = fs * 0.7
+        return (
+          <g
+            key={i}
+            onClick={(e) => { e.stopPropagation(); onToggle(i) }}
+            onPointerDown={(e) => { e.stopPropagation() }}
+            style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+          >
+            <rect
+              x={cx - halfW} y={cy - halfH}
+              width={halfW * 2} height={halfH * 2}
+              rx={halfH} ry={halfH}
+              fill={it.kept ? 'rgba(255,255,255,0.94)' : 'rgba(120,120,120,0.55)'}
+              stroke={it.kept ? color : '#94a3b8'}
+              strokeWidth={fs * 0.12}
+              strokeDasharray={it.kept ? undefined : `${fs * 0.2} ${fs * 0.15}`}
+            />
+            <text
+              x={cx} y={cy}
+              fontSize={fs}
+              fill={it.kept ? color : '#cbd5e1'}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontWeight="800"
+              fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
+              style={{ userSelect: 'none' }}
+            >{txt}</text>
+          </g>
+        )
+      })}
+    </svg>
   )
 }
 
