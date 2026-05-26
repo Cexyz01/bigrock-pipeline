@@ -12,9 +12,16 @@ import { IconChevronLeft, IconChevronRight } from './Icons'
 // top of the image so they can see teacher corrections.
 
 export default function ImageLightbox({ src, images, onClose, user, addToast }) {
-  // Build the carousel list. Single-src callers keep working — images defaults
-  // to [src]. Multi-image callers pass `images` + the `src` they clicked on.
-  const list = useMemo(() => (Array.isArray(images) && images.length ? images : (src ? [src] : [])), [images, src])
+  // `src` is the open/closed signal: null/undefined means closed. If we built
+  // `list` from `images` even when `src` was null, the lightbox would mount
+  // itself on first render of any WIP that had images (no click required) and
+  // — for staff — the annotator would take over the page with no way back.
+  // Single-src callers keep working: images defaults to [src]. Multi-image
+  // callers pass `images` + the `src` they clicked on for the starting index.
+  const list = useMemo(() => {
+    if (!src) return []
+    return Array.isArray(images) && images.length ? images : [src]
+  }, [images, src])
   const initialIdx = useMemo(() => {
     if (!src) return 0
     const i = list.indexOf(src)
