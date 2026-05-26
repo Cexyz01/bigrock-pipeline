@@ -828,7 +828,7 @@ function NumberingPreview({ items, color, size, rect, onToggle }) {
               x={cx - halfW} y={cy - halfH}
               width={halfW * 2} height={halfH * 2}
               rx={halfH} ry={halfH}
-              fill={it.kept ? 'rgba(255,255,255,0.94)' : 'rgba(120,120,120,0.55)'}
+              fill="transparent"
               stroke={it.kept ? color : '#94a3b8'}
               strokeWidth={fs * 0.12}
               strokeDasharray={it.kept ? undefined : `${fs * 0.2} ${fs * 0.15}`}

@@ -64,7 +64,7 @@ export function AnnotationOverlay({ strokes, rect }) {
                 x={cx - halfW} y={cy - halfH}
                 width={halfW * 2} height={halfH * 2}
                 rx={halfH} ry={halfH}
-                fill="rgba(255,255,255,0.94)"
+                fill="none"
                 stroke={stroke}
                 strokeWidth={fs * 0.12}
               />
