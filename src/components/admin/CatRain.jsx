@@ -63,7 +63,16 @@ export default function CatRain() {
     const SPAWN_MS = tier === 'low' ? 320 : 160
     // Safety ceiling only — the real gate is the "spawn point blocked" check
     // below, so rain naturally stops when the pile fills the screen.
-    const HARD_CEILING = tier === 'low' ? 600 : 1500
+    // Scale with viewport area so big monitors don't get capped at half-full.
+    const computeCeiling = () => {
+      const avgCellArea = 44 * 44 * 0.7 // approx packed area per cat
+      const fromArea = Math.floor((W * H) / avgCellArea) + 200
+      const hardMax = tier === 'low' ? 2200 : 5000
+      return Math.min(hardMax, Math.max(400, fromArea))
+    }
+    let HARD_CEILING = computeCeiling()
+    const onResizeCeiling = () => { HARD_CEILING = computeCeiling() }
+    window.addEventListener('resize', onResizeCeiling)
 
     const cats = []
     let running = true
@@ -375,6 +384,7 @@ export default function CatRain() {
       running = false
       window.removeEventListener('resize', resize)
       window.removeEventListener('resize', recomputeGrid)
+      window.removeEventListener('resize', onResizeCeiling)
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseout', onMouseLeave)
       window.removeEventListener('blur', onMouseLeave)
