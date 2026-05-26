@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-// Twemoji turtle (MIT). Default orientation: head on the +x side (faces right),
+// Twemoji turtle (MIT). Default orientation: head on the -x side (faces LEFT),
 // belly on the +y side (down). All edge transforms below are derived from that.
 const TURTLE_SRC = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.0/assets/svg/1f422.svg'
 
@@ -32,11 +32,14 @@ function injectKeyframes() {
 }
 
 // dir: +1 means walking in the +x (right) or +y (down) direction along the edge.
+// The twemoji SVG faces LEFT by default, so we negate `dir` when picking the
+// rotation — otherwise every turtle would walk backwards relative to its motion.
 function turtleImgTransform(edge, dir) {
-  if (edge === 'bottom') return dir > 0 ? 'rotate(0deg)' : 'scaleX(-1)'
-  if (edge === 'top')    return dir > 0 ? 'scaleY(-1)'   : 'rotate(180deg)'
-  if (edge === 'right')  return dir > 0 ? 'rotate(90deg) scaleY(-1)' : 'rotate(-90deg)'
-  return dir > 0 ? 'rotate(90deg)' : 'rotate(-90deg) scaleY(-1)'
+  const d = -dir
+  if (edge === 'bottom') return d > 0 ? 'rotate(0deg)' : 'scaleX(-1)'
+  if (edge === 'top')    return d > 0 ? 'scaleY(-1)'   : 'rotate(180deg)'
+  if (edge === 'right')  return d > 0 ? 'rotate(90deg) scaleY(-1)' : 'rotate(-90deg)'
+  return d > 0 ? 'rotate(90deg)' : 'rotate(-90deg) scaleY(-1)'
 }
 
 function basePosition(edge, size) {
