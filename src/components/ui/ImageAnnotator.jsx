@@ -550,13 +550,19 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   // commits them as `type: 'label'` strokes. Confidence: pretty good for
   // turnarounds / asset sheets on flat backgrounds, mediocre for busy scenes.
   const [numbering, setNumbering] = useState(null)  // null | { items, color, busy }
-  const [numberSize, setNumberSize] = useState(0.02) // font size, fraction of image width
-  const numberingActive = !!numbering && !numbering.busy
+  const [numberSize, setNumberSize] = useState(0.022) // font size, fraction of image width
+  // Live filter — items below this fraction-of-image-area are dropped from
+  // the preview without re-running detection. The slider in the toolbar
+  // controls it. Detection runs once with a very low floor so the slider can
+  // span the full useful range.
+  const [minAreaFrac, setMinAreaFrac] = useState(0.005)
 
   const runDetect = useCallback(async () => {
     setNumbering({ items: [], color, busy: true })
     try {
-      const items = await detectObjects(src)
+      // Cast a wide net — the UI slider trims false positives without needing
+      // to re-run the pipeline.
+      const items = await detectObjects(src, { minAreaFrac: 0.0005 })
       if (!items.length) {
         addToast?.('Nessun oggetto rilevato. Prova a regolare lo sfondo o numera a mano.', 'warn')
         setNumbering(null)
@@ -585,17 +591,20 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
 
   const cancelNumbering = useCallback(() => setNumbering(null), [])
 
+  const visibleNumberingCount = numbering
+    ? numbering.items.filter(it => it.kept && it.area >= minAreaFrac).length
+    : 0
+
   const confirmNumbering = useCallback(() => {
     if (!numbering) return
-    const kept = numbering.items.filter(it => it.kept)
+    const kept = numbering.items.filter(it => it.kept && it.area >= minAreaFrac)
     if (kept.length === 0) { setNumbering(null); return }
-    // Park each badge in the top-left corner of its bbox with a small inset
-    // so it nests against the object instead of stamping over its centre.
-    const inset = numberSize * 0.8
+    // Park each badge at 20% along the top edge of its bbox so it sits next
+    // to the object's "shoulder" instead of dead-centre on the artwork.
     const labels = kept.map((it, i) => ({
       type: 'label',
-      x: it.bbox.x + inset,
-      y: it.bbox.y + inset,
+      x: it.bbox.x + it.bbox.w * 0.2,
+      y: it.bbox.y,
       text: String(i + 1),
       color: numbering.color,
       size: numberSize,
@@ -603,7 +612,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     setStrokes(prev => [...prev, ...labels])
     setNumbering(null)
     scheduleSave()
-  }, [numbering, numberSize, scheduleSave])
+  }, [numbering, numberSize, minAreaFrac, scheduleSave])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -673,8 +682,17 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
               disabled={numbering.busy}
               style={{ ...toolBtnStyle(true), background: '#16a34a', borderColor: '#16a34a' }}
             >
-              ✓ Conferma ({numbering.items.filter(it => it.kept).length})
+              ✓ Conferma ({visibleNumberingCount})
             </button>
+            <label style={{ color: '#cbd5e1', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              Min
+              <input
+                type="range" min="0.0005" max="0.05" step="0.0005" value={minAreaFrac}
+                onChange={e => setMinAreaFrac(parseFloat(e.target.value))}
+                style={{ width: 140 }}
+                title="Dimensione minima oggetto"
+              />
+            </label>
             <button onClick={cancelNumbering} style={toolBtnStyle(false)}>✕ Annulla</button>
           </>
         ) : (
@@ -743,6 +761,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
               items={numbering.items}
               color={numbering.color}
               size={numberSize}
+              minAreaFrac={minAreaFrac}
               rect={rect}
               onToggle={toggleKeep}
             />
@@ -792,10 +811,12 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   )
 }
 
-function NumberingPreview({ items, color, size, rect, onToggle }) {
+function NumberingPreview({ items, color, size, minAreaFrac, rect, onToggle }) {
   // Live preview of the auto-numbering candidates. Each badge is clickable to
   // toggle inclusion; the visible number is computed from the surviving items
-  // so removing #3 collapses the rest, no gaps in the sequence.
+  // so removing #3 collapses the rest, no gaps in the sequence. Items below
+  // the area threshold are hidden entirely (slider-driven false-positive
+  // pruning).
   let visible = 0
   return (
     <svg
@@ -809,10 +830,14 @@ function NumberingPreview({ items, color, size, rect, onToggle }) {
       }}
     >
       {items.map((it, i) => {
+        if (it.area < minAreaFrac) return null
         const fs = size * rect.w
-        const inset = fs * 0.8
-        const cx = (it.bbox?.x ?? it.x) * rect.w + inset
-        const cy = (it.bbox?.y ?? it.y) * rect.h + inset
+        // Match the commit-time position: 20% along the top edge of the bbox.
+        const bx = it.bbox?.x ?? it.x
+        const by = it.bbox?.y ?? it.y
+        const bw = it.bbox?.w ?? 0
+        const cx = (bx + bw * 0.2) * rect.w
+        const cy = by * rect.h
         const txt = it.kept ? String(++visible) : '×'
         const padX = fs * 0.5
         const halfW = Math.max(fs * 0.7, fs * 0.35 * txt.length + padX)
