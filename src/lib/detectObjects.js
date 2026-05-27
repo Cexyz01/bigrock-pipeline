@@ -24,7 +24,15 @@ function loadImageCORS(src) {
     img.crossOrigin = 'anonymous'
     img.onload = () => resolve(img)
     img.onerror = (e) => reject(e)
-    img.src = src
+    // Cache-bust the CORS fetch. Without this, Chrome can return a previously
+    // cached no-CORS response (loaded by the visible <img> tag without
+    // crossorigin) for our crossOrigin='anonymous' request — the cached
+    // response has no Access-Control-Allow-Origin header (R2 only echoes the
+    // request Origin, so a no-origin fetch caches with no CORS), the CORS
+    // check fails, and onerror fires. Worked with Cloudinary because it
+    // always served ACAO:* regardless of Origin.
+    const sep = src.includes('?') ? '&' : '?'
+    img.src = src + sep + 'cors=1'
   })
 }
 
