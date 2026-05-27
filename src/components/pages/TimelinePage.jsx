@@ -28,14 +28,12 @@ const videoThumb = (url, w = 200, h = 112) => {
   return null
 }
 
-// Serve video at 720p via Cloudinary transform
-const video720p = (url) => {
-  if (!url) return null
-  if (url.includes('/upload/')) {
-    return url.replace('/upload/', '/upload/c_limit,h_720,q_auto/')
-  }
-  return url
-}
+// Pre-migration this applied a `c_limit,h_720,q_auto` Cloudinary transform
+// so the player streamed a downscaled copy. R2 has no on-the-fly transforms,
+// so for R2 URLs we just hand back the original — the badge in the header
+// now reflects that honestly (no "(720p)" claim). When/if we ship a
+// transcoded variant in R2 with a naming convention, swap this helper.
+const playableVideoUrl = (url) => url || null
 
 // ── Main Component ──
 export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, onGoToShotTasks }) {
@@ -93,12 +91,27 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const selectedShot = timelineShots.find(s => s.id === selectedShotId) || orderedShots.find(s => s.id === selectedShotId)
 
   // ── Image preloading ──
+  // NOTE: no crossOrigin here on purpose. The player canvas only draws the
+  // image (ctx.drawImage) — it never reads pixels back, so CORS-clean isn't
+  // required for display. Setting crossOrigin='anonymous' was silently
+  // breaking R2 thumbnails when CORS preflight tripped (cached non-CORS
+  // response, mismatched origin alias, etc.) and the canvas got stuck on
+  // "Loading…". The MP4 export path has its own CORS-clean preloader on a
+  // dedicated canvas (see handleExport), so this change doesn't regress it.
   const [imagesLoaded, setImagesLoaded] = useState(0) // triggers redraw when images finish loading
   const preloadImage = useCallback((url) => {
     if (!url || imageCache.current[url]) return
     const img = new Image()
-    img.crossOrigin = 'anonymous'
+    img.decoding = 'async'
     img.onload = () => setImagesLoaded(n => n + 1)
+    img.onerror = (e) => {
+      // Make silent failures observable. The image stays in the cache as a
+      // "tried" marker so we don't loop-preload it, but mark it errored so
+      // drawFrame can show a graceful placeholder instead of "Loading…".
+      img.dataset.errored = '1'
+      console.warn('[TimelinePage] image preload failed:', url, e?.type || '')
+      setImagesLoaded(n => n + 1)
+    }
     img.src = thumbUrl(url)
     imageCache.current[url] = img
   }, [])
@@ -126,8 +139,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
 
     uniqueUrls.forEach(originalUrl => {
       if (videoPreloadCache.current[originalUrl]) return
-      const src = video720p(originalUrl)
+      const src = playableVideoUrl(originalUrl)
       const vid = document.createElement('video')
+      // crossOrigin is required so the captured frame doesn't taint the
+      // <canvas> below (toBlob would silently emit null on a tainted canvas).
+      // R2 returns Access-Control-Allow-Origin for our deployed origins.
+      vid.crossOrigin = 'anonymous'
       vid.preload = 'auto'
       vid.muted = true
       vid.src = src
@@ -145,6 +162,45 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       vid.addEventListener('canplaythrough', onCanPlay)
       vid.addEventListener('error', onError)
       vid.load()
+
+      // Grab a poster (first-frame thumbnail) from the preloaded video and
+      // park it in imageCache under the video URL so getShotThumb/<Img> can
+      // render the same way image shots do. This replaces what videoThumb()
+      // used to provide via Cloudinary's so_0,f_jpg transform — R2 doesn't
+      // do server-side transforms, so we generate it client-side from the
+      // video element we already have buffered.
+      const captureFrame = () => {
+        try {
+          if (imageCache.current[originalUrl]) return
+          const c = document.createElement('canvas')
+          c.width = 320
+          c.height = Math.round(320 * (vid.videoHeight / vid.videoWidth)) || 180
+          c.getContext('2d')?.drawImage(vid, 0, 0, c.width, c.height)
+          // Convert to a blob URL so <Img> can consume it like a normal src.
+          c.toBlob(blob => {
+            if (!blob) return
+            const dataUrl = URL.createObjectURL(blob)
+            const img = new Image()
+            img.onload = () => setImagesLoaded(n => n + 1)
+            img.src = dataUrl
+            imageCache.current[originalUrl] = img
+          }, 'image/jpeg', 0.7)
+        } catch (e) {
+          console.warn('[TimelinePage] poster capture failed for', originalUrl, e)
+        }
+      }
+      const onSeeked = () => { captureFrame(); vid.removeEventListener('seeked', onSeeked) }
+      const onLoadedData = () => {
+        vid.removeEventListener('loadeddata', onLoadedData)
+        // Seek slightly past 0 because some codecs render a black frame at t=0.
+        try {
+          vid.addEventListener('seeked', onSeeked)
+          vid.currentTime = 0.1
+        } catch {
+          captureFrame()
+        }
+      }
+      vid.addEventListener('loadeddata', onLoadedData)
     })
   }, [timelineShots])
 
@@ -155,13 +211,24 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     return { url, type: 'image' }
   }, [])
 
-  // Get thumbnail for any shot (image or video first frame)
+  // Get thumbnail for any shot (image or video first frame).
+  // For video URLs: prefer the client-generated poster blob if the preload
+  // already captured one, otherwise try the Cloudinary so_0 transform
+  // (works for legacy /upload/ URLs only — returns null on R2), and only
+  // fall back to no-poster if neither path produced one.
+  // `imagesLoaded` is in the dep list so the strip re-renders the moment a
+  // freshly-captured video poster lands in imageCache.
   const getShotThumb = useCallback((shot) => {
     const url = shot?.output_cloud_url || shot?.ref_cloud_url || shot?.concept_image_url
     if (!url) return null
-    if (isVideoUrl(url)) return videoThumb(url)
+    if (isVideoUrl(url)) {
+      const cached = imageCache.current[url]
+      if (cached?.src) return cached.src
+      return videoThumb(url)
+    }
     return smallThumb(url)
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imagesLoaded])
 
   // ── Canvas drawing ──
   const drawFrame = useCallback((frame) => {
@@ -191,6 +258,15 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         const scale = Math.min(cw / iw, ch / ih)
         const dw = iw * scale, dh = ih * scale
         ctx.drawImage(cached, (cw - dw) / 2, (ch - dh) / 2, dw, dh)
+      } else if (cached && cached.dataset?.errored === '1') {
+        // Surface the failure visually instead of leaving "Loading…" forever.
+        ctx.fillStyle = '#7F1D1D'
+        ctx.font = 'bold 18px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('Immagine non disponibile', canvas.width / 2, canvas.height / 2 - 10)
+        ctx.fillStyle = '#94A3B8'
+        ctx.font = '12px monospace'
+        ctx.fillText(url.length > 80 ? '…' + url.slice(-78) : url, canvas.width / 2, canvas.height / 2 + 14)
       } else {
         ctx.fillStyle = '#333'
         ctx.font = '20px sans-serif'
@@ -235,19 +311,13 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     const vid = videoRef.current
     if (!vid) return
     if (currentVideoUrl) {
-      const src720 = video720p(currentVideoUrl)
+      const playSrc = playableVideoUrl(currentVideoUrl)
       if (vid.dataset.loadedUrl !== currentVideoUrl) {
         vid.dataset.loadedUrl = currentVideoUrl
-        // Use preloaded video's src (same URL, browser cache hit)
-        const preloaded = videoPreloadCache.current[currentVideoUrl]
-        if (preloaded && preloaded.readyState >= 3) {
-          // Browser has this URL cached from preload — just set src
-          vid.src = src720
-          vid.load()
-        } else {
-          vid.src = src720
-          vid.load()
-        }
+        // Hidden preloader buffered the same URL into HTTP cache; the visible
+        // element will hit it on its own load().
+        vid.src = playSrc
+        vid.load()
       }
       const { localFrame } = getShotAtFrame(currentFrame)
       const targetTime = localFrame / fps
@@ -394,7 +464,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           vid.crossOrigin = 'anonymous'
           vid.preload = 'auto'
           vid.muted = true
-          vid.src = video720p(origUrl)
+          vid.src = playableVideoUrl(origUrl)
           await new Promise((resolve) => {
             const onReady = () => { vid.removeEventListener('canplaythrough', onReady); resolve() }
             const onErr = () => { vid.removeEventListener('error', onErr); resolve() }
@@ -640,7 +710,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             </span>
           )}
           {videoPreloadInfo.total > 0 && videoPreloadInfo.allReady && (
-            <span style={{ fontSize: 10, color: '#22C55E' }}>Video pronti (720p)</span>
+            <span style={{ fontSize: 10, color: '#22C55E' }}>Video pronti</span>
           )}
           <div style={{ display: 'flex', background: '#1E293B', borderRadius: 6, padding: 2 }}>
             {[{ id: 'player', label: 'Player' }, { id: 'table', label: 'Tabella' }].map(t => (
@@ -733,7 +803,11 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                     const editVal = tableDurations[shot.id]
                     const isEditing = editVal !== undefined
                     const imgUrl = shot.output_cloud_url || shot.ref_cloud_url || shot.concept_image_url
-                    const thumbSrc = imgUrl ? (isVideoUrl(imgUrl) ? videoThumb(imgUrl) : smallThumb(imgUrl)) : null
+                    const thumbSrc = imgUrl
+                      ? (isVideoUrl(imgUrl)
+                          ? (imageCache.current[imgUrl]?.src || videoThumb(imgUrl))
+                          : smallThumb(imgUrl))
+                      : null
                     rows.push(
                       <tr key={shot.id} style={{ borderBottom: '1px solid #1E293B', background: globalIdx % 2 === 0 ? '#111827' : 'transparent', opacity: shot.timeline_enabled === false ? 0.4 : 1 }}>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
@@ -1001,8 +1075,13 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
               return (
                 <div
                   key={shot.id}
-                  onClick={() => selectShot(shot.id)}
-                  onDoubleClick={() => { selectShot(shot.id); jumpToShot(shot.id) }}
+                  // Single click = select + jump to the shot's first frame + pause.
+                  // Previously this required a double-click; users expected the
+                  // strip thumbnails to behave like chapter markers, so we
+                  // promoted the jump+pause to the primary action. Double-click
+                  // is kept as an alias for muscle-memory.
+                  onClick={() => { selectShot(shot.id); jumpToShot(shot.id); setPlaying(false) }}
+                  onDoubleClick={() => { selectShot(shot.id); jumpToShot(shot.id); setPlaying(false) }}
                   style={{
                     flex: `${pct} 0 0%`, minWidth: 50,
                     borderRight: '1px solid #1E293B',
