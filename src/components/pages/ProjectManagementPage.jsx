@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { isAdmin, isStaff, hasPermission, ACCENT, DEPTS, PERMISSION_CATALOG, ALL_PERMISSION_IDS, displayRole, SUPER_ADMIN_EMAILS } from '../../lib/constants'
 import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole, preregStudent, getMaintenanceMode, setMaintenanceMode } from '../../lib/supabase'
-import { getCloudinaryUsage } from '../../lib/miro'
+import { getR2Usage } from '../../lib/miro'
 import Btn from '../ui/Btn'
 import Modal from '../ui/Modal'
 import Input from '../ui/Input'
@@ -689,7 +689,7 @@ function AdminTab({ user, profiles, addToast, requestConfirm }) {
   return (
     <>
       <div style={{ marginBottom: 20 }}>
-        <CloudinaryUsageCard addToast={addToast} />
+        <R2UsageCard addToast={addToast} />
       </div>
       {userIsAdmin && (
         <div style={{ marginBottom: 20 }}>
@@ -724,31 +724,50 @@ function AdminTab({ user, profiles, addToast, requestConfirm }) {
 }
 
 // ═══════════════════════════════════════════════
-// CLOUDINARY USAGE CARD
+// R2 USAGE CARD — Cloudflare R2 storage stats (replaced Cloudinary)
 // ═══════════════════════════════════════════════
 
-function CloudinaryUsageCard({ addToast }) {
+// Human labels for top-level R2 prefixes. Anything else gets its raw
+// prefix name (useful if we ever add a new content type).
+const R2_PREFIX_LABELS = {
+  'cards': 'Carte TCG',
+  'wip': 'WIP updates',
+  'concepts': 'Concept shot',
+  'outputs': 'Output shot',
+  'timeline': 'Timeline audio/video',
+  'stickers': 'Storyboard stickers',
+  'avatars': 'Avatar profili',
+  'cloudinary': 'Migrati da Cloudinary',
+  '(root)': 'Altri',
+}
+
+function R2UsageCard({ addToast }) {
   const [usage, setUsage] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const load = async () => {
     setLoading(true); setError(null)
-    const { data, error } = await getCloudinaryUsage()
+    const { data, error } = await getR2Usage()
     setLoading(false)
-    if (error) { setError(error); return }
+    if (error) { setError(typeof error === 'string' ? error : error.message || JSON.stringify(error)); return }
     setUsage(data)
   }
 
   useEffect(() => { load() }, [])
 
+  // Sort prefixes by size desc
+  const prefixEntries = usage
+    ? Object.entries(usage.by_prefix || {}).sort((a, b) => b[1].bytes - a[1].bytes)
+    : []
+
   return (
     <Card>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>Cloudinary</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>Cloudflare R2</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
-            Stato di utilizzo del piano — serve per capire quando fare upgrade
+            Storage media del sito — bandwidth gratis, $0.015/GB-mese oltre il free tier
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -775,41 +794,107 @@ function CloudinaryUsageCard({ addToast }) {
 
       {usage && (
         <>
-          <CreditsBar credits={usage.credits} />
+          <StorageBar usedBytes={usage.total_bytes} freeTierGb={usage.free_tier_gb} />
+
           <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Breakdown utilizzo
+            Statistiche bucket
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <MiniStat
-              label="Storage"
-              primary={formatBytes(usage.storage?.usage)}
-              secondary={`${formatCredits(usage.storage?.credits_usage)} crediti`}
+              label="Storage totale"
+              primary={formatBytes(usage.total_bytes)}
+              secondary={`${usage.used_gb} GB / ${usage.free_tier_gb} GB free`}
             />
             <MiniStat
-              label="Bandwidth (mese)"
-              primary={formatBytes(usage.bandwidth?.usage)}
-              secondary={`${formatCredits(usage.bandwidth?.credits_usage)} crediti`}
+              label="Oggetti"
+              primary={formatNumber(usage.total_objects)}
+              secondary="file caricati"
             />
             <MiniStat
-              label="Transformations (mese)"
-              primary={formatNumber(usage.transformations?.usage)}
-              secondary={`${formatCredits(usage.transformations?.credits_usage)} crediti`}
+              label="Costo mensile stimato"
+              primary={usage.est_monthly_cost_usd === 0 ? '$0.00' : `$${usage.est_monthly_cost_usd.toFixed(2)}`}
+              secondary={usage.billable_gb > 0 ? `${usage.billable_gb.toFixed(2)} GB oltre il free tier` : 'dentro il free tier'}
             />
             <MiniStat
-              label="Risorse totali"
-              primary={formatNumber(usage.resources)}
-              secondary={`${formatNumber(usage.derived_resources)} derivate`}
+              label="Bandwidth"
+              primary="Gratis"
+              secondary="zero egress fees"
             />
+          </div>
+
+          {prefixEntries.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Breakdown per categoria
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {prefixEntries.map(([prefix, info]) => {
+                  const pct = usage.total_bytes > 0 ? (info.bytes / usage.total_bytes) * 100 : 0
+                  return (
+                    <PrefixRow
+                      key={prefix}
+                      label={R2_PREFIX_LABELS[prefix] || prefix}
+                      sub={`${prefix}/`}
+                      bytes={info.bytes}
+                      count={info.count}
+                      pct={pct}
+                    />
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 14 }}>
+            Bucket: <code style={{ fontFamily: 'monospace', background: '#F1F5F9', padding: '1px 6px', borderRadius: 4 }}>{usage.bucket}</code> · Ultimo scan: {new Date(usage.last_updated).toLocaleString('it-IT')}
           </div>
         </>
       )}
-
-      {usage?.last_updated && (
-        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 12 }}>
-          Ultimo aggiornamento Cloudinary: {usage.last_updated}
-        </div>
-      )}
     </Card>
+  )
+}
+
+function StorageBar({ usedBytes, freeTierGb }) {
+  const usedGb = (usedBytes || 0) / (1024 * 1024 * 1024)
+  const pct = Math.min(100, (usedGb / freeTierGb) * 100)
+  const barColor = pct >= 90 ? '#DC2626' : pct >= 70 ? '#F59E0B' : ACCENT
+  const hint = pct >= 90 ? 'Free tier quasi saturo — comincerai a pagare $0.015/GB-mese sull\'eccedenza'
+    : pct >= 70 ? 'Attenzione: ti stai avvicinando al limite gratuito di 10 GB'
+    : 'Utilizzo nella norma — bandwidth e operazioni sono gratis'
+  return (
+    <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B' }}>STORAGE</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
+            {formatBytes(usedBytes)} <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 14 }}>/ {freeTierGb} GB free</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: barColor }}>{pct.toFixed(2)}%</div>
+      </div>
+      <div style={{ height: 8, background: '#E8ECF1', borderRadius: 999, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: barColor, transition: 'width 0.3s' }} />
+      </div>
+      <div style={{ fontSize: 11, color: barColor, marginTop: 8, fontWeight: 500 }}>{hint}</div>
+    </div>
+  )
+}
+
+function PrefixRow({ label, sub, bytes, count, pct }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: '#F8FAFC', borderRadius: 8 }}>
+      <div style={{ flex: '0 0 180px', minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+        <div style={{ fontSize: 10, color: '#94A3B8', fontFamily: 'monospace' }}>{sub}</div>
+      </div>
+      <div style={{ flex: 1, position: 'relative', height: 6, background: '#E8ECF1', borderRadius: 999, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: ACCENT, borderRadius: 999, transition: 'width 0.3s' }} />
+      </div>
+      <div style={{ flex: '0 0 auto', textAlign: 'right', minWidth: 110 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a1a' }}>{formatBytes(bytes)}</div>
+        <div style={{ fontSize: 10, color: '#94A3B8' }}>{formatNumber(count)} file · {pct.toFixed(1)}%</div>
+      </div>
+    </div>
   )
 }
 
@@ -876,33 +961,6 @@ function MaintenanceModeCard({ addToast, requestConfirm }) {
   )
 }
 
-function CreditsBar({ credits }) {
-  const used = credits?.usage ?? 0
-  const limit = credits?.limit ?? 25
-  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
-  const barColor = pct >= 90 ? '#DC2626' : pct >= 70 ? '#F59E0B' : ACCENT
-  const hint = pct >= 90 ? 'Piano quasi saturo — valuta upgrade'
-    : pct >= 70 ? 'Attenzione: utilizzo elevato'
-    : 'Utilizzo nella norma'
-  return (
-    <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '14px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748B' }}>CREDITI MENSILI</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
-            {formatCredits(used)} <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 14 }}>/ {limit}</span>
-          </div>
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: barColor }}>{pct.toFixed(1)}%</div>
-      </div>
-      <div style={{ height: 8, background: '#E8ECF1', borderRadius: 999, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: barColor, transition: 'width 0.3s' }} />
-      </div>
-      <div style={{ fontSize: 11, color: barColor, marginTop: 8, fontWeight: 500 }}>{hint}</div>
-    </div>
-  )
-}
-
 function MiniStat({ label, primary, secondary }) {
   return (
     <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
@@ -924,11 +982,6 @@ function formatBytes(b) {
 function formatNumber(n) {
   if (n == null) return '—'
   return n.toLocaleString('it-IT')
-}
-
-function formatCredits(c) {
-  if (c == null) return '—'
-  return Number(c).toFixed(2)
 }
 
 // ═══════════════════════════════════════════════

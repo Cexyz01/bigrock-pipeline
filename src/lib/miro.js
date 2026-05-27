@@ -120,6 +120,12 @@ export async function getCloudinaryUsage() {
   return callMiroSync({ action: 'cloudinary_usage' })
 }
 
+// Get R2 bucket usage (scans the bucket via S3 ListObjectsV2 and aggregates
+// total bytes, object count, and bytes-per-top-level-prefix).
+export async function getR2Usage() {
+  return callMiroSync({ action: 'r2_usage' })
+}
+
 // Convert a File to base64 data URL string
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {

@@ -1011,6 +1011,96 @@ async function handleR2SignUpload(params: any) {
   })
 }
 
+// ══════════════════════════════════════════════════════════════
+// R2 USAGE — scan the bucket via ListObjectsV2 and aggregate stats
+// for the Manager page. No Cloudflare Analytics call yet (would need
+// a separate API token); operations counts (Class A/B) are not
+// reported. Storage breakdown by top-level prefix.
+// ══════════════════════════════════════════════════════════════
+
+// Minimal XML helpers — R2's S3 list endpoint always returns XML.
+function xmlMatchAll(xml: string, tag: string): string[] {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "g")
+  const out: string[] = []
+  let m
+  while ((m = re.exec(xml)) !== null) out.push(m[1])
+  return out
+}
+function xmlFirst(xml: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`)
+  const m = re.exec(xml)
+  return m ? m[1] : null
+}
+
+async function handleR2Usage() {
+  if (!r2 || !R2_BUCKET || !R2_ENDPOINT) return err("R2 not configured", 500)
+
+  let totalBytes = 0
+  let totalObjects = 0
+  const byPrefix: Record<string, { bytes: number, count: number }> = {}
+  let continuationToken: string | undefined = undefined
+  let pages = 0
+
+  // Hard cap to avoid runaway: 50 pages × 1000 = 50k objects.
+  while (pages < 50) {
+    pages++
+    const url = new URL(`${R2_ENDPOINT}/${R2_BUCKET}`)
+    url.searchParams.set("list-type", "2")
+    url.searchParams.set("max-keys", "1000")
+    if (continuationToken) url.searchParams.set("continuation-token", continuationToken)
+
+    const signed = await r2.sign(new Request(url.toString(), { method: "GET" }))
+    const res = await fetch(signed.url, { method: "GET", headers: signed.headers })
+    if (!res.ok) {
+      const body = await res.text()
+      return err(`R2 list failed (${res.status}): ${body.slice(0, 300)}`, 500)
+    }
+    const xml = await res.text()
+
+    // Each <Contents> block contains <Key>, <Size>, <LastModified>, <ETag>.
+    const contents = xmlMatchAll(xml, "Contents")
+    for (const block of contents) {
+      const key = xmlFirst(block, "Key") || ""
+      const sizeStr = xmlFirst(block, "Size") || "0"
+      const size = parseInt(sizeStr, 10) || 0
+      const prefix = key.split("/")[0] || "(root)"
+      totalBytes += size
+      totalObjects++
+      if (!byPrefix[prefix]) byPrefix[prefix] = { bytes: 0, count: 0 }
+      byPrefix[prefix].bytes += size
+      byPrefix[prefix].count++
+    }
+
+    const truncated = (xmlFirst(xml, "IsTruncated") || "false").toLowerCase() === "true"
+    if (!truncated) break
+    continuationToken = xmlFirst(xml, "NextContinuationToken") || undefined
+    if (!continuationToken) break
+  }
+
+  // R2 free-tier limits + per-GB cost beyond free tier.
+  const FREE_GB = 10
+  const COST_PER_GB = 0.015
+  const usedGb = totalBytes / (1024 * 1024 * 1024)
+  const pctFree = (usedGb / FREE_GB) * 100
+  const billableGb = Math.max(0, usedGb - FREE_GB)
+  const estMonthlyCost = +(billableGb * COST_PER_GB).toFixed(2)
+
+  return ok({
+    bucket: R2_BUCKET,
+    total_bytes: totalBytes,
+    total_objects: totalObjects,
+    by_prefix: byPrefix,
+    plan: "Free (10 GB)",
+    free_tier_gb: FREE_GB,
+    used_gb: +usedGb.toFixed(4),
+    pct_free_tier: +pctFree.toFixed(2),
+    billable_gb: +billableGb.toFixed(4),
+    est_monthly_cost_usd: estMonthlyCost,
+    last_updated: new Date().toISOString(),
+    pages_scanned: pages,
+  })
+}
+
 async function handleGetCardUploadSig(_supabase: any, params: any) {
   const { card_number } = params
   if (card_number == null || card_number === "") return err("Missing card_number")
@@ -1405,6 +1495,7 @@ serve(async (req) => {
 
     switch (action) {
       case "r2_sign_upload":    return await handleR2SignUpload(params)
+      case "r2_usage":          return await handleR2Usage()
       case "create_board":      return await handleCreateBoard(supabase, params)
       case "full_sync":         return await handleFullSync(supabase)
       case "fix_sync":          return await handleFixSync(supabase)
