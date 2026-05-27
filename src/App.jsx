@@ -347,6 +347,13 @@ export default function App() {
   }
 
   const handleSelectProject = useCallback((project) => {
+    // Clear project-scoped state so pages don't render the OLD project's
+    // data alongside the NEW project's id — that mismatch was crashing
+    // a page component (no ErrorBoundary) and blanking the whole app
+    // until a manual reload.
+    setShots([]); setAssets([]); setTasks([])
+    setEvents([]); setProjectMembers([])
+    setGanttItems([]); setGanttLanes([]); setProjectPauses([])
     setCurrentProject(project)
     localStorage.setItem('bigrock_current_project', project.id)
     if (user) loadData(user.id, project.id)
@@ -360,6 +367,9 @@ export default function App() {
     // If current project was deleted, select first available
     if (currentProject && !userProjects.find(p => p.id === currentProject.id)) {
       const next = userProjects[0] || null
+      setShots([]); setAssets([]); setTasks([])
+      setEvents([]); setProjectMembers([])
+      setGanttItems([]); setGanttLanes([]); setProjectPauses([])
       setCurrentProject(next)
       if (next) {
         localStorage.setItem('bigrock_current_project', next.id)
