@@ -799,7 +799,9 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             </span>
           )}
           {videoPreloadInfo.total > 0 && videoPreloadInfo.allReady && videoPreloadInfo.errored === 0 && (
-            <span style={{ fontSize: 10, color: '#22C55E' }}>Video pronti</span>
+            <span style={{ fontSize: 10, color: '#22C55E' }}>
+              {videoPreloadInfo.ready} video {videoPreloadInfo.ready === 1 ? 'caricato' : 'caricati'}
+            </span>
           )}
           {videoPreloadInfo.total > 0 && videoPreloadInfo.allReady && videoPreloadInfo.errored > 0 && (
             <span style={{ fontSize: 10, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 4 }}
