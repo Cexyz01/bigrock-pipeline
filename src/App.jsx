@@ -227,6 +227,20 @@ export default function App() {
     return () => { active = false; clearInterval(poll); supabase.removeChannel(ch) }
   }, [])
 
+  // Auto-reload everyone who was locked behind the maintenance screen the
+  // moment an admin flips the flag back off. Forces a fresh JS bundle and a
+  // clean app state so the post-maintenance world is consistent for every
+  // client. Admins/producers (who bypass the gate) never trigger this.
+  const wasShowingMaintenanceRef = useRef(false)
+  useEffect(() => {
+    const canBypass = !!user && (isAdmin(user) || user.role_slug === 'producer' || user.role === 'producer')
+    const showing = !!user && maintenanceMode && !canBypass
+    if (wasShowingMaintenanceRef.current && !showing) {
+      window.location.reload()
+    }
+    wasShowingMaintenanceRef.current = showing
+  }, [maintenanceMode, user])
+
   const loadUser = async (authUser) => {
     let profile = await getProfile(authUser.id)
     if (!profile) {
@@ -1158,7 +1172,8 @@ export default function App() {
   // keep working / toggle the flag back off). Everyone else sees the
   // lockdown screen.
   const canBypassMaintenance = isAdmin(user) || user.role_slug === 'producer' || user.role === 'producer'
-  if (maintenanceMode && !canBypassMaintenance) {
+  const showingMaintenance = maintenanceMode && !canBypassMaintenance
+  if (showingMaintenance) {
     return <MaintenanceScreen onSignOut={signOut} />
   }
 

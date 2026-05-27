@@ -23,10 +23,13 @@ export default function MaintenanceScreen({ onSignOut }) {
         <h1 style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a', margin: '0 0 12px' }}>
           We'll be right back
         </h1>
-        <p style={{ fontSize: 14, color: '#64748B', lineHeight: 1.6, margin: '0 0 28px' }}>
+        <p style={{ fontSize: 14, color: '#64748B', lineHeight: 1.6, margin: '0 0 14px' }}>
           BigRockHub is undergoing scheduled maintenance.
           We're working to bring it back online as soon as possible —
           thank you for your patience.
+        </p>
+        <p style={{ fontSize: 12, color: '#94A3B8', lineHeight: 1.5, margin: '0 0 28px' }}>
+          This page will reload automatically as soon as the site is back.
         </p>
         {onSignOut && (
           <button onClick={onSignOut} style={{
