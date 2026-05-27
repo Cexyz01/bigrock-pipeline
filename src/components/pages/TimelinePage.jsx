@@ -49,6 +49,11 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const [tab, setTab] = useState('player')
   const [tableDurations, setTableDurations] = useState({})
   const [videoPreloadStatus, setVideoPreloadStatus] = useState({}) // { url: 'loading' | 'ready' | 'error' }
+  // Real wall-clock duration (seconds) for each output video URL, populated
+  // from the preload <video>'s `loadedmetadata` event. Used by the sync-frames
+  // button to know whether the shot's duration_frames already matches the
+  // video — green badge when it does, orange when it diverges.
+  const [videoDurations, setVideoDurations] = useState({}) // { url: seconds }
 
   const canvasRef = useRef(null)
   const videoRef = useRef(null)
@@ -275,6 +280,17 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         }
       }
       vid.addEventListener('loadeddata', onLoadedData)
+      // Read the file's real wall-clock duration as soon as the metadata
+      // header lands (cheap — much earlier than loadeddata). Drives the
+      // green/orange tinting of the sync-frames button in the table.
+      const onLoadedMeta = () => {
+        const d = vid.duration
+        if (Number.isFinite(d) && d > 0) {
+          setVideoDurations(prev => prev[originalUrl] === d ? prev : { ...prev, [originalUrl]: d })
+        }
+        vid.removeEventListener('loadedmetadata', onLoadedMeta)
+      }
+      vid.addEventListener('loadedmetadata', onLoadedMeta)
     })
 
     return () => { aborts.forEach(a => { try { a.abort() } catch {} }) }
@@ -940,7 +956,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                 <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 76 }}>Thumb</th>
                 <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left' }}>Shot</th>
                 <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', width: 90 }}>Sequence</th>
-                <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 90 }}>Frames</th>
+                <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 72 }}>Frames</th>
+                <th style={{ padding: '10px 4px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 34 }} title="Sincronizza i frame col video">Sync</th>
                 <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 80 }}>Durata</th>
                 <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 60 }}>Audio</th>
                 <th style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', width: 80 }}>Output</th>
@@ -1020,32 +1037,46 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                               style={{ width: 64, background: '#1E293B', border: `1.5px solid ${ACCENT}`, borderRadius: 5, padding: '5px 8px', color: '#F1F5F9', fontSize: 13, textAlign: 'center', outline: 'none', fontFamily: 'inherit', fontWeight: 600 }}
                             />
                           ) : (
-                            // 3-column grid keeps the duration box rock-steady across
-                            // rows: center column (auto-width) holds the number box, the
-                            // two 1fr side columns balance whitespace around it. The
-                            // optional ⇄ button lives in the right column with
-                            // justify-self:start so it tucks next to the box WITHOUT
-                            // pushing the box off-center.
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', columnGap: 4 }}>
-                              <div />
-                              <span onClick={() => setTableDurations(prev => ({ ...prev, [shot.id]: String(dur) }))}
-                                style={{ cursor: 'pointer', padding: '5px 12px', borderRadius: 5, background: '#1E293B', border: '1px solid #334155', fontSize: 13, fontWeight: 600, color: '#F1F5F9', display: 'inline-block', minWidth: 48, textAlign: 'center' }}
-                                title="Click to edit">{dur}</span>
-                              <div style={{ justifySelf: 'start' }}>
-                                {shot.output_cloud_url && isVideoUrl(shot.output_cloud_url) && (
-                                  <button
-                                    onClick={() => handleMatchDurationToVideo(shot)}
-                                    title={`Imposta la durata di ${shot.code} alla durata reale del video caricato`}
-                                    style={{
-                                      background: 'transparent', border: '1px solid #334155', borderRadius: 5,
-                                      padding: '4px 6px', cursor: 'pointer', color: ACCENT, fontSize: 12,
-                                      fontWeight: 700, lineHeight: 1,
-                                    }}
-                                  >&#8644;</button>
-                                )}
-                              </div>
-                            </div>
+                            <span onClick={() => setTableDurations(prev => ({ ...prev, [shot.id]: String(dur) }))}
+                              style={{ cursor: 'pointer', padding: '5px 12px', borderRadius: 5, background: '#1E293B', border: '1px solid #334155', fontSize: 13, fontWeight: 600, color: '#F1F5F9', display: 'inline-block', minWidth: 48, textAlign: 'center' }}
+                              title="Click to edit">{dur}</span>
                           )}
+                        </td>
+                        {/* Sync column — its own <td> so the FRAMES box above stays
+                            in its own column and is identically positioned across
+                            every row, whether or not this shot has a sync button. */}
+                        <td style={{ padding: '8px 2px', textAlign: 'center', height: 48 }}>
+                          {!isEditing && shot.output_cloud_url && isVideoUrl(shot.output_cloud_url) && (() => {
+                            // Compare current duration_frames against the video's
+                            // real frame count (rounded to nearest frame at the
+                            // current fps). Match → green, mismatch → orange,
+                            // unknown duration (still loading) → neutral.
+                            const vidSec = videoDurations[shot.output_cloud_url]
+                            const vidFrames = vidSec != null ? Math.max(1, Math.round(vidSec * fps)) : null
+                            const known = vidFrames != null
+                            const matches = known && vidFrames === dur
+                            const palette = !known
+                              ? { bg: 'transparent', border: '#334155', color: ACCENT }
+                              : matches
+                                ? { bg: 'rgba(74, 222, 128, 0.18)', border: '#22C55E', color: '#4ADE80' }
+                                : { bg: 'rgba(251, 146, 60, 0.18)', border: '#F97316', color: '#FB923C' }
+                            const tooltip = !known
+                              ? `Imposta la durata di ${shot.code} alla durata reale del video caricato`
+                              : matches
+                                ? `${shot.code}: durata già allineata col video (${vidFrames}f)`
+                                : `${shot.code}: video dura ${vidFrames}f, attuale ${dur}f — click per allineare`
+                            return (
+                              <button
+                                onClick={() => handleMatchDurationToVideo(shot)}
+                                title={tooltip}
+                                style={{
+                                  background: palette.bg, border: `1px solid ${palette.border}`, borderRadius: 5,
+                                  padding: '4px 6px', cursor: 'pointer', color: palette.color, fontSize: 12,
+                                  fontWeight: 700, lineHeight: 1,
+                                }}
+                              >&#8644;</button>
+                            )
+                          })()}
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'center', color: '#CBD5E1', fontSize: 13, fontFamily: 'monospace' }}>{(dur / fps).toFixed(1)}s</td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
@@ -1075,6 +1106,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                       <td colSpan={3} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 700, color: ACCENT }}>{group.seq}</td>
                       <td style={{ padding: '6px 12px', fontSize: 11, color: '#94A3B8' }}>{seqEnabledShots.length}/{group.shots.length} shots</td>
                       <td style={{ padding: '6px 12px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>{seqTotalFrames}</td>
+                      <td />
                       <td style={{ padding: '6px 12px', textAlign: 'center', fontSize: 12, fontWeight: 600, color: ACCENT, fontFamily: 'monospace' }}>{(seqTotalFrames / fps).toFixed(1)}s</td>
                       <td colSpan={2} />
                       <td style={{ padding: '6px 12px', textAlign: 'center', fontSize: 10, color: '#64748B', fontFamily: 'monospace' }}>{seqStartFrame}–{accFrame - 1}</td>
