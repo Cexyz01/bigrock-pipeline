@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20"
 
 // ══════════════════════════════════════════════════════════════
 // CONFIG
@@ -15,6 +16,22 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || ""
 const CLD_CLOUD = Deno.env.get("CLOUDINARY_CLOUD_NAME") || ""
 const CLD_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
 const CLD_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
+
+// ── Cloudflare R2 (new media backend) ─────────────────────────────
+const R2_ACCESS_KEY_ID = Deno.env.get("R2_ACCESS_KEY_ID") || ""
+const R2_SECRET_ACCESS_KEY = Deno.env.get("R2_SECRET_ACCESS_KEY") || ""
+const R2_ENDPOINT = (Deno.env.get("R2_ENDPOINT") || "").replace(/\/$/, "")
+const R2_BUCKET = Deno.env.get("R2_BUCKET") || ""
+const R2_PUBLIC_URL = (Deno.env.get("R2_PUBLIC_URL") || "").replace(/\/$/, "")
+
+const r2 = R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY
+  ? new AwsClient({
+      accessKeyId: R2_ACCESS_KEY_ID,
+      secretAccessKey: R2_SECRET_ACCESS_KEY,
+      service: "s3",
+      region: "auto",
+    })
+  : null
 
 // ══════════════════════════════════════════════════════════════
 // TABLE LAYOUT — Large Excel-like grid inside a Miro Frame
@@ -933,6 +950,67 @@ async function handleCleanup(supabase: any) {
 // CARD IMAGE UPLOAD — Generate signed Cloudinary upload params
 // ══════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════
+// R2 PRESIGNED UPLOAD — single endpoint for every new upload kind.
+// Client posts { kind, ext, content_type, ...metadata }; we return a
+// presigned PUT URL valid for 5 min plus the public URL the client
+// should store in the DB once the upload completes.
+// ══════════════════════════════════════════════════════════════
+
+function randomId(len = 16): string {
+  const bytes = new Uint8Array(len)
+  crypto.getRandomValues(bytes)
+  let s = ""
+  for (const b of bytes) s += b.toString(36).padStart(2, "0").slice(-2)
+  return s.slice(0, len)
+}
+
+function safeExt(ext: string): string {
+  return (ext || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase().slice(0, 6) || "bin"
+}
+
+function r2KeyFor(kind: string, params: any, ext: string): string | null {
+  const e = safeExt(ext)
+  const id = randomId()
+  switch (kind) {
+    case "card":     return params.card_number != null ? `cards/${String(params.card_number).replace(/[^0-9a-zA-Z_-]/g, "")}/${id}.${e}` : null
+    case "wip":      return params.task_id ? `wip/${params.task_id}/${id}.${e}` : null
+    case "concept":  return params.shot_id ? `concepts/${params.shot_id}/${id}.${e}` : null
+    case "output":   return params.shot_id ? `outputs/${params.shot_id}/${id}.${e}` : null
+    case "timeline": return params.shot_id ? `timeline/${params.shot_id}/${id}.${e}` : null
+    case "sticker":  return params.project_id ? `stickers/${params.project_id}/${id}.${e}` : null
+    case "avatar":   return params.user_id ? `avatars/${params.user_id}/${id}.${e}` : null
+    default: return null
+  }
+}
+
+async function handleR2SignUpload(params: any) {
+  if (!r2 || !R2_BUCKET || !R2_ENDPOINT || !R2_PUBLIC_URL) return err("R2 not configured", 500)
+  const { kind, ext, content_type } = params
+  if (!kind) return err("Missing kind")
+  const key = r2KeyFor(kind, params, ext || "")
+  if (!key) return err(`Missing required field for kind=${kind}`)
+
+  // Presigned PUT URL via AWS SigV4 (query-string signature, 5 min TTL).
+  // The Content-Type sent by the client must match what we sign here.
+  const url = new URL(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`)
+  url.searchParams.set("X-Amz-Expires", "300")
+  const signed = await r2.sign(
+    new Request(url.toString(), {
+      method: "PUT",
+      headers: content_type ? { "Content-Type": content_type } : undefined,
+    }),
+    { aws: { signQuery: true } },
+  )
+  return ok({
+    upload_url: signed.url,
+    public_url: `${R2_PUBLIC_URL}/${key}`,
+    key,
+    method: "PUT",
+    headers: content_type ? { "Content-Type": content_type } : {},
+  })
+}
+
 async function handleGetCardUploadSig(_supabase: any, params: any) {
   const { card_number } = params
   if (card_number == null || card_number === "") return err("Missing card_number")
@@ -1326,6 +1404,7 @@ serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     switch (action) {
+      case "r2_sign_upload":    return await handleR2SignUpload(params)
       case "create_board":      return await handleCreateBoard(supabase, params)
       case "full_sync":         return await handleFullSync(supabase)
       case "fix_sync":          return await handleFixSync(supabase)

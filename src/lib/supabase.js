@@ -718,256 +718,86 @@ export async function setProjectEndDate(date) {
 
 // ── Storage ──
 
+// ── R2 upload helper (single code path for every upload kind) ──
+//
+// Asks the Edge Function for a presigned PUT URL, then uploads the file
+// directly to Cloudflare R2. Returns the public URL the caller should
+// persist to the DB. Retries once on transient network errors.
+async function r2Upload(kind, file, meta) {
+  if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+
+  const ext = (file.name?.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'
+  const contentType = file.type || 'application/octet-stream'
+
+  const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+  const { data: { session } } = await supabase.auth.getSession()
+  const authHeader = `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`
+
+  let sigRes
+  try {
+    sigRes = await fetch(sigUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY, 'Authorization': authHeader },
+      body: JSON.stringify({ action: 'r2_sign_upload', kind, ext, content_type: contentType, ...meta }),
+    })
+  } catch (e) {
+    return { url: null, error: { message: 'Network error contacting signer: ' + (e.message || String(e)) } }
+  }
+
+  let sigJson
+  try { sigJson = await sigRes.json() } catch (_) {
+    return { url: null, error: { message: `Signer responded with status ${sigRes.status} but invalid JSON` } }
+  }
+  if (!sigRes.ok || !sigJson?.upload_url || !sigJson?.public_url) {
+    return { url: null, error: { message: sigJson?.error || `Signer error (${sigRes.status})` } }
+  }
+
+  // PUT to R2 with one retry — the network blip case (per
+  // feedback_uploads_must_succeed: uploads are workflow-critical, so we
+  // retry rather than surface a transient failure to the user).
+  let lastErr = null
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const putRes = await fetch(sigJson.upload_url, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file,
+      })
+      if (putRes.ok) return { url: sigJson.public_url, error: null }
+      lastErr = { message: `R2 PUT failed with status ${putRes.status}` }
+    } catch (e) {
+      lastErr = { message: 'R2 PUT network error: ' + (e.message || String(e)) }
+    }
+    if (attempt === 1) await new Promise(r => setTimeout(r, 500))
+  }
+  return { url: null, error: lastErr || { message: 'R2 upload failed' } }
+}
+
 export async function uploadConceptImage(shotId, file) {
-  try {
-    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
-    if (file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
-
-    // Step 1: Get signed upload params from Edge Function
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    const { data: { session } } = await supabase.auth.getSession()
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: shotId }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let sigJson
-    try { sigJson = await sigRes.json() } catch (_) {
-      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
-    }
-    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
-    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
-      return { url: null, error: { message: 'Incomplete signature response — check the Cloudinary credentials in secrets' } }
-    }
-
-    // Step 2: Upload directly to Cloudinary
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    let cloudRes
-    try {
-      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, {
-        method: 'POST', body: fd,
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Cloudinary upload network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let cloudJson
-    try { cloudJson = await cloudRes.json() } catch (_) {
-      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
-    }
-    if (!cloudRes.ok) {
-      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
-      return { url: null, error: { message: 'Cloudinary: ' + msg } }
-    }
-
-    const imageUrl = cloudJson.secure_url
-    if (!imageUrl) return { url: null, error: { message: 'Cloudinary did not return an image URL' } }
-
-    return { url: imageUrl, error: null }
-  } catch (err) {
-    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
-  }
+  if (file && file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
+  return r2Upload('concept', file, { shot_id: shotId })
 }
 
-// Upload output file for a shot (same Cloudinary flow, folder: bigrock-outputs)
 export async function uploadOutputImage(shotId, file) {
-  try {
-    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
-    if (file.size > 30 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 30MB)' } }
-
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: 'get_output_upload_sig', shot_id: shotId }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let sigJson
-    try { sigJson = await sigRes.json() } catch (_) {
-      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
-    }
-    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
-    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
-      return { url: null, error: { message: 'Incomplete signature response' } }
-    }
-
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    // Use auto/upload to support images and video
-    let cloudRes
-    try {
-      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/auto/upload`, {
-        method: 'POST', body: fd,
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Cloudinary upload error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let cloudJson
-    try { cloudJson = await cloudRes.json() } catch (_) {
-      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
-    }
-    if (!cloudRes.ok) {
-      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
-      return { url: null, error: { message: 'Cloudinary: ' + msg } }
-    }
-
-    const fileUrl = cloudJson.secure_url
-    if (!fileUrl) return { url: null, error: { message: 'Cloudinary did not return a URL' } }
-
-    return { url: fileUrl, width: cloudJson.width || null, height: cloudJson.height || null, error: null }
-  } catch (err) {
-    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
-  }
+  if (file && file.size > 30 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 30MB)' } }
+  return r2Upload('output', file, { shot_id: shotId })
 }
 
-// Upload a timeline file (audio/video) for a shot
 export async function uploadTimelineFile(shotId, file) {
-  try {
-    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
-    if (file.size > 20 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 20MB)' } }
-
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: 'get_timeline_upload_sig', shot_id: shotId }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let sigJson
-    try { sigJson = await sigRes.json() } catch (_) {
-      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
-    }
-    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error` } }
-
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    let cloudRes
-    try {
-      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/auto/upload`, {
-        method: 'POST', body: fd,
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Cloudinary upload error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let cloudJson
-    try { cloudJson = await cloudRes.json() } catch (_) {
-      return { url: null, error: { message: `Cloudinary status ${cloudRes.status} invalid JSON` } }
-    }
-    if (!cloudRes.ok) {
-      return { url: null, error: { message: 'Cloudinary: ' + (cloudJson.error?.message || 'Upload failed') } }
-    }
-
-    return { url: cloudJson.secure_url, error: null }
-  } catch (err) {
-    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
-  }
+  if (file && file.size > 20 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 20MB)' } }
+  return r2Upload('timeline', file, { shot_id: shotId })
 }
 
-// Upload a WIP file (image, audio, or video) via Cloudinary auto upload.
-// Cloudinary's auto/upload endpoint handles all three resource types, so this
-// is the right path for any non-image content. Size cap is generous for video.
 export async function uploadWipFile(taskId, file) {
-  try {
-    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
+  if (file) {
     const isVideo = file.type?.startsWith('video/')
     const cap = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024
     if (file.size > cap) {
       const mb = isVideo ? 100 : 10
       return { url: null, error: { message: `File too large (max ${mb}MB)` } }
     }
-
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: 'get_wip_upload_sig', task_id: taskId }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let sigJson
-    try { sigJson = await sigRes.json() } catch (_) {
-      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
-    }
-    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error` } }
-    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
-      return { url: null, error: { message: 'Incomplete signature response' } }
-    }
-
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    // Use auto/upload to handle both images and audio
-    let cloudRes
-    try {
-      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/auto/upload`, {
-        method: 'POST', body: fd,
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Cloudinary upload error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let cloudJson
-    try { cloudJson = await cloudRes.json() } catch (_) {
-      return { url: null, error: { message: `Cloudinary status ${cloudRes.status} invalid JSON` } }
-    }
-    if (!cloudRes.ok) {
-      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed`
-      return { url: null, error: { message: 'Cloudinary: ' + msg } }
-    }
-
-    const fileUrl = cloudJson.secure_url
-    if (!fileUrl) return { url: null, error: { message: 'Cloudinary did not return a URL' } }
-
-    return { url: fileUrl, error: null }
-  } catch (err) {
-    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
   }
+  return r2Upload('wip', file, { task_id: taskId })
 }
 
 // ── Realtime subscriptions ──
@@ -1076,84 +906,13 @@ export async function updatePackCard(cardNumber, updates) {
 }
 
 export async function uploadCardImage(cardNumber, file) {
-  try {
-    // Validate inputs
-    if (cardNumber == null || cardNumber < 0) return { url: null, error: { message: 'Invalid card number' } }
-    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
-    if (file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
-
-    // Step 1: Get signed upload params from Edge Function
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    const { data: { session } } = await supabase.auth.getSession()
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ action: 'get_card_upload_sig', card_number: cardNumber }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error in signature request: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let sigJson
-    try {
-      sigJson = await sigRes.json()
-    } catch (_) {
-      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
-    }
-    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
-    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
-      return { url: null, error: { message: 'Incomplete signature response — check the Cloudinary credentials in secrets' } }
-    }
-
-    // Step 2: Upload directly to Cloudinary
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    let cloudRes
-    try {
-      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, {
-        method: 'POST',
-        body: fd,
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Cloudinary upload network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let cloudJson
-    try {
-      cloudJson = await cloudRes.json()
-    } catch (_) {
-      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
-    }
-    if (!cloudRes.ok) {
-      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
-      return { url: null, error: { message: 'Cloudinary: ' + msg } }
-    }
-
-    const imageUrl = cloudJson.secure_url
-    if (!imageUrl) return { url: null, error: { message: 'Cloudinary did not return an image URL' } }
-
-    // Step 3: Save URL to database
-    const { error: dbErr } = await supabase
-      .from('pack_cards')
-      .update({ image_url: imageUrl })
-      .eq('number', cardNumber)
-    if (dbErr) return { url: imageUrl, error: { message: 'Image uploaded but DB save error: ' + dbErr.message } }
-
-    return { url: imageUrl, error: null }
-  } catch (err) {
-    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
-  }
+  if (cardNumber == null || cardNumber < 0) return { url: null, error: { message: 'Invalid card number' } }
+  if (file && file.size > 10 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 10MB)' } }
+  const { url, error } = await r2Upload('card', file, { card_number: cardNumber })
+  if (error) return { url, error }
+  const { error: dbErr } = await supabase.from('pack_cards').update({ image_url: url }).eq('number', cardNumber)
+  if (dbErr) return { url, error: { message: 'Image uploaded but DB save error: ' + dbErr.message } }
+  return { url, error: null }
 }
 
 // ── Pack Generation Config ──
@@ -1477,75 +1236,8 @@ export async function deleteWipComment(commentId) {
 
 // Upload a WIP image via Cloudinary (same pattern as uploadCardImage)
 export async function uploadWipImage(taskId, file) {
-  try {
-    if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
-    if (file.size > 4 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 4MB)' } }
-
-    // Step 1: Get signed upload params from Edge Function
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    const { data: { session } } = await supabase.auth.getSession()
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ action: 'get_wip_upload_sig', task_id: taskId }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error in signature request: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let sigJson
-    try {
-      sigJson = await sigRes.json()
-    } catch (_) {
-      return { url: null, error: { message: `Edge Function responded with status ${sigRes.status} but invalid JSON` } }
-    }
-    if (!sigRes.ok) return { url: null, error: { message: sigJson.error || `Signature error (status ${sigRes.status})` } }
-    if (!sigJson.cloud_name || !sigJson.api_key || !sigJson.signature || !sigJson.timestamp) {
-      return { url: null, error: { message: 'Incomplete signature response — check the Cloudinary credentials in secrets' } }
-    }
-
-    // Step 2: Upload directly to Cloudinary
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    let cloudRes
-    try {
-      cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, {
-        method: 'POST',
-        body: fd,
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Cloudinary upload network error: ' + (networkErr.message || 'connection failed') } }
-    }
-
-    let cloudJson
-    try {
-      cloudJson = await cloudRes.json()
-    } catch (_) {
-      return { url: null, error: { message: `Cloudinary responded with status ${cloudRes.status} but invalid JSON` } }
-    }
-    if (!cloudRes.ok) {
-      const msg = cloudJson.error?.message || JSON.stringify(cloudJson.error) || `Upload failed (status ${cloudRes.status})`
-      return { url: null, error: { message: 'Cloudinary: ' + msg } }
-    }
-
-    const imageUrl = cloudJson.secure_url
-    if (!imageUrl) return { url: null, error: { message: 'Cloudinary did not return an image URL' } }
-
-    return { url: imageUrl, error: null }
-  } catch (err) {
-    return { url: null, error: { message: 'Unexpected error: ' + (err.message || String(err)) } }
-  }
+  if (file && file.size > 4 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 4MB)' } }
+  return r2Upload('wip', file, { task_id: taskId })
 }
 
 // ── WIP Views (badge system) ──
@@ -2055,55 +1747,8 @@ export async function deleteSticker(id) {
 }
 
 export async function uploadStickerImage(projectId, file) {
-  try {
-    if (!file || !file.size) return { url: null, error: { message: 'No file' } }
-    if (file.size > 5 * 1024 * 1024) return { url: null, error: { message: 'Max 5MB' } }
-
-    // Get signature from the same edge function the rest of the uploaders use. The
-    // function requires BOTH `apikey` and `Authorization: Bearer` headers — missing
-    // the Authorization header returns 401 "Missing authorization header".
-    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-    const { data: { session } } = await supabase.auth.getSession()
-    const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY
-    let sigRes
-    try {
-      sigRes = await fetch(sigUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action: 'get_concept_upload_sig', shot_id: 'sticker' }),
-      })
-    } catch (networkErr) {
-      return { url: null, error: { message: 'Network error: ' + (networkErr.message || 'connection failed') } }
-    }
-    let sigJson = null
-    try { sigJson = await sigRes.json() } catch {}
-    if (!sigRes.ok || !sigJson?.cloud_name) {
-      return { url: null, error: { message: sigJson?.error || sigJson?.message || `Signature error (HTTP ${sigRes.status})` } }
-    }
-
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', sigJson.folder)
-    fd.append('timestamp', String(sigJson.timestamp))
-    fd.append('api_key', String(sigJson.api_key))
-    fd.append('signature', String(sigJson.signature))
-
-    const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sigJson.cloud_name}/image/upload`, { method: 'POST', body: fd })
-    const cloudJson = await cloudRes.json().catch(() => ({}))
-    if (!cloudRes.ok) return { url: null, error: { message: cloudJson.error?.message || `Upload failed (HTTP ${cloudRes.status})` } }
-    return {
-      url: cloudJson.secure_url,
-      width: cloudJson.width || null,
-      height: cloudJson.height || null,
-      error: null,
-    }
-  } catch (err) {
-    return { url: null, error: { message: err.message } }
-  }
+  if (file && file.size > 5 * 1024 * 1024) return { url: null, error: { message: 'Max 5MB' } }
+  return r2Upload('sticker', file, { project_id: projectId })
 }
 
 
