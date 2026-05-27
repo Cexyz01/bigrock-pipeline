@@ -1318,7 +1318,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                   onClick={() => { selectShot(shot.id); jumpToShot(shot.id); setPlaying(false) }}
                   onDoubleClick={() => { selectShot(shot.id); jumpToShot(shot.id); setPlaying(false) }}
                   style={{
-                    flex: `${pct} 0 0%`, minWidth: 50,
+                    // Safari/WebKit handles fractional `flex-grow` values <1
+                    // (combined with `flex-basis: 0%` + `min-width`) inconsistently
+                    // and collapses every tile to the same width. Scale the grow
+                    // factor up so values are >=1 — proportions stay identical
+                    // because flex uses ratios, not absolute magnitudes.
+                    flex: `${Math.max(1, Math.round(pct * 10000))} 0 0%`, minWidth: 50,
                     borderRight: '1px solid #1E293B',
                     background: isActive ? `${ACCENT}18` : isSelected ? '#1E293B' : '#0F172A',
                     borderTop: isActive ? `2px solid ${ACCENT}` : isSelected ? '2px solid #475569' : '2px solid transparent',
