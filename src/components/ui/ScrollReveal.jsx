@@ -5,12 +5,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // repaint each frame). We render each paragraph as plain text and do a single
 // short fade per paragraph on enter — cheap and responsive.
 //
-// When `parseScript` is on, the first paragraph becomes the document title and
-// any paragraph starting with `SHOT NN` is rendered as a centered shot heading
-// + a description below. Split rule: if the paragraph contains ` - `, the part
-// before the first dash is the heading (so `SHOT 07 POV di Billy - inizia…`
-// keeps the "POV di Billy" half in the heading); otherwise only the `SHOT NN`
-// prefix is the heading and everything after goes to the description.
+// When `parseScript` is on we add three typographic affordances on top of the
+// plain paragraph render:
+//   1. First paragraph → document title (h1, centered, big).
+//   2. Contiguous "Name - description" lines appearing before the first SHOT
+//      get grouped under a synthetic "Personaggi" heading, with each name in
+//      bold and the description after.
+//   3. Paragraphs starting with "SHOT NN" → centered uppercase heading
+//      ("SHOT NN" only) + description below.
 export default function ScrollReveal({
   children,
   fontSize = 22,
@@ -32,21 +34,46 @@ export default function ScrollReveal({
     )
   }
 
-  const [titlePara, ...rest] = paragraphs
+  const blocks = useMemo(() => buildBlocks(paragraphs), [paragraphs])
+
   return (
     <div style={style}>
-      {titlePara && (
-        <FadeBlock>
-          <h1 style={{
-            margin: '0 0 1.2em', textAlign: 'center', color,
-            fontSize: Math.round(fontSize * 2), lineHeight: 1.15,
-            fontWeight: 800, letterSpacing: '0.02em',
-          }}>{titlePara}</h1>
-        </FadeBlock>
-      )}
-      {rest.map((p, i) => {
-        const shot = parseShotParagraph(p)
-        if (shot) {
+      {blocks.map((b, i) => {
+        if (b.kind === 'title') {
+          return (
+            <FadeBlock key={i}>
+              <h1 style={{
+                margin: '0 0 1.2em', textAlign: 'center', color,
+                fontSize: Math.round(fontSize * 2), lineHeight: 1.15,
+                fontWeight: 800, letterSpacing: '0.02em',
+              }}>{b.text}</h1>
+            </FadeBlock>
+          )
+        }
+        if (b.kind === 'characters') {
+          return (
+            <FadeBlock key={i}>
+              <div style={{ margin: '1.4em 0 1.6em' }}>
+                <h2 style={{
+                  margin: '0 0 0.7em', textAlign: 'center', color,
+                  fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
+                  fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                }}>Personaggi</h2>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {b.items.map((it, j) => (
+                    <li key={j} style={{
+                      fontSize, lineHeight, color, fontWeight: 500,
+                      margin: '0 0 0.5em',
+                    }}>
+                      <strong style={{ fontWeight: 800 }}>{it.name}</strong> — {it.desc}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </FadeBlock>
+          )
+        }
+        if (b.kind === 'shot') {
           return (
             <FadeBlock key={i}>
               <div style={{ margin: '1.6em 0 1.2em' }}>
@@ -54,19 +81,19 @@ export default function ScrollReveal({
                   margin: '0 0 0.5em', textAlign: 'center', color,
                   fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
                   fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
-                }}>{shot.title}</h2>
-                {shot.description && (
+                }}>{b.title}</h2>
+                {b.description && (
                   <p style={{
                     margin: 0, fontSize, lineHeight, color, fontWeight: 500,
                     whiteSpace: 'pre-wrap', textAlign: 'left',
-                  }}>{shot.description}</p>
+                  }}>{b.description}</p>
                 )}
               </div>
             </FadeBlock>
           )
         }
         return (
-          <FadeParagraph key={i} text={p} fontSize={fontSize} lineHeight={lineHeight} color={color} />
+          <FadeParagraph key={i} text={b.text} fontSize={fontSize} lineHeight={lineHeight} color={color} />
         )
       })}
     </div>
@@ -74,16 +101,53 @@ export default function ScrollReveal({
 }
 
 const SHOT_RE = /^(SHOT\s*\d+)\b/i
+// A character line is a short name (1-4 words, letters only) followed by a
+// dash (-, –, or —) and a description on a single line. Excludes anything
+// with digits or punctuation in the name part so SHOT lines / sentences with
+// stray dashes don't get swallowed.
+const CHAR_RE = /^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’]*(?:\s+[A-Za-zÀ-ÿ'’]+){0,3})\s+[-–—]\s+(.+)$/
 
-function parseShotParagraph(text) {
+function isCharacterLine(text) {
+  if (!text || text.includes('\n')) return null
+  if (SHOT_RE.test(text)) return null
+  const m = CHAR_RE.exec(text)
+  if (!m) return null
+  return { name: m[1].trim(), desc: m[2].trim() }
+}
+
+function parseShot(text) {
   const m = SHOT_RE.exec(text)
   if (!m) return null
-  const dashIdx = text.indexOf(' - ')
-  if (dashIdx > 0) {
-    return { title: text.slice(0, dashIdx).trim(), description: text.slice(dashIdx + 3).trim() }
-  }
   const prefix = m[0]
   return { title: prefix.trim(), description: text.slice(prefix.length).trim() }
+}
+
+function buildBlocks(paragraphs) {
+  const blocks = []
+  if (paragraphs.length === 0) return blocks
+  blocks.push({ kind: 'title', text: paragraphs[0] })
+
+  let i = 1
+  // Greedy character block: consume contiguous character lines that appear
+  // before the first SHOT. Stop as soon as we hit a non-character paragraph
+  // (which might be a SHOT or just prose) so we don't accidentally fold
+  // dashed sentences mid-script into the cast list.
+  const items = []
+  while (i < paragraphs.length) {
+    const c = isCharacterLine(paragraphs[i])
+    if (!c) break
+    items.push(c)
+    i++
+  }
+  if (items.length > 0) blocks.push({ kind: 'characters', items })
+
+  for (; i < paragraphs.length; i++) {
+    const p = paragraphs[i]
+    const shot = parseShot(p)
+    if (shot) blocks.push({ kind: 'shot', ...shot })
+    else blocks.push({ kind: 'paragraph', text: p })
+  }
+  return blocks
 }
 
 function useReveal() {
