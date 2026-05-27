@@ -322,6 +322,7 @@ function ScriptTab({ user, currentProject, isMobile }) {
             <ScrollReveal
               fontSize={isMobile ? 17 : 22}
               lineHeight={1.7}
+              parseScript
             >
               {script}
             </ScrollReveal>
