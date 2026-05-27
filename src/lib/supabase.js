@@ -1234,7 +1234,7 @@ export async function deleteWipComment(commentId) {
   return { error }
 }
 
-// Upload a WIP image via Cloudinary (same pattern as uploadCardImage)
+// Upload a WIP image to R2 (same pattern as uploadCardImage)
 export async function uploadWipImage(taskId, file) {
   if (file && file.size > 4 * 1024 * 1024) return { url: null, error: { message: 'File too large (max 4MB)' } }
   return r2Upload('wip', file, { task_id: taskId })

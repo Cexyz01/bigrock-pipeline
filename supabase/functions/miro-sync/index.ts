@@ -947,10 +947,6 @@ async function handleCleanup(supabase: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// CARD IMAGE UPLOAD — Generate signed Cloudinary upload params
-// ══════════════════════════════════════════════════════════════
-
-// ══════════════════════════════════════════════════════════════
 // R2 PRESIGNED UPLOAD — single endpoint for every new upload kind.
 // Client posts { kind, ext, content_type, ...metadata }; we return a
 // presigned PUT URL valid for 5 min plus the public URL the client
@@ -1101,108 +1097,13 @@ async function handleR2Usage() {
   })
 }
 
-async function handleGetCardUploadSig(_supabase: any, params: any) {
-  const { card_number } = params
-  if (card_number == null || card_number === "") return err("Missing card_number")
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
-
-  const folder = "bigrock-cards"
-  const ts = Math.floor(Date.now() / 1000).toString()
-  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
-
-  return ok({
-    cloud_name: CLD_CLOUD,
-    api_key: CLD_KEY,
-    timestamp: ts,
-    signature: sig,
-    folder,
-  })
-}
-
-// ══════════════════════════════════════════════════════════════
-// WIP UPDATE IMAGE UPLOAD — Signed Cloudinary params (no Miro)
-// ══════════════════════════════════════════════════════════════
-
-async function handleGetWipUploadSig(_supabase: any, params: any) {
-  const { task_id } = params
-  if (!task_id) return err("Missing task_id")
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
-
-  const folder = `bigrock-wip-updates/${task_id}`
-  const ts = Math.floor(Date.now() / 1000).toString()
-  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
-
-  return ok({
-    cloud_name: CLD_CLOUD,
-    api_key: CLD_KEY,
-    timestamp: ts,
-    signature: sig,
-    folder,
-  })
-}
-
-// ══════════════════════════════════════════════════════════════
-// SHOT CONCEPT IMAGE UPLOAD — Signed Cloudinary params
-// ══════════════════════════════════════════════════════════════
-
-async function handleGetConceptUploadSig(_supabase: any, params: any) {
-  const { shot_id } = params
-  if (!shot_id) return err("Missing shot_id")
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
-
-  const folder = "bigrock-concepts"
-  const ts = Math.floor(Date.now() / 1000).toString()
-  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
-
-  return ok({
-    cloud_name: CLD_CLOUD,
-    api_key: CLD_KEY,
-    timestamp: ts,
-    signature: sig,
-    folder,
-  })
-}
-
-// SHOT OUTPUT IMAGE UPLOAD — Signed Cloudinary params
-// ══════════════════════════════════════════════════════════════
-
-async function handleGetOutputUploadSig(_supabase: any, params: any) {
-  const { shot_id } = params
-  if (!shot_id) return err("Missing shot_id")
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
-
-  const folder = "bigrock-outputs"
-  const ts = Math.floor(Date.now() / 1000).toString()
-  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
-
-  return ok({
-    cloud_name: CLD_CLOUD,
-    api_key: CLD_KEY,
-    timestamp: ts,
-    signature: sig,
-    folder,
-  })
-}
-
-// TIMELINE FILE UPLOAD — Signed Cloudinary params (audio/video)
-// ══════════════════════════════════════════════════════════════
-
-async function handleGetTimelineUploadSig(_supabase: any, params: any) {
-  const { shot_id } = params
-  if (!shot_id) return err("Missing shot_id")
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
-
-  const folder = "bigrock-timeline"
-  const ts = Math.floor(Date.now() / 1000).toString()
-  const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
-
-  return ok({
-    cloud_name: CLD_CLOUD,
-    api_key: CLD_KEY,
-    timestamp: ts,
-    signature: sig,
-    folder,
-  })
+// Legacy Cloudinary signed-upload endpoint. All upload paths moved to R2 via
+// handleR2SignUpload on 2026-05-27. This stub stays so any browser still
+// running a stale Vercel bundle fails LOUDLY instead of silently writing to
+// Cloudinary again (which is what created the two stray WIPs on 2026-05-27
+// after the migration). Same stub serves every old action name.
+function handleLegacyCloudinarySig(_supabase: any, _params: any) {
+  return err("Cloudinary uploads removed — refresh the page to load the R2 build", 410)
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1507,11 +1408,12 @@ serve(async (req) => {
       case "upload_reference":  return await handleUploadReference(supabase, params)
       case "init_board":        return await handleFullSync(supabase)
       case "cleanup":           return await handleCleanup(supabase)
-      case "get_card_upload_sig": return await handleGetCardUploadSig(supabase, params)
-      case "get_wip_upload_sig": return await handleGetWipUploadSig(supabase, params)
-      case "get_concept_upload_sig": return await handleGetConceptUploadSig(supabase, params)
-      case "get_output_upload_sig": return await handleGetOutputUploadSig(supabase, params)
-      case "get_timeline_upload_sig": return await handleGetTimelineUploadSig(supabase, params)
+      case "get_card_upload_sig":
+      case "get_wip_upload_sig":
+      case "get_concept_upload_sig":
+      case "get_output_upload_sig":
+      case "get_timeline_upload_sig":
+        return handleLegacyCloudinarySig(supabase, params)
       case "cloudinary_usage":  return await handleCloudinaryUsage()
       case "prereg_student":    return await handlePreregStudent(supabase, params, req.headers.get("Authorization"))
       case "delete_wip_update": return await handleDeleteWipUpdate(supabase, params, req.headers.get("Authorization"))

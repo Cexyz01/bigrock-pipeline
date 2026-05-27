@@ -732,8 +732,8 @@ export default function App() {
       img.onerror = () => resolve({ w: 0, h: 0 })
       img.src = URL.createObjectURL(file)
     })
-    // Reuse the concept upload signature endpoint — it only generates a Cloudinary signature,
-    // shot_id is just an opaque identifier in the payload.
+    // Reuse the concept upload helper — it asks for an R2 presigned PUT and
+    // returns the public URL. shot_id is just an opaque key in the R2 path.
     const { url, error } = await uploadConceptImage(assetId, file)
     if (error) { addToast('Asset reference upload failed: ' + error.message, 'danger'); return }
     if (url) await updateAsset(assetId, { ref_cloud_url: url, ref_img_width: dims.w, ref_img_height: dims.h })
@@ -854,8 +854,8 @@ export default function App() {
   // ── WIP Updates ──
 
   const handleCreateWipUpdate = async (taskId, note, files) => {
-    // 1. Upload files to Cloudinary. Images use the dedicated image/upload
-    //    endpoint; audio + video both go through auto/upload (uploadWipFile).
+    // 1. Upload files to R2 — images go through uploadWipImage (4MB cap),
+    //    audio + video go through uploadWipFile (10/100MB caps).
     const imageUrls = []
     for (let i = 0; i < files.length; i++) {
       const t = files[i].type || ''
@@ -1060,7 +1060,7 @@ export default function App() {
       addToast('Errore eliminazione WIP: ' + error.message, 'danger')
       return { ok: false }
     }
-    addToast(`WIP eliminato${data?.cloudinary_deleted ? ` (${data.cloudinary_deleted} file rimossi da Cloudinary)` : ''}`, 'success')
+    addToast(`WIP eliminato${data?.cloudinary_deleted ? ` (${data.cloudinary_deleted} file legacy rimossi)` : ''}`, 'success')
     return { ok: true }
   }
 

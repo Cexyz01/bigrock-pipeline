@@ -107,14 +107,6 @@ export async function cleanupAll(boardId) {
   return callMiroSync({ action: 'cleanup', ...(boardId && { board_id: boardId }) })
 }
 
-// Get Cloudinary signed upload params for WIP images (same auth as all other edge calls)
-export async function getWipUploadSig(taskId) {
-  return callMiroSync({
-    action: 'get_wip_upload_sig',
-    task_id: taskId,
-  })
-}
-
 // Get Cloudinary plan usage (admin only — the edge function holds the secret)
 export async function getCloudinaryUsage() {
   return callMiroSync({ action: 'cloudinary_usage' })

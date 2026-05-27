@@ -18,7 +18,7 @@ import AnnotatedImage from '../ui/AnnotatedImage'
 const MAX_IMAGES = 4
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for video (Cloudinary free tier cap)
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for video
 
 export default function TaskDetailModal({
   task, user, staff, profiles, students: studentsProp = null, projectStartDate = null,
@@ -295,7 +295,7 @@ export default function TaskDetailModal({
   }
 
   // Prof+ (anyone with access_review) can remove a single WIP update +
-  // purge its Cloudinary assets. Server-side RLS on task_wip_updates still
+  // purge its R2 assets. Server-side RLS on task_wip_updates still
   // enforces the same staff check.
   const canDeleteWip = !!onDeleteWipUpdate && hasPermission(user, 'access_review')
 
@@ -348,7 +348,7 @@ export default function TaskDetailModal({
 
   const handleDeleteWip = (wipUpdateId) => {
     requestConfirm(
-      'Eliminare questo WIP? I file caricati su Cloudinary verranno cancellati definitivamente.',
+      'Eliminare questo WIP? I file caricati verranno cancellati definitivamente.',
       async () => {
         const result = await onDeleteWipUpdate(wipUpdateId)
         if (result?.ok) {
@@ -730,7 +730,7 @@ export default function TaskDetailModal({
                   {canDeleteWip && (
                     <button
                       onClick={() => handleDeleteWip(update.id)}
-                      title="Elimina WIP (rimuove anche i file da Cloudinary)"
+                      title="Elimina WIP (rimuove anche i file da R2)"
                       style={{
                         background: 'transparent', border: 'none', cursor: 'pointer',
                         color: '#94A3B8', padding: 4, borderRadius: 6,
