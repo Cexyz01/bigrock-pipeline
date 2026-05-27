@@ -393,9 +393,9 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
 
   const cols = 2, rows = Math.ceil(count / cols)
   return (
-    <div style={{ height: cellH, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)`, gap: 4, padding: 2 }}>
+    <div style={{ height: cellH, display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`, gap: 4, padding: 2 }}>
       {images.map((img, i) => (
-        <div key={img.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div key={img.id} style={{ minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           {isAudioUrl(img.image_url) ? (
             <AudioMiniPlayer url={img.image_url} />
           ) : (
