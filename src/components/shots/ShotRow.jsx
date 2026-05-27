@@ -63,6 +63,18 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelet
     try { await onUploadOutput(shot.id, file) } finally { setUploadingOutput(false); if (outputFileRef.current) outputFileRef.current.value = '' }
   }, [shot.id, onUploadOutput])
 
+  const handleRemoveReference = useCallback(() => {
+    requestConfirm('Rimuovere la reference?', () => {
+      onUpdateShot(shot.id, { concept_image_url: null, ref_cloud_url: null, ref_img_width: 0, ref_img_height: 0 })
+    })
+  }, [shot.id, onUpdateShot, requestConfirm])
+
+  const handleRemoveOutput = useCallback(() => {
+    requestConfirm('Rimuovere l\'output?', () => {
+      onUpdateShot(shot.id, { output_cloud_url: null, output_img_width: 0, output_img_height: 0 })
+    })
+  }, [shot.id, onUpdateShot, requestConfirm])
+
   const startEditing = useCallback(() => {
     setEditCode(shot.code || '')
     setEditDesc(shot.description || '')
@@ -186,6 +198,10 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelet
             {refImg ? (
               <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#000' }}>
                 <Img src={previewUrl(refImg)} alt="Reference" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
+                <button onClick={handleRemoveReference} title="Rimuovi reference"
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(220,38,38,0.85)', color: '#fff', border: 'none', borderRadius: 6, width: 22, height: 22, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <IconTrash size={11} />
+                </button>
                 <button onClick={() => fileRef.current?.click()} disabled={uploading}
                   style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <IconImage size={11} /> {uploading ? '...' : 'Cambia'}
@@ -215,6 +231,10 @@ const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelet
                 ) : (
                   <Img src={previewUrl(outImg)} alt="Output" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
                 )}
+                <button onClick={handleRemoveOutput} title="Rimuovi output"
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(220,38,38,0.85)', color: '#fff', border: 'none', borderRadius: 6, width: 22, height: 22, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                  <IconTrash size={11} />
+                </button>
                 <button onClick={() => outputFileRef.current?.click()} disabled={uploadingOutput}
                   style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <IconImage size={11} /> {uploadingOutput ? '...' : 'Cambia'}
