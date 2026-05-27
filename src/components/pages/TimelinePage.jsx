@@ -1355,25 +1355,22 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                       objectFit: 'cover', opacity: 0.25, pointerEvents: 'none',
                     }} />
                   )}
-                  {/* Vertical shot code — rotated 180° via writing-mode +
-                      transform so it reads bottom-up. Vertical orientation
-                      means it fits even when the tile is very narrow. */}
+                  {/* Shot code with just the numeric part (e.g. "SHOT12" → "12")
+                      so it fits even in narrow tiles. */}
                   <div style={{
                     position: 'absolute', top: 6, left: 6,
-                    fontSize: 11, fontWeight: 600,
+                    fontSize: 15, fontWeight: 700,
                     color: isActive ? ACCENT : '#F1F5F9',
-                    writingMode: 'vertical-rl',
-                    transform: 'rotate(180deg)',
                     whiteSpace: 'nowrap',
                     zIndex: 1,
                     pointerEvents: 'none',
+                    lineHeight: 1,
                   }}>
-                    {shot.code}
+                    {String(shot.code || '').replace(/^SHOT/i, '') || shot.code}
                   </div>
-                  <div style={{ position: 'relative', zIndex: 1 }}>
-                    <div style={{ fontSize: 9, color: '#94A3B8' }}>
-                      {duration}f · {(duration / fps).toFixed(1)}s
-                    </div>
+                  <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <div style={{ fontSize: 9, color: '#94A3B8', lineHeight: 1.1 }}>{duration}f</div>
+                    <div style={{ fontSize: 9, color: '#94A3B8', lineHeight: 1.1 }}>{(duration / fps).toFixed(1)}s</div>
                     {shot.audio_url && <span style={{ fontSize: 10, color: '#2DD4BF' }}>&#9835;</span>}
                   </div>
                   {isActive && (
