@@ -53,7 +53,7 @@ export default function ScrollReveal({
         if (b.kind === 'characters') {
           return (
             <FadeBlock key={i}>
-              <div style={{ margin: '1.4em 0 1.6em' }}>
+              <div style={{ margin: '1.4em 0 3.2em' }}>
                 <h2 style={{
                   margin: '0 0 0.7em', textAlign: 'center', color,
                   fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
@@ -76,9 +76,9 @@ export default function ScrollReveal({
         if (b.kind === 'shot') {
           return (
             <FadeBlock key={i}>
-              <div style={{ margin: '0 0 4.2em' }}>
+              <div style={{ margin: '0 0 2.4em' }}>
                 <h2 style={{
-                  margin: '0 0 0.7em', textAlign: 'center', color,
+                  margin: '0 0 1.2em', textAlign: 'center', color,
                   fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
                   fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
                 }}>{b.title}</h2>
@@ -158,7 +158,7 @@ function useReveal() {
     if (!el) return
     const io = new IntersectionObserver(
       entries => { for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); break } },
-      { rootMargin: '0px 0px -25% 0px' }
+      { rootMargin: '0px 0px -15% 0px' }
     )
     io.observe(el)
     return () => io.disconnect()
@@ -176,7 +176,7 @@ function FadeParagraph({ text, fontSize, lineHeight, color }) {
         whiteSpace: 'pre-wrap',
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(24px)',
-        transition: 'opacity 520ms ease, transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
+        transition: 'opacity 360ms ease, transform 360ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
       {text}
@@ -192,7 +192,7 @@ function FadeBlock({ children }) {
       style={{
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(24px)',
-        transition: 'opacity 520ms ease, transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
+        transition: 'opacity 360ms ease, transform 360ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
       {children}
