@@ -56,7 +56,11 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const [videoDurations, setVideoDurations] = useState({}) // { url: seconds }
 
   const canvasRef = useRef(null)
-  const videoRef = useRef(null)
+  // Pool of <video> elements, one per unique video URL in the timeline.
+  // Keeping them all mounted with preload="auto" means each shot's first
+  // frame is already decoded — switching active shot is just a display
+  // toggle, no `src` change, no load(), no decode gap, no black flash.
+  const videoElsRef = useRef({})
   const timelineRef = useRef(null)
   const audioRefs = useRef({})
   const videoPreloadCache = useRef({}) // { url: HTMLVideoElement }
@@ -399,35 +403,51 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     return type === 'video' ? url : null
   }, [currentFrame, getShotAtFrame, getShotMedia])
 
+  // Unique video URLs in the timeline — drives the player video pool below.
+  const uniqueVideoUrls = useMemo(() => {
+    const urls = timelineShots
+      .map(sh => sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url)
+      .filter(u => u && isVideoUrl(u))
+    return [...new Set(urls)]
+  }, [timelineShots])
+
+  // Garbage-collect stale entries when shots are removed/disabled.
   useEffect(() => {
-    const vid = videoRef.current
+    const allowed = new Set(uniqueVideoUrls)
+    for (const u of Object.keys(videoElsRef.current)) {
+      if (!allowed.has(u)) delete videoElsRef.current[u]
+    }
+  }, [uniqueVideoUrls])
+
+  useEffect(() => {
+    // Pause every non-active video. The active one stays as-is so its
+    // current frame remains painted while we transition into it.
+    for (const [url, el] of Object.entries(videoElsRef.current)) {
+      if (url !== currentVideoUrl && el && !el.paused) {
+        try { el.pause() } catch {}
+      }
+    }
+
+    if (!currentVideoUrl) return
+    const vid = videoElsRef.current[currentVideoUrl]
     if (!vid) return
-    if (currentVideoUrl) {
-      const playSrc = playableVideoUrl(currentVideoUrl)
-      if (vid.dataset.loadedUrl !== currentVideoUrl) {
-        vid.dataset.loadedUrl = currentVideoUrl
-        // Hidden preloader buffered the same URL into HTTP cache; the visible
-        // element will hit it on its own load().
-        vid.src = playSrc
-        vid.load()
+
+    const { localFrame } = getShotAtFrame(currentFrame)
+    const targetTime = localFrame / fps
+    if (Math.abs(vid.currentTime - targetTime) > 0.15) {
+      try { vid.currentTime = targetTime } catch {}
+    }
+    vid.volume = volume
+
+    if (playing) {
+      if (vid.readyState >= 3) {
+        if (vid.paused) vid.play().catch(() => {})
+      } else {
+        const onCanPlay = () => { vid.play().catch(() => {}); vid.removeEventListener('canplay', onCanPlay) }
+        vid.addEventListener('canplay', onCanPlay)
       }
-      const { localFrame } = getShotAtFrame(currentFrame)
-      const targetTime = localFrame / fps
-      if (Math.abs(vid.currentTime - targetTime) > 0.15) vid.currentTime = targetTime
-      vid.volume = volume
-      if (playing) {
-        if (vid.readyState >= 3) {
-          if (vid.paused) vid.play().catch(() => {})
-        } else {
-          // Wait for enough data before playing
-          const onCanPlay = () => { vid.play().catch(() => {}); vid.removeEventListener('canplay', onCanPlay) }
-          vid.addEventListener('canplay', onCanPlay)
-        }
-      }
-      if (!playing && !vid.paused) vid.pause()
-    } else {
-      if (!vid.paused) vid.pause()
-      vid.dataset.loadedUrl = ''
+    } else if (!vid.paused) {
+      vid.pause()
     }
   }, [currentVideoUrl, currentFrame, playing, volume, fps, getShotAtFrame])
 
@@ -1136,8 +1156,24 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             <div style={{ position: 'relative', width: `${playerZoom}%`, maxHeight: '100%', aspectRatio: '16 / 9', background: '#000' }}>
             <canvas ref={canvasRef} width={1920} height={1080}
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: activeVideoShotId ? 'none' : 'block' }} />
-            <video ref={videoRef} muted={false}
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: activeVideoShotId ? 'block' : 'none' }} />
+            {/* Video pool: one mounted <video> per unique URL with preload=auto.
+                Keeps each shot's first frame decoded so shot-to-shot transitions
+                are instant — no src swap, no decode gap, no black flash. */}
+            {uniqueVideoUrls.map(url => (
+              <video
+                key={url}
+                ref={el => { if (el) videoElsRef.current[url] = el }}
+                src={playableVideoUrl(url)}
+                preload="auto"
+                playsInline
+                muted={false}
+                style={{
+                  position: 'absolute', inset: 0, width: '100%', height: '100%',
+                  objectFit: 'contain',
+                  display: currentVideoUrl === url ? 'block' : 'none',
+                }}
+              />
+            ))}
             {activeVideoShotId && (() => {
               const { shot, localFrame } = getShotAtFrame(currentFrame)
               const dur = shot?.duration_frames || DEFAULT_DURATION_FRAMES
