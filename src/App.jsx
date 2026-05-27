@@ -24,6 +24,7 @@ import {
   subscribeToDMs, getDMUnreadCount,
   uploadConceptImage, uploadOutputImage, uploadTimelineFile,
   getTcgGameActive,
+  getMaintenanceMode,
   subscribeToGameInvites, getGameById,
   subscribeToTradeInvites, getTradeById,
   updateLastSeen,
@@ -41,6 +42,7 @@ import ConfirmDialog, { useConfirm } from './components/ui/ConfirmDialog'
 import InstallBanner from './components/ui/InstallBanner'
 
 import WaitingScreen from './components/pages/WaitingScreen'
+import MaintenanceScreen from './components/pages/MaintenanceScreen'
 import ProjectManagementPage from './components/pages/ProjectManagementPage'
 import SuperNotifOverlay from './components/ui/SuperNotifOverlay'
 import LoginPage from './components/pages/LoginPage'
@@ -88,6 +90,7 @@ export default function App() {
   const [deepLink, setDeepLink] = useState(null)
   const [dmUnreadCount, setDmUnreadCount] = useState(0)
   const [tcgGameActive, setTcgGameActive] = useState(false)
+  const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [wipViews, setWipViews] = useState([])
   // Watchdog: if loadData hasn't finished within 12 seconds of becoming
   // authenticated, surface a non-blocking banner so the user can hit the
@@ -199,6 +202,24 @@ export default function App() {
     })
 
     return () => subscription.unsubscribe()
+  }, [])
+
+  // Maintenance mode — fetch on mount + subscribe to realtime changes so
+  // toggling the flag from the Manager tab kicks everyone (except admins)
+  // into the "Under Maintenance" screen immediately.
+  useEffect(() => {
+    let active = true
+    getMaintenanceMode().then(v => { if (active) setMaintenanceMode(!!v) }).catch(() => {})
+    const ch = supabase
+      .channel('app_settings_maintenance')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'app_settings', filter: 'key=eq.maintenance_mode' },
+        (payload) => {
+          const val = payload?.new?.value ?? payload?.old?.value
+          setMaintenanceMode(val === 'on')
+        })
+      .subscribe()
+    return () => { active = false; supabase.removeChannel(ch) }
   }, [])
 
   const loadUser = async (authUser) => {
@@ -1127,6 +1148,12 @@ export default function App() {
     </div>
   )
   if (!session || !user) return <LoginPage />
+
+  // Maintenance gate — non-admins see the lockdown screen while the flag
+  // is on. Admins keep full access so they can toggle it back off.
+  if (maintenanceMode && !isAdmin(user)) {
+    return <MaintenanceScreen onSignOut={signOut} />
+  }
 
   // Floating banner when the watchdog tripped but the app rendered anyway.
   // The Reset button is only shown when the admin has summoned the escape

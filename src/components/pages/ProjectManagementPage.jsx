@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { isAdmin, isStaff, hasPermission, ACCENT, DEPTS, PERMISSION_CATALOG, ALL_PERMISSION_IDS, displayRole, SUPER_ADMIN_EMAILS } from '../../lib/constants'
-import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole, preregStudent } from '../../lib/supabase'
+import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole, preregStudent, getMaintenanceMode, setMaintenanceMode } from '../../lib/supabase'
 import { getCloudinaryUsage } from '../../lib/miro'
 import Btn from '../ui/Btn'
 import Modal from '../ui/Modal'
@@ -42,7 +42,7 @@ export default function ProjectManagementPage({ user, profiles, projects, curren
       {tab === 'members' && <MembersTab user={user} profiles={profiles} projects={projects} currentProject={currentProject} addToast={addToast} myPerms={myPerms} onRefreshProfiles={onRefreshProfiles} />}
       {tab === 'projects' && canManageProjects && <ProjectsTab user={user} projects={projects} onRefreshProjects={onRefreshProjects} addToast={addToast} requestConfirm={requestConfirm} />}
       {tab === 'roles' && canManageRoles && <RolesManager user={user} profiles={profiles} addToast={addToast} onRefreshProfiles={onRefreshProfiles} />}
-      {tab === 'manager' && canManagerTab && <AdminTab user={user} profiles={profiles} addToast={addToast} />}
+      {tab === 'manager' && canManagerTab && <AdminTab user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} />}
     </div>
   )
 }
@@ -669,10 +669,11 @@ function RolesManager({ user, profiles, addToast, onRefreshProfiles }) {
 // TAB: ADMIN — Super Notifiche
 // ═══════════════════════════════════════════════
 
-function AdminTab({ user, profiles, addToast }) {
+function AdminTab({ user, profiles, addToast, requestConfirm }) {
   const [snTarget, setSnTarget] = useState('')
   const [snMessage, setSnMessage] = useState('')
   const [snSending, setSnSending] = useState(false)
+  const userIsAdmin = isAdmin(user)
 
   const handleSendSuperNotif = async () => {
     if (!snTarget || !snMessage.trim()) return
@@ -690,6 +691,11 @@ function AdminTab({ user, profiles, addToast }) {
       <div style={{ marginBottom: 20 }}>
         <CloudinaryUsageCard addToast={addToast} />
       </div>
+      {userIsAdmin && (
+        <div style={{ marginBottom: 20 }}>
+          <MaintenanceModeCard addToast={addToast} requestConfirm={requestConfirm} />
+        </div>
+      )}
       <Card>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', marginBottom: 12 }}>Super Notifica</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -803,6 +809,69 @@ function CloudinaryUsageCard({ addToast }) {
           Ultimo aggiornamento Cloudinary: {usage.last_updated}
         </div>
       )}
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════
+// MAINTENANCE MODE CARD
+// ═══════════════════════════════════════════════
+
+function MaintenanceModeCard({ addToast, requestConfirm }) {
+  const [on, setOn] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    getMaintenanceMode().then(v => {
+      if (active) { setOn(!!v); setLoading(false) }
+    }).catch(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  const toggle = () => {
+    const next = !on
+    const msg = next
+      ? 'Attivare la modalità manutenzione? Tutti gli utenti non-admin verranno disconnessi dal sito finché non la disattivi.'
+      : 'Disattivare la modalità manutenzione e riaprire il sito a tutti gli utenti?'
+    requestConfirm(msg, async () => {
+      setSaving(true)
+      const { error } = await setMaintenanceMode(next)
+      setSaving(false)
+      if (error) { addToast('Errore: ' + error.message, 'danger'); return }
+      setOn(next)
+      addToast(next ? 'Manutenzione ATTIVA — solo admin' : 'Manutenzione disattivata — sito aperto', 'success')
+    })
+  }
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>Modalità manutenzione</div>
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 999,
+              background: on ? '#FEE2E2' : '#E8F8F5',
+              color: on ? '#DC2626' : '#00B894',
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+            }}>
+              {loading ? '…' : on ? 'Attiva' : 'Off'}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: '#94A3B8' }}>
+            Quando attiva, solo gli admin possono accedere al sito. Gli altri utenti vedono una schermata "Under Maintenance".
+          </div>
+        </div>
+        <Btn
+          variant={on ? 'danger' : 'primary'}
+          onClick={toggle}
+          disabled={loading || saving}
+        >
+          {saving ? '...' : on ? 'Disattiva' : 'Attiva manutenzione'}
+        </Btn>
+      </div>
     </Card>
   )
 }

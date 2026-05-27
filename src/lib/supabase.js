@@ -1305,6 +1305,20 @@ export async function claimAndOpenPack(userId, packType) {
   return { data: claimed, error: null }
 }
 
+// ── Maintenance Mode ──
+
+export async function getMaintenanceMode() {
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'maintenance_mode').maybeSingle()
+  return data?.value === 'on'
+}
+
+export async function setMaintenanceMode(on) {
+  const { data, error } = await supabase.from('app_settings')
+    .upsert({ key: 'maintenance_mode', value: on ? 'on' : 'off', updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .select().single()
+  return { data, error }
+}
+
 // ── TCG Game State ──
 
 export async function getTcgGameActive() {
