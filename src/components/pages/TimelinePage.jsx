@@ -55,6 +55,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const timelineRef = useRef(null)
   const audioRefs = useRef({})
   const videoPreloadCache = useRef({}) // { url: HTMLVideoElement }
+  // Container for the hidden preload <video> elements. They MUST be attached
+  // to the DOM (not just `document.createElement`-and-hold) — Chromium
+  // refuses to advance detached video elements past readyState 1, so events
+  // like loadeddata / canplay never fire and the poster capture silently
+  // fails for the unlucky files. A 1×1 off-screen wrapper does the trick.
+  const preloaderHostRef = useRef(null)
   const imageCache = useRef({})
   const currentFrameRef = useRef(0)
   const fileInputRef = useRef(null)
@@ -158,8 +164,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     // Prune stale statuses for URLs that are no longer in the timeline
     // (e.g. a shot was disabled). Without this, an old 'loading' entry
     // would keep dragging the badge below "all ready".
+    const allowed = new Set(uniqueUrls)
     setVideoPreloadStatus(prev => {
-      const allowed = new Set(uniqueUrls)
       let changed = false
       const next = {}
       for (const [u, s] of Object.entries(prev)) {
@@ -173,6 +179,17 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       return changed ? next : prev
     })
 
+    // Same pruning for the preloader cache — detach orphan <video> elements
+    // from the DOM host so they stop consuming bandwidth.
+    for (const u of Object.keys(videoPreloadCache.current)) {
+      if (!allowed.has(u)) {
+        const orphan = videoPreloadCache.current[u]
+        try { orphan?.pause?.() } catch {}
+        try { orphan?.remove?.() } catch {}
+        delete videoPreloadCache.current[u]
+      }
+    }
+
     const aborts = []
     uniqueUrls.forEach(originalUrl => {
       // Always fetch a small Range to verify reachability — this is the
@@ -182,8 +199,10 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       fetch(originalUrl, { method: 'GET', headers: { Range: 'bytes=0-1023' }, signal: ctrl.signal })
         .then(res => {
           if (res.ok) {
+            console.debug('[TimelinePage] video ready:', res.status, originalUrl)
             setVideoPreloadStatus(prev => prev[originalUrl] === 'ready' ? prev : { ...prev, [originalUrl]: 'ready' })
           } else {
+            console.warn('[TimelinePage] video NOT ok:', res.status, res.statusText, originalUrl)
             setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'error' }))
           }
           // Drain the body so the browser can release the connection.
@@ -191,24 +210,31 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         })
         .catch(e => {
           if (e?.name === 'AbortError') return
-          console.warn('[TimelinePage] video reachability check failed:', originalUrl, e)
+          console.warn('[TimelinePage] video reachability check failed:', originalUrl, e?.message || e)
           setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'error' }))
         })
 
-      // Below: keep the detached <video> preloader purely as a cache-warmer
-      // and a source for the poster frame capture. Its readyState is NOT
-      // consulted by the badge anymore.
+      // Below: keep the <video> preloader as a cache-warmer and source for
+      // the poster frame capture. CRITICAL: must be attached to the DOM,
+      // otherwise Chromium refuses to load past metadata (readyState 1) and
+      // loadeddata/canplay never fire — that's why poster capture worked
+      // for some shots and silently failed for others.
       if (videoPreloadCache.current[originalUrl]) return
       const src = playableVideoUrl(originalUrl)
       const vid = document.createElement('video')
-      // crossOrigin is required so the captured frame doesn't taint the
-      // <canvas> below (toBlob would silently emit null on a tainted canvas).
-      // R2 returns Access-Control-Allow-Origin for our deployed origins.
       vid.crossOrigin = 'anonymous'
       vid.preload = 'auto'
       vid.muted = true
+      vid.playsInline = true
+      // 1×1 visible-but-invisible: opacity 0 + tiny size still counts as
+      // "in the viewport" for Chromium's loading heuristics.
+      vid.style.width = '1px'
+      vid.style.height = '1px'
+      vid.style.opacity = '0'
+      vid.style.pointerEvents = 'none'
       vid.src = src
       videoPreloadCache.current[originalUrl] = vid
+      if (preloaderHostRef.current) preloaderHostRef.current.appendChild(vid)
       vid.load()
 
       // Grab a poster (first-frame thumbnail) from the preloaded video and
@@ -734,13 +760,21 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
 
   const currentSec = currentFrame / fps
 
-  // Video preload progress
+  // Video preload progress. Treat both 'ready' AND 'error' as "done" — an
+  // errored URL won't ever flip to ready, so blocking the badge on it would
+  // leave it stuck forever. We surface error count separately in the tooltip.
   const videoPreloadInfo = useMemo(() => {
-    const statuses = Object.values(videoPreloadStatus)
-    const total = statuses.length
-    if (total === 0) return { total: 0, ready: 0, allReady: true }
-    const ready = statuses.filter(s => s === 'ready').length
-    return { total, ready, allReady: ready >= total }
+    const entries = Object.entries(videoPreloadStatus)
+    const total = entries.length
+    if (total === 0) return { total: 0, ready: 0, errored: 0, loading: 0, allReady: true, erroredUrls: [] }
+    let ready = 0, errored = 0, loading = 0
+    const erroredUrls = []
+    for (const [u, s] of entries) {
+      if (s === 'ready') ready++
+      else if (s === 'error') { errored++; erroredUrls.push(u) }
+      else loading++
+    }
+    return { total, ready, errored, loading, allReady: loading === 0, erroredUrls }
   }, [videoPreloadStatus])
 
   return (
@@ -758,14 +792,20 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             )}
             {' · '}{totalFrames}f · {fmt(totalSeconds)}
           </span>
-          {videoPreloadInfo.total > 0 && !videoPreloadInfo.allReady && (
+          {videoPreloadInfo.total > 0 && videoPreloadInfo.loading > 0 && (
             <span style={{ fontSize: 10, color: ACCENT, display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: ACCENT, animation: 'wipPulse 1.5s ease-in-out infinite' }} />
               Buffering video {videoPreloadInfo.ready}/{videoPreloadInfo.total}
             </span>
           )}
-          {videoPreloadInfo.total > 0 && videoPreloadInfo.allReady && (
+          {videoPreloadInfo.total > 0 && videoPreloadInfo.allReady && videoPreloadInfo.errored === 0 && (
             <span style={{ fontSize: 10, color: '#22C55E' }}>Video pronti</span>
+          )}
+          {videoPreloadInfo.total > 0 && videoPreloadInfo.allReady && videoPreloadInfo.errored > 0 && (
+            <span style={{ fontSize: 10, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 4 }}
+                  title={`URL non raggiungibili:\n${videoPreloadInfo.erroredUrls.join('\n')}`}>
+              {videoPreloadInfo.ready}/{videoPreloadInfo.total} pronti · {videoPreloadInfo.errored} errore
+            </span>
           )}
           <div style={{ display: 'flex', background: '#1E293B', borderRadius: 6, padding: 2 }}>
             {[{ id: 'player', label: 'Player' }, { id: 'table', label: 'Tabella' }].map(t => (
@@ -1196,6 +1236,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           style={{ display: 'none' }}
         />
       ))}
+      {/* Hidden host for video preloader elements — must be IN the DOM, not
+          display:none, otherwise Chromium won't actually load the media. */}
+      <div ref={preloaderHostRef} style={{
+        position: 'fixed', left: '-9999px', top: 0, width: 1, height: 1,
+        overflow: 'hidden', pointerEvents: 'none', opacity: 0,
+      }} aria-hidden="true" />
     </div>
   )
 }
