@@ -607,7 +607,7 @@ export default function GanttPage({
   const students = useMemo(() => {
     const memberByUser = new Map((projectMembers || []).map(m => [m.user_id, m]))
     return (profiles || [])
-      .filter(p => p.role === 'studente' && memberByUser.has(p.id))
+      .filter(p => p.role_slug === 'studente' && memberByUser.has(p.id))
       .map(s => {
         const m = memberByUser.get(s.id)
         return { ...s, department: m.project_role || s.department || null }

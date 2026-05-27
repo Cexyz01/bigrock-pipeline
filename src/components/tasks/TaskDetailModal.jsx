@@ -365,7 +365,7 @@ export default function TaskDetailModal({
 
   // Prefer the explicit `students` prop (project-filtered + project_role enriched)
   // over deriving from profiles, which would show ALL students globally.
-  const students = studentsProp ?? (profiles ? profiles.filter(p => p.role === 'studente') : [])
+  const students = studentsProp ?? (profiles ? profiles.filter(p => p.role_slug === 'studente') : [])
   const hasWipUpdates = wipUpdates.length > 0
 
   // ── Shared content renderers ──

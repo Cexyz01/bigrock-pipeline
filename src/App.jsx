@@ -1220,7 +1220,7 @@ export default function App() {
   ) : null
 
   // Students with no projects see waiting screen
-  if (user.role === 'studente' && projects.length === 0) {
+  if (user.role_slug === 'studente' && projects.length === 0) {
     return <WaitingScreen user={user} onSignOut={signOut} />
   }
 

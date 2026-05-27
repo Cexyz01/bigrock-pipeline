@@ -74,7 +74,7 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
   }, [currentProject?.id])
 
   const students = profiles.filter(p =>
-    p.role === 'studente' && (projectMemberIds ? projectMemberIds.has(p.id) : true)
+    p.role_slug === 'studente' && (projectMemberIds ? projectMemberIds.has(p.id) : true)
   )
 
   // Build a Set of paused dates (YYYY-MM-DD) from project pauses ranges.
