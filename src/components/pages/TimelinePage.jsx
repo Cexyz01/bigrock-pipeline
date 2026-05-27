@@ -131,46 +131,73 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   }, [timelineShots, preloadImage])
 
   // ── Video preloading — buffer all video shots in advance ──
+  //
+  // Rationale for using fetch() instead of <video> events / readyState:
+  //
+  //   The previous implementation created `document.createElement('video')`
+  //   elements (NEVER attached to the DOM) and tried to detect readiness via
+  //   canplay/canplaythrough/loadeddata events or polling readyState >= 2.
+  //
+  //   That doesn't work in Chromium. Detached video elements with
+  //   preload='auto' load metadata (readyState 1) but typically do NOT load
+  //   media data unless the element is in the DOM, even though the spec
+  //   leaves it implementation-defined. Result: events for readyState ≥ 2
+  //   never fire and the badge gets stuck on "Buffering N/M" forever, even
+  //   though the visible <video> (which IS in the DOM) plays each shot fine
+  //   on demand.
+  //
+  //   The badge only needs to answer one question: "are these video URLs
+  //   reachable?" A Range request answers that without any media-pipeline
+  //   guesswork. 200/206 → ready. Anything else → error.
   useEffect(() => {
     const videoUrls = timelineShots
       .map(sh => sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url)
       .filter(url => url && isVideoUrl(url))
     const uniqueUrls = [...new Set(videoUrls)]
 
-    // Belt-and-suspenders fallback for the badge: poll every 500ms and
-    // promote any preloader whose readyState is HAVE_CURRENT_DATA (>=2)
-    // to 'ready'. Some browsers/CDN combinations buffer the file but
-    // never emit canplay/loadeddata — without this, the badge stays
-    // stuck on "Buffering" while the user is happily watching playback.
-    const pollId = setInterval(() => {
-      let allReady = true
-      let touched = false
+    // Prune stale statuses for URLs that are no longer in the timeline
+    // (e.g. a shot was disabled). Without this, an old 'loading' entry
+    // would keep dragging the badge below "all ready".
+    setVideoPreloadStatus(prev => {
+      const allowed = new Set(uniqueUrls)
+      let changed = false
       const next = {}
-      for (const url of Object.keys(videoPreloadCache.current)) {
-        const v = videoPreloadCache.current[url]
-        if (!v) continue
-        if (v.error) { next[url] = 'error'; touched = touched || true; continue }
-        if (v.readyState >= 2) {
-          next[url] = 'ready'
-          touched = touched || true
-        } else {
-          allReady = false
-        }
+      for (const [u, s] of Object.entries(prev)) {
+        if (allowed.has(u)) next[u] = s
+        else changed = true
       }
-      if (touched) {
-        setVideoPreloadStatus(prev => {
-          let changed = false
-          const merged = { ...prev }
-          for (const [u, s] of Object.entries(next)) {
-            if (merged[u] !== s) { merged[u] = s; changed = true }
-          }
-          return changed ? merged : prev
-        })
+      // Add any newly-seen URLs as 'loading' so the badge total reflects them.
+      for (const u of uniqueUrls) {
+        if (next[u] == null) { next[u] = 'loading'; changed = true }
       }
-      if (allReady && Object.keys(videoPreloadCache.current).length > 0) clearInterval(pollId)
-    }, 500)
+      return changed ? next : prev
+    })
 
+    const aborts = []
     uniqueUrls.forEach(originalUrl => {
+      // Always fetch a small Range to verify reachability — this is the
+      // source of truth for the badge regardless of any media element.
+      const ctrl = new AbortController()
+      aborts.push(ctrl)
+      fetch(originalUrl, { method: 'GET', headers: { Range: 'bytes=0-1023' }, signal: ctrl.signal })
+        .then(res => {
+          if (res.ok) {
+            setVideoPreloadStatus(prev => prev[originalUrl] === 'ready' ? prev : { ...prev, [originalUrl]: 'ready' })
+          } else {
+            setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'error' }))
+          }
+          // Drain the body so the browser can release the connection.
+          res.body?.cancel?.().catch(() => {})
+        })
+        .catch(e => {
+          if (e?.name === 'AbortError') return
+          console.warn('[TimelinePage] video reachability check failed:', originalUrl, e)
+          setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'error' }))
+        })
+
+      // Below: keep the detached <video> preloader purely as a cache-warmer
+      // and a source for the poster frame capture. Its readyState is NOT
+      // consulted by the badge anymore.
       if (videoPreloadCache.current[originalUrl]) return
       const src = playableVideoUrl(originalUrl)
       const vid = document.createElement('video')
@@ -182,28 +209,6 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       vid.muted = true
       vid.src = src
       videoPreloadCache.current[originalUrl] = vid
-      setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'loading' }))
-
-      // `canplaythrough` is a Chrome bandwidth heuristic — it often never
-      // fires even when the video is actually playable, leaving the badge
-      // stuck on "Buffering N/M". `canplay` (HAVE_FUTURE_DATA, readyState>=3)
-      // is the standard "ready to start playing" signal and fires reliably;
-      // `loadeddata` is the fallback in case canplay is delayed by the
-      // browser's network estimator. Whichever fires first promotes to ready.
-      const markReady = () => {
-        setVideoPreloadStatus(prev => prev[originalUrl] === 'ready' ? prev : { ...prev, [originalUrl]: 'ready' })
-        vid.removeEventListener('canplay', markReady)
-        vid.removeEventListener('canplaythrough', markReady)
-        vid.removeEventListener('loadeddata', markReady)
-      }
-      const onError = () => {
-        setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'error' }))
-        vid.removeEventListener('error', onError)
-      }
-      vid.addEventListener('canplay', markReady)
-      vid.addEventListener('canplaythrough', markReady)
-      vid.addEventListener('loadeddata', markReady)
-      vid.addEventListener('error', onError)
       vid.load()
 
       // Grab a poster (first-frame thumbnail) from the preloaded video and
@@ -211,7 +216,9 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       // render the same way image shots do. This replaces what videoThumb()
       // used to provide via Cloudinary's so_0,f_jpg transform — R2 doesn't
       // do server-side transforms, so we generate it client-side from the
-      // video element we already have buffered.
+      // video element we already have buffered. If loadeddata never fires
+      // on the detached element, posters just stay missing (graceful) —
+      // the badge no longer depends on this path.
       const captureFrame = () => {
         try {
           if (imageCache.current[originalUrl]) return
@@ -219,7 +226,6 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           c.width = 320
           c.height = Math.round(320 * (vid.videoHeight / vid.videoWidth)) || 180
           c.getContext('2d')?.drawImage(vid, 0, 0, c.width, c.height)
-          // Convert to a blob URL so <Img> can consume it like a normal src.
           c.toBlob(blob => {
             if (!blob) return
             const dataUrl = URL.createObjectURL(blob)
@@ -235,7 +241,6 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       const onSeeked = () => { captureFrame(); vid.removeEventListener('seeked', onSeeked) }
       const onLoadedData = () => {
         vid.removeEventListener('loadeddata', onLoadedData)
-        // Seek slightly past 0 because some codecs render a black frame at t=0.
         try {
           vid.addEventListener('seeked', onSeeked)
           vid.currentTime = 0.1
@@ -246,7 +251,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       vid.addEventListener('loadeddata', onLoadedData)
     })
 
-    return () => clearInterval(pollId)
+    return () => { aborts.forEach(a => { try { a.abort() } catch {} }) }
   }, [timelineShots])
 
   const getShotMedia = useCallback((shot) => {
@@ -746,7 +751,13 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <IconTimeline size={18} color={ACCENT} />
           <span style={{ fontSize: 16, fontWeight: 700 }}>Timeline</span>
-          <span style={{ fontSize: 12, color: '#94A3B8' }}>{timelineShots.length}/{orderedShots.length} shots · {totalFrames}f · {fmt(totalSeconds)}</span>
+          <span style={{ fontSize: 12, color: '#94A3B8' }}>
+            {timelineShots.length} shots
+            {orderedShots.length > timelineShots.length && (
+              <span style={{ color: '#475569' }}> ({orderedShots.length - timelineShots.length} off)</span>
+            )}
+            {' · '}{totalFrames}f · {fmt(totalSeconds)}
+          </span>
           {videoPreloadInfo.total > 0 && !videoPreloadInfo.allReady && (
             <span style={{ fontSize: 10, color: ACCENT, display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: ACCENT, animation: 'wipPulse 1.5s ease-in-out infinite' }} />
