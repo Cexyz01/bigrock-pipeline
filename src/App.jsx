@@ -43,6 +43,7 @@ import InstallBanner from './components/ui/InstallBanner'
 
 import WaitingScreen from './components/pages/WaitingScreen'
 import MaintenanceScreen from './components/pages/MaintenanceScreen'
+import CloudinaryAlarm from './components/ui/CloudinaryAlarm'
 import ProjectManagementPage from './components/pages/ProjectManagementPage'
 import SuperNotifOverlay from './components/ui/SuperNotifOverlay'
 import LoginPage from './components/pages/LoginPage'
@@ -1283,6 +1284,7 @@ export default function App() {
     <div className={isMobile ? 'mobile-safe-top app-shell-mobile' : ''} style={{ display: 'flex', height: isMobile ? '100%' : '100vh', background: '#F0F2F5', overflow: 'hidden' }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfirmDialog pending={pending} onConfirm={confirm} onCancel={cancel} />
+      <CloudinaryAlarm datasets={{ shots, assets, tasks, profiles, notifications, events, ganttItems, ganttLanes }} />
       {slowLoadBanner}
       {currentSuperNotif && (
         <SuperNotifOverlay notification={currentSuperNotif} onDismiss={async () => {
