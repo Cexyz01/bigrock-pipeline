@@ -36,7 +36,7 @@ const videoThumb = (url, w = 200, h = 112) => {
 const playableVideoUrl = (url) => url || null
 
 // ── Main Component ──
-export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, onGoToShotTasks }) {
+export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, requestConfirm, onGoToShotTasks }) {
   const [fps, setFps] = useState(DEFAULT_FPS)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -735,6 +735,81 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     }
   }, [timelineShots])
 
+  // Per-shot "match duration with video" — reads the actual duration of the
+  // uploaded output video, converts to frames at the current fps, asks the
+  // user to confirm, and writes duration_frames on accept.
+  //
+  // Resolution path for the duration:
+  //   1. If we already have a DOM-attached preloader (enabled video shots),
+  //      use its .duration (zero-cost, often already known).
+  //   2. Otherwise — disabled shots, or first-time check before preload —
+  //      create a one-off detached video element with preload='metadata'
+  //      and resolve on loadedmetadata. We only need duration metadata, so
+  //      detached is fine (this isn't the readyState>=2 case where Chromium
+  //      stalls).
+  const readVideoDuration = useCallback((url) => new Promise((resolve, reject) => {
+    const cached = videoPreloadCache.current[url]
+    if (cached && Number.isFinite(cached.duration) && cached.duration > 0) {
+      return resolve(cached.duration)
+    }
+    const probe = document.createElement('video')
+    probe.preload = 'metadata'
+    probe.muted = true
+    probe.crossOrigin = 'anonymous'
+    const cleanup = () => {
+      probe.removeEventListener('loadedmetadata', onMeta)
+      probe.removeEventListener('error', onErr)
+      probe.src = ''
+    }
+    const onMeta = () => {
+      const d = probe.duration
+      cleanup()
+      if (Number.isFinite(d) && d > 0) resolve(d)
+      else reject(new Error('Durata non leggibile dal file'))
+    }
+    const onErr = () => {
+      cleanup()
+      reject(new Error('Impossibile caricare il video'))
+    }
+    probe.addEventListener('loadedmetadata', onMeta)
+    probe.addEventListener('error', onErr)
+    probe.src = url
+    probe.load()
+  }), [])
+
+  const handleMatchDurationToVideo = useCallback(async (shot) => {
+    const url = shot?.output_cloud_url
+    if (!url || !isVideoUrl(url)) {
+      addToast?.('Lo shot non ha un video di output', 'danger')
+      return
+    }
+    let seconds
+    try {
+      seconds = await readVideoDuration(url)
+    } catch (e) {
+      addToast?.(`Errore: ${e?.message || 'durata video non disponibile'}`, 'danger')
+      return
+    }
+    const newFrames = Math.max(1, Math.round(seconds * fps))
+    const currentFrames = shot.duration_frames || DEFAULT_DURATION_FRAMES
+    if (newFrames === currentFrames) {
+      addToast?.(`${shot.code}: durata già allineata (${currentFrames}f)`, 'info')
+      return
+    }
+    const msg = `Attualmente "${shot.code}" ha ${currentFrames} frame (${(currentFrames / fps).toFixed(2)}s).\n` +
+                `Il video caricato dura ${seconds.toFixed(2)}s = ${newFrames} frame @ ${fps}fps.\n\n` +
+                `Vuoi impostare la durata a ${newFrames} frame?`
+    if (requestConfirm) {
+      requestConfirm(msg, async () => {
+        await onUpdateShot(shot.id, { duration_frames: newFrames })
+        addToast?.(`${shot.code}: ${currentFrames}f → ${newFrames}f`, 'success')
+      })
+    } else if (window.confirm(msg)) {
+      await onUpdateShot(shot.id, { duration_frames: newFrames })
+      addToast?.(`${shot.code}: ${currentFrames}f → ${newFrames}f`, 'success')
+    }
+  }, [addToast, fps, onUpdateShot, readVideoDuration, requestConfirm])
+
   if (orderedShots.length === 0) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94A3B8' }}>
@@ -945,9 +1020,22 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                               style={{ width: 64, background: '#1E293B', border: `1.5px solid ${ACCENT}`, borderRadius: 5, padding: '5px 8px', color: '#F1F5F9', fontSize: 13, textAlign: 'center', outline: 'none', fontFamily: 'inherit', fontWeight: 600 }}
                             />
                           ) : (
-                            <span onClick={() => setTableDurations(prev => ({ ...prev, [shot.id]: String(dur) }))}
-                              style={{ cursor: 'pointer', padding: '5px 12px', borderRadius: 5, background: '#1E293B', border: '1px solid #334155', fontSize: 13, fontWeight: 600, color: '#F1F5F9', display: 'inline-block', minWidth: 48, textAlign: 'center' }}
-                              title="Click to edit">{dur}</span>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <span onClick={() => setTableDurations(prev => ({ ...prev, [shot.id]: String(dur) }))}
+                                style={{ cursor: 'pointer', padding: '5px 12px', borderRadius: 5, background: '#1E293B', border: '1px solid #334155', fontSize: 13, fontWeight: 600, color: '#F1F5F9', display: 'inline-block', minWidth: 48, textAlign: 'center' }}
+                                title="Click to edit">{dur}</span>
+                              {shot.output_cloud_url && isVideoUrl(shot.output_cloud_url) && (
+                                <button
+                                  onClick={() => handleMatchDurationToVideo(shot)}
+                                  title={`Imposta la durata di ${shot.code} alla durata reale del video caricato`}
+                                  style={{
+                                    background: 'transparent', border: '1px solid #334155', borderRadius: 5,
+                                    padding: '4px 6px', cursor: 'pointer', color: ACCENT, fontSize: 12,
+                                    fontWeight: 700, lineHeight: 1,
+                                  }}
+                                >&#8644;</button>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'center', color: '#CBD5E1', fontSize: 13, fontFamily: 'monospace' }}>{(dur / fps).toFixed(1)}s</td>

@@ -369,7 +369,34 @@ const AudioMiniPlayer = memo(function AudioMiniPlayer({ url }) {
   )
 })
 
-const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH, disabled }) {
+// Minimum thumbnail width inside a multi-image cell. Below this we don't shrink —
+// the cell grows vertically instead (so 12 concept sketches end up as a taller
+// masonry stack, not a postage-stamp grid).
+const MASONRY_MIN_IMG_W = 150
+const MASONRY_GAP = 6
+const MASONRY_PAD = 4
+
+// Pick a column count that respects MASONRY_MIN_IMG_W and the cell's width budget.
+function cellColumns(count) {
+  if (count <= 1) return 1
+  const budget = B_CELL_W - 2 * MASONRY_PAD + MASONRY_GAP
+  const fit = Math.floor(budget / (MASONRY_MIN_IMG_W + MASONRY_GAP))
+  return Math.max(2, Math.min(count, Math.max(1, fit)))
+}
+
+// Synthetic initial height for a masonry cell, used until ResizeObserver
+// reports the real laid-out height. Assumes ~square aspect — biased a bit tall
+// so the first paint doesn't clip portrait imagery before the measurement
+// pass kicks in.
+function estimateCellH(count) {
+  if (count <= 1) return 240
+  const cols = cellColumns(count)
+  const colW = (B_CELL_W - 2 * MASONRY_PAD - (cols - 1) * MASONRY_GAP) / cols
+  const perCol = Math.ceil(count / cols)
+  return Math.ceil(perCol * (colW + MASONRY_GAP) - MASONRY_GAP + 2 * MASONRY_PAD)
+}
+
+const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH, disabled, measureRef }) {
   const count = images?.length || 0
 
   if (disabled) return <div style={{ height: cellH }} />
@@ -391,20 +418,26 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     )
   }
 
-  const cols = 2, rows = Math.ceil(count / cols)
+  // Masonry: CSS multi-column with break-inside: avoid. Each image keeps its
+  // natural aspect (width:100% of column, height:auto) so we never letterbox
+  // or crop — and columns balance automatically, killing the dead-cell gaps
+  // the old fixed 2×N grid produced for odd image counts.
+  const cols = cellColumns(count)
   return (
-    <div style={{ height: cellH, display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`, gap: 4, padding: 2 }}>
-      {images.map((img, i) => (
-        <div key={img.id} style={{ minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-          {isAudioUrl(img.image_url) ? (
-            <AudioMiniPlayer url={img.image_url} />
-          ) : (
-            <Img src={thumbUrl(img.image_url, 1100, 620)} alt="" onClick={() => onClickImage(i)}
-              draggable={false} onDragStart={(e) => e.preventDefault()}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
-          )}
-        </div>
-      ))}
+    <div style={{ minHeight: cellH, padding: MASONRY_PAD, boxSizing: 'border-box' }}>
+      <div ref={measureRef} style={{ columnCount: cols, columnGap: MASONRY_GAP }}>
+        {images.map((img, i) => (
+          <div key={img.id} style={{ breakInside: 'avoid', WebkitColumnBreakInside: 'avoid', pageBreakInside: 'avoid', marginBottom: MASONRY_GAP, lineHeight: 0 }}>
+            {isAudioUrl(img.image_url) ? (
+              <AudioMiniPlayer url={img.image_url} />
+            ) : (
+              <Img src={thumbUrl(img.image_url, 800, 800)} alt="" onClick={() => onClickImage(i)}
+                draggable={false} onDragStart={(e) => e.preventDefault()}
+                style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 })
@@ -439,15 +472,18 @@ const RefCell = memo(function RefCell({ url, onClick, cellH }) {
 // from a ResizeObserver — this is the source of truth once the description has rendered.
 // Until then we fall back to a synthetic measurement so the first paint is approximately right.
 const DESC_PAD_V = 24 // 12px top + 12px bottom on the description box
-function computeRowH(item, imageMap, depts, description, descHeights) {
+function computeRowH(item, imageMap, depts, description, descHeights, cellHeights) {
   const BASE = 240
   let maxGridH = 0
 
   for (const d of depts) {
     const imgs = imageMap[`${item.id}__${d.id}`] || []
     if (imgs.length <= 1) continue
-    const rows = Math.ceil(imgs.length / 2)
-    const gridH = rows * 160 + (rows - 1) * 4 + 8
+    // Prefer the measured masonry height from ResizeObserver. The synthetic
+    // estimate from estimateCellH() is just a first-paint placeholder, biased
+    // tall so portrait imagery doesn't get clipped before measurement lands.
+    const observed = cellHeights?.[`${item.id}__${d.id}`]
+    const gridH = observed != null ? observed + 2 * MASONRY_PAD : estimateCellH(imgs.length)
     maxGridH = Math.max(maxGridH, gridH)
   }
 
@@ -621,6 +657,39 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     for (const k in descObservers.current) descObservers.current[k].observer.disconnect()
     descObservers.current = {}
     descRefCache.current = {}
+  }, [])
+
+  // Same pattern as descHeights, but for the multi-image masonry block inside
+  // BoardCell. Images load asynchronously so the column-balanced height is only
+  // known after-the-fact — ResizeObserver feeds it back, computeRowH picks it
+  // up, the row re-flows to fit. Keyed by `${itemId}__${deptId}` because the
+  // same item has independent masonry stacks per department.
+  const [cellHeights, setCellHeights] = useState({})
+  const cellObservers = useRef({}) // key -> { observer }
+  const cellRefCache = useRef({})  // key -> stable ref callback
+  const cellRef = useCallback((itemId, deptId) => {
+    const key = `${itemId}__${deptId}`
+    if (cellRefCache.current[key]) return cellRefCache.current[key]
+    const fn = (el) => {
+      const prev = cellObservers.current[key]
+      if (prev) prev.observer.disconnect()
+      if (!el) { delete cellObservers.current[key]; return }
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const h = Math.ceil(entry.contentRect.height)
+          setCellHeights(prevMap => prevMap[key] === h ? prevMap : { ...prevMap, [key]: h })
+        }
+      })
+      observer.observe(el)
+      cellObservers.current[key] = { observer }
+    }
+    cellRefCache.current[key] = fn
+    return fn
+  }, [])
+  useEffect(() => () => {
+    for (const k in cellObservers.current) cellObservers.current[k].observer.disconnect()
+    cellObservers.current = {}
+    cellRefCache.current = {}
   }, [])
 
   // Convert screen coordinates to board coordinates (inverse of the pan+scale transform).
@@ -1414,7 +1483,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
     rowPositions.push({ type: 'seq', seq, y: currentY, count: seqItems.length })
     currentY += B_SEQ_H + B_GAP
     for (const item of seqItems) {
-      const cellH = computeRowH(item, imageMap, depts, getDescription(item), descHeights)
+      const cellH = computeRowH(item, imageMap, depts, getDescription(item), descHeights, cellHeights)
       rowPositions.push({ type: 'shot', shot: item, y: currentY, cellH })
       currentY += cellH + B_GAP
     }
@@ -1793,6 +1862,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
                 return (
                   <div key={d.id} style={{ position: 'absolute', left: colX(3 + di), top: 0, width: B_CELL_W, height: cellH }}>
                     <BoardCell images={imgs} status={status} cellH={cellH} disabled={deptDisabled}
+                      measureRef={cellRef(item.id, d.id)}
                       onClickImage={(idx) => openCellImage(item.id, code, d.id, d.label, status, idx)} />
                   </div>
                 )
