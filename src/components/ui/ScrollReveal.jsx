@@ -45,7 +45,7 @@ export default function ScrollReveal({
               <h1 style={{
                 margin: '0 0 1.2em', textAlign: 'center', color,
                 fontSize: Math.round(fontSize * 2), lineHeight: 1.15,
-                fontWeight: 800, letterSpacing: '0.02em',
+                fontWeight: 700, letterSpacing: '0.02em',
               }}>{b.text}</h1>
             </FadeBlock>
           )
@@ -57,15 +57,15 @@ export default function ScrollReveal({
                 <h2 style={{
                   margin: '0 0 0.7em', textAlign: 'center', color,
                   fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
-                  fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                  fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
                 }}>Personaggi</h2>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                   {b.items.map((it, j) => (
                     <li key={j} style={{
-                      fontSize, lineHeight, color, fontWeight: 500,
-                      margin: '0 0 0.5em',
+                      fontSize, lineHeight, color, fontWeight: 400,
+                      margin: '0 0 0.6em',
                     }}>
-                      <strong style={{ fontWeight: 800 }}>{it.name}</strong> — {it.desc}
+                      <strong style={{ fontWeight: 700 }}>{it.name}</strong> — {it.desc}
                     </li>
                   ))}
                 </ul>
@@ -76,15 +76,15 @@ export default function ScrollReveal({
         if (b.kind === 'shot') {
           return (
             <FadeBlock key={i}>
-              <div style={{ margin: '1.6em 0 1.2em' }}>
+              <div style={{ margin: '0 0 2.8em' }}>
                 <h2 style={{
-                  margin: '0 0 0.5em', textAlign: 'center', color,
+                  margin: '0 0 0.7em', textAlign: 'center', color,
                   fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
-                  fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                  fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
                 }}>{b.title}</h2>
                 {b.description && (
                   <p style={{
-                    margin: 0, fontSize, lineHeight, color, fontWeight: 500,
+                    margin: 0, fontSize, lineHeight, color, fontWeight: 400,
                     whiteSpace: 'pre-wrap', textAlign: 'left',
                   }}>{b.description}</p>
                 )}
@@ -172,7 +172,7 @@ function FadeParagraph({ text, fontSize, lineHeight, color }) {
     <p
       ref={ref}
       style={{
-        margin: '0 0 1.1em', fontSize, lineHeight, color, fontWeight: 500,
+        margin: '0 0 1.1em', fontSize, lineHeight, color, fontWeight: 400,
         whiteSpace: 'pre-wrap',
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(8px)',
