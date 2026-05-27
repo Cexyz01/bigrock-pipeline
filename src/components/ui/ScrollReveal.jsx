@@ -76,7 +76,7 @@ export default function ScrollReveal({
         if (b.kind === 'shot') {
           return (
             <FadeBlock key={i}>
-              <div style={{ margin: '0 0 2.8em' }}>
+              <div style={{ margin: '0 0 4.2em' }}>
                 <h2 style={{
                   margin: '0 0 0.7em', textAlign: 'center', color,
                   fontSize: Math.round(fontSize * 1.15), lineHeight: 1.25,
@@ -158,7 +158,7 @@ function useReveal() {
     if (!el) return
     const io = new IntersectionObserver(
       entries => { for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); break } },
-      { rootMargin: '0px 0px -10% 0px' }
+      { rootMargin: '0px 0px -25% 0px' }
     )
     io.observe(el)
     return () => io.disconnect()
@@ -175,8 +175,8 @@ function FadeParagraph({ text, fontSize, lineHeight, color }) {
         margin: '0 0 1.1em', fontSize, lineHeight, color, fontWeight: 400,
         whiteSpace: 'pre-wrap',
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(8px)',
-        transition: 'opacity 180ms ease, transform 180ms ease',
+        transform: visible ? 'translateY(0)' : 'translateY(24px)',
+        transition: 'opacity 520ms ease, transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
       {text}
@@ -191,8 +191,8 @@ function FadeBlock({ children }) {
       ref={ref}
       style={{
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(8px)',
-        transition: 'opacity 180ms ease, transform 180ms ease',
+        transform: visible ? 'translateY(0)' : 'translateY(24px)',
+        transition: 'opacity 520ms ease, transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
       {children}
