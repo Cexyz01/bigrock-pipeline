@@ -205,11 +205,14 @@ export default function App() {
   }, [])
 
   // Maintenance mode — fetch on mount + subscribe to realtime changes so
-  // toggling the flag from the Manager tab kicks everyone (except admins)
-  // into the "Under Maintenance" screen immediately.
+  // toggling the flag from the Manager tab kicks everyone (except admins
+  // and producers) into the "Under Maintenance" screen immediately.
+  // A 15s polling fallback covers cases where realtime is asleep or the
+  // socket dropped (mobile background tabs, network blips).
   useEffect(() => {
     let active = true
-    getMaintenanceMode().then(v => { if (active) setMaintenanceMode(!!v) }).catch(() => {})
+    const refresh = () => getMaintenanceMode().then(v => { if (active) setMaintenanceMode(!!v) }).catch(() => {})
+    refresh()
     const ch = supabase
       .channel('app_settings_maintenance')
       .on('postgres_changes',
@@ -219,7 +222,8 @@ export default function App() {
           setMaintenanceMode(val === 'on')
         })
       .subscribe()
-    return () => { active = false; supabase.removeChannel(ch) }
+    const poll = setInterval(refresh, 15000)
+    return () => { active = false; clearInterval(poll); supabase.removeChannel(ch) }
   }, [])
 
   const loadUser = async (authUser) => {
@@ -1149,9 +1153,11 @@ export default function App() {
   )
   if (!session || !user) return <LoginPage />
 
-  // Maintenance gate — non-admins see the lockdown screen while the flag
-  // is on. Admins keep full access so they can toggle it back off.
-  if (maintenanceMode && !isAdmin(user)) {
+  // Maintenance gate — admins and producers keep full access (so they can
+  // keep working / toggle the flag back off). Everyone else sees the
+  // lockdown screen.
+  const canBypassMaintenance = isAdmin(user) || user.role_slug === 'producer' || user.role === 'producer'
+  if (maintenanceMode && !canBypassMaintenance) {
     return <MaintenanceScreen onSignOut={signOut} />
   }
 
