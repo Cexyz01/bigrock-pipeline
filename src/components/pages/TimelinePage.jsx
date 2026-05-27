@@ -151,15 +151,25 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       videoPreloadCache.current[originalUrl] = vid
       setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'loading' }))
 
-      const onCanPlay = () => {
-        setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'ready' }))
-        vid.removeEventListener('canplaythrough', onCanPlay)
+      // `canplaythrough` is a Chrome bandwidth heuristic — it often never
+      // fires even when the video is actually playable, leaving the badge
+      // stuck on "Buffering N/M". `canplay` (HAVE_FUTURE_DATA, readyState>=3)
+      // is the standard "ready to start playing" signal and fires reliably;
+      // `loadeddata` is the fallback in case canplay is delayed by the
+      // browser's network estimator. Whichever fires first promotes to ready.
+      const markReady = () => {
+        setVideoPreloadStatus(prev => prev[originalUrl] === 'ready' ? prev : { ...prev, [originalUrl]: 'ready' })
+        vid.removeEventListener('canplay', markReady)
+        vid.removeEventListener('canplaythrough', markReady)
+        vid.removeEventListener('loadeddata', markReady)
       }
       const onError = () => {
         setVideoPreloadStatus(prev => ({ ...prev, [originalUrl]: 'error' }))
         vid.removeEventListener('error', onError)
       }
-      vid.addEventListener('canplaythrough', onCanPlay)
+      vid.addEventListener('canplay', markReady)
+      vid.addEventListener('canplaythrough', markReady)
+      vid.addEventListener('loadeddata', markReady)
       vid.addEventListener('error', onError)
       vid.load()
 
@@ -682,7 +692,6 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     return positions
   }, [timelineShots, totalFrames])
 
-  const playheadPct = totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0
   const currentSec = currentFrame / fps
 
   // Video preload progress
@@ -1072,6 +1081,15 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
               const isActive = currentShotInfo?.shot?.id === shot.id
               const isSelected = selectedShotId === shot.id
               const imgUrl = getShotThumb(shot)
+              // Playhead lives INSIDE the active tile at a fraction of the
+              // shot's own width. Previously it was a strip-level absolute
+              // element using `left: ${playheadPct}%`, which broke alignment
+              // whenever a tile's flex share was clamped by minWidth — the
+              // tile drifted right of where percent math expected it. By
+              // anchoring the playhead to the shot tile, the visual position
+              // is exact no matter how the flex layout distributes width.
+              const localFrame = isActive ? (currentShotInfo?.localFrame || 0) : 0
+              const localPct = isActive ? Math.min(100, (localFrame / Math.max(1, duration)) * 100) : 0
               return (
                 <div
                   key={shot.id}
@@ -1107,14 +1125,16 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                     </div>
                     {shot.audio_url && <span style={{ fontSize: 10, color: '#2DD4BF' }}>&#9835;</span>}
                   </div>
+                  {isActive && (
+                    <div style={{
+                      position: 'absolute', top: 0, bottom: 0, left: `${localPct}%`,
+                      width: 2, background: ACCENT, zIndex: 10, pointerEvents: 'none',
+                      boxShadow: `0 0 6px ${ACCENT}`,
+                    }} />
+                  )}
                 </div>
               )
             })}
-            <div style={{
-              position: 'absolute', top: 0, bottom: 0, left: `${playheadPct}%`,
-              width: 2, background: ACCENT, zIndex: 10, pointerEvents: 'none',
-              boxShadow: `0 0 6px ${ACCENT}`,
-            }} />
           </div>
         </div>
       </div>
