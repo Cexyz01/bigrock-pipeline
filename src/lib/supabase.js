@@ -458,9 +458,15 @@ export async function getStoryboardImages(projectId) {
   // whose WIP update has them in `pinned_storyboard_urls`. Approving a task
   // auto-pins the latest WIP per uploader (see updateTask); users can toggle
   // additional stars from the task detail modal.
+  //
+  // Policy (2026-05-27): only tasks in 'approved' (Done) status surface here.
+  // Tasks in 'review' may have pins set from the approval auto-pin path or
+  // from a previous Done cycle, but until the task is actually approved we
+  // hide them — the storyboard is supposed to reflect what's signed off, not
+  // what's still being judged.
   const { data: pins } = await supabase
     .from('task_wip_updates')
-    .select('id, pinned_storyboard_urls, task:tasks(id, shot_id, asset_id, department)')
+    .select('id, pinned_storyboard_urls, task:tasks(id, shot_id, asset_id, department, status)')
     .not('pinned_storyboard_urls', 'eq', '{}')
 
   const out = []
@@ -469,6 +475,7 @@ export async function getStoryboardImages(projectId) {
   for (const row of (pins || [])) {
     const task = row.task
     if (!task) continue
+    if (task.status !== 'approved') continue
     const pinnedList = Array.isArray(row.pinned_storyboard_urls) ? row.pinned_storyboard_urls : []
     for (const url of pinnedList) {
       if (!url || seen.has(url)) continue
