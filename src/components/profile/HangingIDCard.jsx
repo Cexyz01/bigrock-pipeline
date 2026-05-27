@@ -413,20 +413,6 @@ export default function HangingIDCard({ user }) {
         </div>
       </div>
 
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 6,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          fontSize: 11,
-          color: '#94A3B8',
-          pointerEvents: 'none',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Trascina o clicca la card ↔
-      </div>
     </div>
   )
 }
