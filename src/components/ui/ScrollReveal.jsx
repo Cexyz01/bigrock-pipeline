@@ -158,7 +158,7 @@ function useReveal() {
     if (!el) return
     const io = new IntersectionObserver(
       entries => { for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); break } },
-      { rootMargin: '0px 0px -15% 0px' }
+      { rootMargin: '0px 0px -10% 0px' }
     )
     io.observe(el)
     return () => io.disconnect()
