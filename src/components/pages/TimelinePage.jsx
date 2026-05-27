@@ -137,6 +137,39 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       .filter(url => url && isVideoUrl(url))
     const uniqueUrls = [...new Set(videoUrls)]
 
+    // Belt-and-suspenders fallback for the badge: poll every 500ms and
+    // promote any preloader whose readyState is HAVE_CURRENT_DATA (>=2)
+    // to 'ready'. Some browsers/CDN combinations buffer the file but
+    // never emit canplay/loadeddata — without this, the badge stays
+    // stuck on "Buffering" while the user is happily watching playback.
+    const pollId = setInterval(() => {
+      let allReady = true
+      let touched = false
+      const next = {}
+      for (const url of Object.keys(videoPreloadCache.current)) {
+        const v = videoPreloadCache.current[url]
+        if (!v) continue
+        if (v.error) { next[url] = 'error'; touched = touched || true; continue }
+        if (v.readyState >= 2) {
+          next[url] = 'ready'
+          touched = touched || true
+        } else {
+          allReady = false
+        }
+      }
+      if (touched) {
+        setVideoPreloadStatus(prev => {
+          let changed = false
+          const merged = { ...prev }
+          for (const [u, s] of Object.entries(next)) {
+            if (merged[u] !== s) { merged[u] = s; changed = true }
+          }
+          return changed ? merged : prev
+        })
+      }
+      if (allReady && Object.keys(videoPreloadCache.current).length > 0) clearInterval(pollId)
+    }, 500)
+
     uniqueUrls.forEach(originalUrl => {
       if (videoPreloadCache.current[originalUrl]) return
       const src = playableVideoUrl(originalUrl)
@@ -212,6 +245,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       }
       vid.addEventListener('loadeddata', onLoadedData)
     })
+
+    return () => clearInterval(pollId)
   }, [timelineShots])
 
   const getShotMedia = useCallback((shot) => {
