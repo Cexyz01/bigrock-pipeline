@@ -1220,10 +1220,27 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedShot.output_cloud_url.split('/').pop()}</span>
                   </div>
                 )}
-                <button onClick={() => outputFileRef.current?.click()} style={{
-                  background: '#1E293B', border: '1px dashed #334155', borderRadius: 6, padding: '8px 0',
-                  width: '100%', color: '#64748B', fontSize: 11, cursor: 'pointer', textAlign: 'center',
-                }}>{selectedShot.output_cloud_url ? 'Cambia Output' : 'Carica Output'}</button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => outputFileRef.current?.click()} style={{
+                    background: '#1E293B', border: '1px dashed #334155', borderRadius: 6, padding: '8px 0',
+                    flex: 1, color: '#64748B', fontSize: 11, cursor: 'pointer', textAlign: 'center',
+                  }}>{selectedShot.output_cloud_url ? 'Cambia Output' : 'Carica Output'}</button>
+                  {selectedShot.output_cloud_url && (
+                    <button
+                      onClick={() => {
+                        const doRemove = () => onUpdateShot(selectedShotId, { output_cloud_url: null, output_img_width: 0, output_img_height: 0 })
+                        if (requestConfirm) requestConfirm('Rimuovere l\'output?', doRemove)
+                        else if (window.confirm('Rimuovere l\'output?')) doRemove()
+                      }}
+                      title="Rimuovi output"
+                      style={{
+                        background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.4)', borderRadius: 6,
+                        padding: '0 10px', color: '#EF4444', fontSize: 14, cursor: 'pointer', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >&#128465;</button>
+                  )}
+                </div>
                 {selectedShot.output_cloud_url && isVideoUrl(selectedShot.output_cloud_url) && (
                   <a href={selectedShot.output_cloud_url} download target="_blank" rel="noopener noreferrer" style={{
                     display: 'block', marginTop: 4, background: '#1E293B', border: '1px solid #334155', borderRadius: 6, padding: '8px 0',
@@ -1338,11 +1355,23 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                       objectFit: 'cover', opacity: 0.25, pointerEvents: 'none',
                     }} />
                   )}
+                  {/* Vertical shot code — rotated 180° via writing-mode +
+                      transform so it reads bottom-up. Vertical orientation
+                      means it fits even when the tile is very narrow. */}
+                  <div style={{
+                    position: 'absolute', top: 6, left: 6,
+                    fontSize: 11, fontWeight: 600,
+                    color: isActive ? ACCENT : '#F1F5F9',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    whiteSpace: 'nowrap',
+                    zIndex: 1,
+                    pointerEvents: 'none',
+                  }}>
+                    {shot.code}
+                  </div>
                   <div style={{ position: 'relative', zIndex: 1 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: isActive ? ACCENT : '#F1F5F9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {shot.code}
-                    </div>
-                    <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>
+                    <div style={{ fontSize: 9, color: '#94A3B8' }}>
                       {duration}f · {(duration / fps).toFixed(1)}s
                     </div>
                     {shot.audio_url && <span style={{ fontSize: 10, color: '#2DD4BF' }}>&#9835;</span>}
