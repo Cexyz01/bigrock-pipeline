@@ -1020,21 +1020,30 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                               style={{ width: 64, background: '#1E293B', border: `1.5px solid ${ACCENT}`, borderRadius: 5, padding: '5px 8px', color: '#F1F5F9', fontSize: 13, textAlign: 'center', outline: 'none', fontFamily: 'inherit', fontWeight: 600 }}
                             />
                           ) : (
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            // 3-column grid keeps the duration box rock-steady across
+                            // rows: center column (auto-width) holds the number box, the
+                            // two 1fr side columns balance whitespace around it. The
+                            // optional ⇄ button lives in the right column with
+                            // justify-self:start so it tucks next to the box WITHOUT
+                            // pushing the box off-center.
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', columnGap: 4 }}>
+                              <div />
                               <span onClick={() => setTableDurations(prev => ({ ...prev, [shot.id]: String(dur) }))}
                                 style={{ cursor: 'pointer', padding: '5px 12px', borderRadius: 5, background: '#1E293B', border: '1px solid #334155', fontSize: 13, fontWeight: 600, color: '#F1F5F9', display: 'inline-block', minWidth: 48, textAlign: 'center' }}
                                 title="Click to edit">{dur}</span>
-                              {shot.output_cloud_url && isVideoUrl(shot.output_cloud_url) && (
-                                <button
-                                  onClick={() => handleMatchDurationToVideo(shot)}
-                                  title={`Imposta la durata di ${shot.code} alla durata reale del video caricato`}
-                                  style={{
-                                    background: 'transparent', border: '1px solid #334155', borderRadius: 5,
-                                    padding: '4px 6px', cursor: 'pointer', color: ACCENT, fontSize: 12,
-                                    fontWeight: 700, lineHeight: 1,
-                                  }}
-                                >&#8644;</button>
-                              )}
+                              <div style={{ justifySelf: 'start' }}>
+                                {shot.output_cloud_url && isVideoUrl(shot.output_cloud_url) && (
+                                  <button
+                                    onClick={() => handleMatchDurationToVideo(shot)}
+                                    title={`Imposta la durata di ${shot.code} alla durata reale del video caricato`}
+                                    style={{
+                                      background: 'transparent', border: '1px solid #334155', borderRadius: 5,
+                                      padding: '4px 6px', cursor: 'pointer', color: ACCENT, fontSize: 12,
+                                      fontWeight: 700, lineHeight: 1,
+                                    }}
+                                  >&#8644;</button>
+                                )}
+                              </div>
                             </div>
                           )}
                         </td>
