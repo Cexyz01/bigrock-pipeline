@@ -73,7 +73,7 @@ export default function CatRain() {
     })
 
     const tier = detectTier()
-    const SPAWN_MS = tier === 'low' ? 320 : 160
+    const SPAWN_MS = tier === 'low' ? 3200 : 1600
     // Safety ceiling only — the real gate is the "spawn point blocked" check
     // below, so rain naturally stops when the pile fills the screen.
     // Scale with viewport area so big monitors don't get capped at half-full.
