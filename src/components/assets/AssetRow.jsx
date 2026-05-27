@@ -46,6 +46,14 @@ const AssetRow = React.memo(function AssetRow({
     requestConfirm(`Eliminare l'asset ${asset.name}?`, () => onDelete(asset.id))
   }, [asset.id, asset.name, onDelete, requestConfirm])
 
+  const handleRemoveReference = useCallback(() => {
+    requestConfirm('Eliminare il reference?', () => onUpdate(asset.id, { ref_cloud_url: null, ref_img_width: 0, ref_img_height: 0 }))
+  }, [asset.id, onUpdate, requestConfirm])
+
+  const handleRemoveOutput = useCallback(() => {
+    requestConfirm("Eliminare l'output?", () => onUpdate(asset.id, { output_cloud_url: null, output_img_width: 0, output_img_height: 0 }))
+  }, [asset.id, onUpdate, requestConfirm])
+
   const handleFileSelect = useCallback(async (e) => {
     const file = e.target.files?.[0]
     if (!file || !onUploadReference) return
@@ -132,10 +140,16 @@ const AssetRow = React.memo(function AssetRow({
             {refImg ? (
               <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#000' }}>
                 <Img src={previewUrl(refImg)} alt="Reference" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
-                <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                  style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <IconImage size={11} /> {uploading ? '...' : 'Cambia'}
-                </button>
+                <div style={{ position: 'absolute', bottom: 6, right: 6, display: 'flex', gap: 4 }}>
+                  <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                    style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <IconImage size={11} /> {uploading ? '...' : 'Cambia'}
+                  </button>
+                  <button onClick={handleRemoveReference} disabled={uploading} title="Elimina reference"
+                    style={{ background: 'rgba(220,38,38,0.85)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <IconTrash size={11} />
+                  </button>
+                </div>
               </div>
             ) : (
               <div onClick={() => fileRef.current?.click()} style={{
@@ -160,10 +174,16 @@ const AssetRow = React.memo(function AssetRow({
                 ) : (
                   <Img src={previewUrl(outImg)} alt="Output" style={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
                 )}
-                <button onClick={() => outputFileRef.current?.click()} disabled={uploadingOutput}
-                  style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <IconImage size={11} /> {uploadingOutput ? '...' : 'Cambia'}
-                </button>
+                <div style={{ position: 'absolute', bottom: 6, right: 6, display: 'flex', gap: 4 }}>
+                  <button onClick={() => outputFileRef.current?.click()} disabled={uploadingOutput}
+                    style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <IconImage size={11} /> {uploadingOutput ? '...' : 'Cambia'}
+                  </button>
+                  <button onClick={handleRemoveOutput} disabled={uploadingOutput} title="Elimina output"
+                    style={{ background: 'rgba(220,38,38,0.85)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <IconTrash size={11} />
+                  </button>
+                </div>
               </div>
             ) : (
               <div onClick={() => outputFileRef.current?.click()} style={{
