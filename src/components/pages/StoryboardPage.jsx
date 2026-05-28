@@ -196,6 +196,35 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
   if (!images?.length) return null
   const img = images[index] || images[0]
   const audio = isAudioUrl(img.image_url)
+
+  // Download the original asset. R2/Cloudinary are cross-origin, so the <a
+  // download> filename hint is ignored by the browser; fetching as a blob lets
+  // us force a real "Save as" with a sensible name. If CORS blocks the fetch we
+  // fall back to opening the file in a new tab.
+  const downloadCurrent = async (e) => {
+    e.stopPropagation()
+    const url = img.image_url
+    const clean = url.split('?')[0]
+    const ext = (clean.match(/\.([a-z0-9]+)$/i)?.[1] || 'jpg').toLowerCase()
+    const base = [shotCode, deptLabel].filter(Boolean).join('_').replace(/[^\w.-]+/g, '_') || 'storyboard'
+    const filename = `${base}.${ext}`
+    try {
+      const res = await fetch(url, { mode: 'cors' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objUrl)
+    } catch (err) {
+      window.open(url, '_blank', 'noopener')
+    }
+  }
+
   return createPortal(
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, zIndex: 99999,
@@ -228,6 +257,13 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
             </>
           )}
           {images.length > 1 && <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>{index + 1} / {images.length}</span>}
+          <button onClick={downloadCurrent} title="Scarica" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}><IconX size={18} /></button>
         </div>
       </div>
