@@ -44,6 +44,11 @@ export default function ReviewPage({
     })
   }, [])
 
+  // Confetti lives at the page level (not inside the card) so it keeps playing
+  // for its full duration even after the approved card has unmounted.
+  const [confettiRun, setConfettiRun] = useState(0)
+  const fireConfetti = useCallback(() => setConfettiRun(r => r + 1), [])
+
   const reviewTasks = useMemo(
     () => tasks
       .filter(t => t.status === 'review' && !dismissedIds.has(t.id))
@@ -109,7 +114,7 @@ export default function ReviewPage({
             <EmptyState icon={<IconEye size={56} color="#94A3B8" />} title="Nessun task in review" sub="Quando uno staff invia un task per review apparirà qui." />
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
             {reviewTasks.map((task, idx) => (
               <TaskReviewCard
                 key={task.id}
@@ -120,6 +125,7 @@ export default function ReviewPage({
                 onUpdateTask={onUpdateTask}
                 onRejectTask={onRejectTask}
                 onDismiss={dismissTask}
+                onApprove={fireConfetti}
                 user={user}
                 addToast={addToast}
                 requestConfirm={requestConfirm}
@@ -130,6 +136,8 @@ export default function ReviewPage({
       </div>
 
       </div>
+
+      <Confetti runId={confettiRun} />
     </div>
   )
 }
@@ -235,12 +243,20 @@ function Stat({ label, value, accent }) {
 // ────────────────────────────────────────────────────────────
 // TASK REVIEW CARD
 // ────────────────────────────────────────────────────────────
-function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, onDismiss, user, addToast, requestConfirm }) {
+// How long the card's collapse/fade-out runs before we actually drop it from
+// the list. Kept in sync with the wrapper transition below.
+const EXIT_MS = 460
+
+function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, onDismiss, onApprove, user, addToast, requestConfirm }) {
   const dept = DEPTS.find(d => d.id === task.department)
   const assignees = task.assignees || []
   const [actionLoading, setActionLoading] = useState(null)
   const [showRejectBox, setShowRejectBox] = useState(false)
   const [rejectComment, setRejectComment] = useState('')
+  // Drives the exit animation: the card collapses + fades in place, then the
+  // parent removes it once EXIT_MS has elapsed so the list reflows smoothly
+  // instead of snapping.
+  const [leaving, setLeaving] = useState(false)
 
   // Staff tick which WIPs to send before committing — show only those here.
   // Fallback for legacy tasks (no row flagged): show every non-empty WIP so
@@ -253,11 +269,12 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
 
   const handleApprove = async () => {
     setActionLoading('approve')
-    // Optimistic dismissal — the card vanishes from the page immediately so the
+    onApprove?.()       // big confetti celebration (lives at the page level)
+    setLeaving(true)    // start the collapse/fade exit
+    // Fire the DB update in the background; the card leaves regardless so the
     // staff can keep working through the queue without losing scroll position.
-    onDismiss?.(task.id)
-    try { await onUpdateTask(task.id, { status: 'approved' }) } catch (e) { console.error(e) }
-    setActionLoading(null)
+    Promise.resolve(onUpdateTask(task.id, { status: 'approved' })).catch(e => console.error(e))
+    setTimeout(() => onDismiss?.(task.id), EXIT_MS)
     addToast?.('Task approvato', 'success')
   }
 
@@ -266,17 +283,24 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
     const comment = rejectComment.trim()
     setActionLoading('reject')
     setShowRejectBox(false)
-    onDismiss?.(task.id)
-    onRejectTask(task.id, comment)
-      .catch(e => console.error(e))
-      .finally(() => {
-        setActionLoading(null)
-        setRejectComment('')
-        addToast?.('Modifiche richieste', 'success')
-      })
+    setLeaving(true)
+    onRejectTask(task.id, comment).catch(e => console.error(e))
+    setTimeout(() => onDismiss?.(task.id), EXIT_MS)
+    addToast?.('Modifiche richieste', 'success')
   }
 
   return (
+    <div style={{
+      // Collapse wrapper: animates height + spacing to 0 on exit so the cards
+      // below glide up into place rather than jumping.
+      maxHeight: leaving ? 0 : 4000,
+      opacity: leaving ? 0 : 1,
+      transform: leaving ? 'scale(0.97) translateY(-6px)' : 'none',
+      marginBottom: leaving ? 0 : 28,
+      overflow: 'hidden',
+      transition: `max-height ${EXIT_MS}ms cubic-bezier(0.4,0,0.2,1), opacity ${Math.round(EXIT_MS * 0.7)}ms ease, transform ${Math.round(EXIT_MS * 0.8)}ms ease, margin-bottom ${EXIT_MS}ms cubic-bezier(0.4,0,0.2,1)`,
+      pointerEvents: leaving ? 'none' : 'auto',
+    }}>
     <div style={{
       background: '#fff', borderRadius: 24, overflow: 'hidden',
       border: '1px solid #E8ECF1', boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
@@ -412,6 +436,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
           />
         )}
       </div>
+    </div>
     </div>
   )
 }
@@ -660,6 +685,78 @@ function WipBlock({ wip, user, addToast, onImageClick }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// CONFETTI — fired on Approve. Full-screen, pointer-transparent
+// overlay of falling/spinning pieces. Lives at the page level so it
+// survives the approved card unmounting mid-celebration.
+// ────────────────────────────────────────────────────────────
+const CONFETTI_COLORS = ['#F28C28', '#22C55E', '#3B82F6', '#EF4444', '#A855F7', '#FACC15', '#EC4899', '#14B8A6', '#FFFFFF']
+const CONFETTI_DURATION_MS = 4200
+
+function Confetti({ runId }) {
+  const [active, setActive] = useState(false)
+
+  // Regenerate pieces on each run so successive approvals each get a fresh burst.
+  const pieces = useMemo(() => {
+    if (!runId) return []
+    return Array.from({ length: 180 }, () => {
+      const round = Math.random() < 0.35
+      const size = 7 + Math.random() * 8
+      return {
+        left: Math.random() * 100,
+        drift: (Math.random() * 2 - 1) * 180,
+        spin: (Math.random() < 0.5 ? -1 : 1) * (540 + Math.random() * 1080),
+        duration: 2.8 + Math.random() * 1.4,
+        delay: Math.random() * 0.7,
+        w: round ? size : size * (0.4 + Math.random() * 0.5),
+        h: round ? size : size * (1.2 + Math.random()),
+        color: CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0],
+        radius: round ? '50%' : '1px',
+      }
+    })
+  }, [runId])
+
+  useEffect(() => {
+    if (!runId) return
+    setActive(true)
+    const t = setTimeout(() => setActive(false), CONFETTI_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [runId])
+
+  if (!active || pieces.length === 0) return null
+
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'fixed', inset: 0, overflow: 'hidden',
+        pointerEvents: 'none', zIndex: 9999,
+      }}
+    >
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            position: 'absolute', top: '-12vh',
+            left: `${p.left}%`,
+            width: p.w, height: p.h,
+            background: p.color, borderRadius: p.radius,
+            ['--drift']: `${p.drift}px`,
+            ['--spin']: `${p.spin}deg`,
+            animation: `confetti-fall ${p.duration}s cubic-bezier(0.2,0.6,0.4,1) ${p.delay}s forwards`,
+            willChange: 'transform, opacity',
+          }}
+        />
+      ))}
+      <style>{`@keyframes confetti-fall {
+        0%   { transform: translate3d(0, 0, 0) rotateZ(0deg); opacity: 1; }
+        85%  { opacity: 1; }
+        100% { transform: translate3d(var(--drift), 118vh, 0) rotateZ(var(--spin)); opacity: 0; }
+      }`}</style>
     </div>
   )
 }
