@@ -54,7 +54,7 @@ function randomConfig() {
   const edge = EDGES[Math.floor(Math.random() * EDGES.length)]
   const horiz = edge === 'top' || edge === 'bottom'
   const alongPct = horiz ? 2 + Math.random() * 66 : 2 + Math.random() * 56
-  const size = 220 + Math.floor(Math.random() * 120)
+  const size = 300 + Math.floor(Math.random() * 160)
   const mirror = Math.random() < 0.5
   const tilt = (Math.random() * 20 - 10) // ±10°
   return { edge, alongPct, size, mirror, tilt }
