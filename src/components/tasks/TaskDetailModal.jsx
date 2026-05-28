@@ -100,6 +100,7 @@ export default function TaskDetailModal({
   const [publishing, setPublishing] = useState(false)
   // Image lightbox
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [lightboxImages, setLightboxImages] = useState(null)
   // Per-WIP comments
   const [wipComments, setWipComments] = useState({})         // { [wipUpdateId]: [comment, ...] }
   const [wipCommentInputs, setWipCommentInputs] = useState({}) // { [wipUpdateId]: string }
@@ -778,7 +779,10 @@ export default function TaskDetailModal({
                         <div key={imgIdx} style={{ position: 'relative' }}>
                           <AnnotatedImage
                             src={imgUrl} w={400} h={400} fit="fill" alt={`WIP ${imgIdx + 1}`}
-                            onClick={() => setLightboxUrl(imgUrl)}
+                            onClick={() => {
+                              setLightboxImages(update.images.filter(u => !isAudioUrl(u) && !isVideoUrl(u)))
+                              setLightboxUrl(imgUrl)
+                            }}
                             style={{ borderRadius: 8, border: isPinned ? '2px solid #F28C28' : '1px solid #E2E8F0', aspectRatio: '1', objectFit: 'cover', cursor: 'pointer', display: 'block', width: '100%' }}
                           />
                           {showOverlay && (
@@ -938,7 +942,7 @@ export default function TaskDetailModal({
             </div>
           </div>
         </div>
-        <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
+        <ImageLightbox src={lightboxUrl} images={lightboxImages} onClose={() => { setLightboxUrl(null); setLightboxImages(null) }} user={user} addToast={addToast} />
       </>
     )
   }
@@ -1012,7 +1016,7 @@ export default function TaskDetailModal({
         </div>
       </div>
 
-      <ImageLightbox src={lightboxUrl} onClose={() => setLightboxUrl(null)} user={user} addToast={addToast} />
+      <ImageLightbox src={lightboxUrl} images={lightboxImages} onClose={() => { setLightboxUrl(null); setLightboxImages(null) }} user={user} addToast={addToast} />
     </>
   )
 }
