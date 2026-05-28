@@ -98,13 +98,13 @@ export default function CharacterPeek() {
       const holdMs = rand(2400, 4200)
       const anticMs = 160
       const exitMs = 360
-      const gapMs = rand(7000, 15000)
+      const gapMs = rand(12000, 20000)
       push(() => setPhase('antic'), enterMs + holdMs)
       push(() => setPhase('gone'), enterMs + holdMs + anticMs)
       push(runCycle, enterMs + holdMs + anticMs + exitMs + gapMs)
     }
 
-    push(runCycle, rand(3500, 7000))
+    push(runCycle, rand(7000, 12000))
     return () => {
       alive = false
       timers.current.forEach(clearTimeout)
