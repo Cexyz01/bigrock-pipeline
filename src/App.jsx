@@ -6,6 +6,7 @@ import AdminConsole from './components/admin/AdminConsole'
 import AdminEffects from './components/admin/AdminEffects'
 import CatRain from './components/admin/CatRain'
 import TurtleWalk from './components/admin/TurtleWalk'
+import CharacterPeek from './components/admin/CharacterPeek'
 import useIsMobile from './hooks/useIsMobile'
 import {
   supabase, signOut,
@@ -1323,6 +1324,7 @@ export default function App() {
       <AdminEffects effects={adminFx} userId={user.id} matrixMode={matrixMode} onClear={clearAdminFx} />
       {catRain && <CatRain />}
       {turtleWalk && <TurtleWalk />}
+      {isAdmin(user) && <CharacterPeek />}
       {adminConsoleOpen && hasPermission(user, 'access_admin_console') && (
         <AdminConsole user={user} profiles={profiles} channelRef={adminChRef} matrixMode={matrixMode} onMatrixToggle={() => setMatrixMode(p => !p)} onGameChallenge={handleGameChallenge} onClose={() => setAdminConsoleOpen(false)} isMobile={isMobile} />
       )}
