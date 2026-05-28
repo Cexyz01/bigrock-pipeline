@@ -95,7 +95,7 @@ export default function CharacterPeek() {
         rafRef.current = requestAnimationFrame(() => { if (alive) setPhase('peek') })
       })
       const enterMs = 520
-      const holdMs = rand(2400, 4200)
+      const holdMs = rand(3000, 4800)
       const anticMs = 160
       const exitMs = 360
       const gapMs = rand(12000, 20000)
