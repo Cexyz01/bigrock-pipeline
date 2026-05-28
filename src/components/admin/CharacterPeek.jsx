@@ -13,7 +13,8 @@ const BASE_ROT = { bottom: 0, top: 180, left: 90, right: -90 }
 const EDGES = ['top', 'bottom', 'left', 'right']
 
 // % of the element's own box, relative to the anchored edge.
-const AMT = { hidden: 118, peek: 44, antic: 30 }
+// peek/antic = how much stays hidden beyond the edge (smaller = more visible).
+const AMT = { hidden: 118, peek: 30, antic: 18 }
 
 function slide(edge, kind) {
   const v = AMT[kind] ?? AMT.hidden
@@ -154,7 +155,10 @@ export default function CharacterPeek() {
             style={{
               width: '100%', height: '100%',
               objectFit: 'contain',
-              transform: `${cfg.mirror ? 'scaleX(-1) ' : ''}rotate(${BASE_ROT[cfg.edge] + cfg.tilt}deg)`,
+              // Mirror for variety must flip ALONG the edge, not across the
+              // head→interior axis — otherwise on left/right edges it swaps
+              // head and legs and the character peeks in upside-down/feet-first.
+              transform: `${cfg.mirror ? (horiz ? 'scaleX(-1) ' : 'scaleY(-1) ') : ''}rotate(${BASE_ROT[cfg.edge] + cfg.tilt}deg)`,
               filter: 'drop-shadow(0 6px 16px rgba(0,0,0,.30))',
               userSelect: 'none', display: 'block',
             }}
