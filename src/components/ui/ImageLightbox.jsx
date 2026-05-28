@@ -96,8 +96,7 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
       onClick={handleClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 99999,
-        background: 'rgba(0,0,0,0.88)',
-        backdropFilter: 'blur(8px)',
+        background: 'rgba(0,0,0,0.92)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'zoom-out',
       }}
@@ -110,7 +109,7 @@ export default function ImageLightbox({ src, images, onClose, user, addToast }) 
       >
         <Img
           key={current}
-          src={current} w={1920} h={1920} fit="limit" alt=""
+          src={current} w={1920} h={1920} fit="limit" alt="" fetchPriority="high"
           onLoad={(e) => {
             const r = e.currentTarget.getBoundingClientRect()
             setBox({ w: r.width, h: r.height })

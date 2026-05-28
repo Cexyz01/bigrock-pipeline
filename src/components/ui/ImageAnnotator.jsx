@@ -4,6 +4,7 @@ import Img from './Img'
 import { AnnotationOverlay } from './AnnotatedImage'
 import { useImageAnnotation } from '../../hooks/useImageAnnotations'
 import { detectObjects } from '../../lib/detectObjects'
+import { cld } from '../../lib/cld'
 
 // Fullscreen pen-on-image editor. Opens over the current page (no nav). Pen
 // strokes are stored in normalised [0..1] of the image's natural size so they
@@ -631,7 +632,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   return createPortal(
     <div style={{
       position: 'fixed', inset: 0, zIndex: 100000,
-      background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(10px)',
+      background: '#0f172a',
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Toolbar */}
@@ -751,12 +752,17 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             pointerEvents: 'none',
           }}
         >
-          {rect.w > 0 && (
+          {/* Only paint once we know the natural size: otherwise `rect` falls
+              back to the full (wide) container and `objectFit:fill` would
+              stretch the image horizontally for the whole load — invisible on
+              a fast panel, but it lingers for seconds on a slow mirrored TV.
+              `contain` is also a safety net so a stale rect can never distort. */}
+          {rect.w > 0 && natural.w > 0 && (
             <div style={{
               position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
             }}>
-              <Img src={src} w={1920} h={1920} fit="limit" alt="" style={{
-                width: '100%', height: '100%', objectFit: 'fill', display: 'block',
+              <Img src={src} w={1920} h={1920} fit="limit" alt="" fetchPriority="high" style={{
+                width: '100%', height: '100%', objectFit: 'contain', display: 'block',
                 userSelect: 'none', pointerEvents: 'none',
               }} />
             </div>
@@ -790,12 +796,24 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
             Analisi in corso…
           </div>
         )}
+        {natural.w === 0 && (
+          <span style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 28, height: 28, borderRadius: '50%',
+            border: '3px solid rgba(255,255,255,0.25)', borderTopColor: '#fff',
+            animation: 'spin 0.8s linear infinite', pointerEvents: 'none',
+          }} />
+        )}
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
         {/* Hidden img for natural-size detection (so rect math works even before
-            the visible img has rendered into its computed slot). */}
+            the visible img has rendered into its computed slot). Uses the exact
+            same optimized URL as the visible image so the browser fetches the
+            asset once and the visible paint hits cache instantly. */}
         <img
-          src={src}
+          src={cld(src, { w: 1920, h: 1920, fit: 'limit' })}
           alt=""
+          fetchPriority="high"
           onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
         />
