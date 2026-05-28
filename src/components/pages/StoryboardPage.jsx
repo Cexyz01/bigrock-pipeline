@@ -197,32 +197,24 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
   const img = images[index] || images[0]
   const audio = isAudioUrl(img.image_url)
 
-  // Download the original asset. R2/Cloudinary are cross-origin, so the <a
-  // download> filename hint is ignored by the browser; fetching as a blob lets
-  // us force a real "Save as" with a sensible name. If CORS blocks the fetch we
-  // fall back to opening the file in a new tab.
-  const downloadCurrent = async (e) => {
+  // Download the original asset. R2/Cloudinary are cross-origin and don't send
+  // Content-Disposition, so a direct <a download> just opens the image in a
+  // tab. We route through our own /api/download proxy which re-serves the file
+  // same-origin with an attachment disposition, so the download starts directly
+  // without opening any extra tab.
+  const downloadCurrent = (e) => {
     e.stopPropagation()
     const url = img.image_url
     const clean = url.split('?')[0]
     const ext = (clean.match(/\.([a-z0-9]+)$/i)?.[1] || 'jpg').toLowerCase()
     const base = [shotCode, deptLabel].filter(Boolean).join('_').replace(/[^\w.-]+/g, '_') || 'storyboard'
     const filename = `${base}.${ext}`
-    try {
-      const res = await fetch(url, { mode: 'cors' })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const blob = await res.blob()
-      const objUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objUrl
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(objUrl)
-    } catch (err) {
-      window.open(url, '_blank', 'noopener')
-    }
+    const a = document.createElement('a')
+    a.href = `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(filename)}`
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
   }
 
   return createPortal(
