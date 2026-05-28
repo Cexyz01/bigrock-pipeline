@@ -12,6 +12,7 @@ const CMDS = [
   { id: 'gravity',icon: '🏚️', label: 'Gravity',needsMsg: false, needsDur: true,  needsTarget: true,  defDur: 6  },
   { id: 'cats',   icon: '🐱', label: 'Cats',   needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
   { id: 'turtles',icon: '🐢', label: 'Turtles',needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
+  { id: 'alvise', icon: '🫣', label: 'Alvise', needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
   { id: 'play',   icon: '🎮', label: 'Play',   needsMsg: false, needsDur: false, needsTarget: 'required', defDur: 0  },
   { id: 'matrix', icon: '🟢', label: 'Matrix', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
   { id: 'online', icon: '👁', label: 'Online', needsMsg: false, needsDur: false, needsTarget: false, defDur: 0  },
@@ -39,6 +40,7 @@ const HELP = [
   ['gravity [nome] [sec]','Terremoto! Tutto crolla a terra (6s default)'],
   ['cats <nome> [on|off]','Pioggia di gatti persistente (toggle se omesso)'],
   ['turtles <nome> [on|off]','Tartarughe che camminano sui bordi (toggle se omesso)'],
+  ['alvise <nome> [on|off]','Alvise si affaccia dai bordi dello schermo (toggle se omesso)'],
   ['play <nome> [gioco]','Sfida a minigioco (connect4, othello, chess, uno, snake, trivia)'],
   ['users',             'Lista utenti registrati'],
   ['online',            'Ultimi 10 visitatori del sito'],
@@ -210,6 +212,19 @@ export default function AdminConsole({ user, profiles, channelRef, matrixMode, o
           if (error) { setLastResult({ text: `Errore: ${error.message}`, c: '#ff5555' }); return; }
           broadcast({ type: 'turtles', targetId, enabled: next });
           setLastResult({ text: `${next ? '🐢 Tartarughe ATTIVATE' : '🚫 Tartarughe spente'} → ${targetName}`, c: next ? '#00ff41' : '#ffd700' });
+        })();
+        break;
+      }
+      case 'alvise': {
+        if (!targetId) { setLastResult({ text: 'Seleziona un utente!', c: '#ff5555' }); return; }
+        setLastResult({ text: `🫣 Toggle Alvise per ${targetName}...`, c: '#F28C28' });
+        (async () => {
+          const { data: fresh } = await supabase.from('profiles').select('alvise_enabled').eq('id', targetId).single();
+          const next = !fresh?.alvise_enabled;
+          const { error } = await updateProfile(targetId, { alvise_enabled: next });
+          if (error) { setLastResult({ text: `Errore: ${error.message}`, c: '#ff5555' }); return; }
+          broadcast({ type: 'alvise', targetId, enabled: next });
+          setLastResult({ text: `${next ? '🫣 Alvise ATTIVATO' : '🚫 Alvise spento'} → ${targetName}`, c: next ? '#00ff41' : '#ffd700' });
         })();
         break;
       }
@@ -591,6 +606,30 @@ export default function AdminConsole({ user, profiles, channelRef, matrixMode, o
           if (error) { dlog(`  ❌ Errore: ${error.message}`, '#ff5555'); return; }
           broadcast({ type: 'turtles', targetId: target.id, enabled: next });
           dlog(`  ${next ? '🐢 Tartarughe ATTIVATE' : '🚫 Tartarughe spente'} per ${target.full_name}`, next ? '#00ff41' : '#ffd700');
+        })();
+        break;
+      }
+      case 'alvise': {
+        if (!args.length) { dlog('  Uso: alvise <nome> [on|off]', '#ff5555'); break; }
+        const last = args[args.length - 1].toLowerCase();
+        const explicit = last === 'on' || last === 'off';
+        const nameQ = explicit ? args.slice(0, -1).join(' ') : args.join(' ');
+        if (!nameQ) { dlog('  Specifica un utente!', '#ff5555'); break; }
+        const target = findUser(nameQ);
+        if (!target) { dlog(`  Utente "${nameQ}" non trovato`, '#ff5555'); break; }
+        dlog(`  🫣 Toggle Alvise per ${target.full_name}...`, '#F28C28');
+        (async () => {
+          let next;
+          if (explicit) {
+            next = last === 'on';
+          } else {
+            const { data: fresh } = await supabase.from('profiles').select('alvise_enabled').eq('id', target.id).single();
+            next = !fresh?.alvise_enabled;
+          }
+          const { error } = await updateProfile(target.id, { alvise_enabled: next });
+          if (error) { dlog(`  ❌ Errore: ${error.message}`, '#ff5555'); return; }
+          broadcast({ type: 'alvise', targetId: target.id, enabled: next });
+          dlog(`  ${next ? '🫣 Alvise ATTIVATO' : '🚫 Alvise spento'} per ${target.full_name}`, next ? '#00ff41' : '#ffd700');
         })();
         break;
       }
