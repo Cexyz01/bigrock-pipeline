@@ -71,6 +71,11 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const fileInputRef = useRef(null)
   const outputFileRef = useRef(null)
   const [activeVideoShotId, setActiveVideoShotId] = useState(null)
+  // Video URLs the browser couldn't decode (e.g. MPEG-4 Part 2 / non-H.264).
+  // The native <video> fires `error` with code 3/4 → we flag the URL, show an
+  // overlay in the player and toast the user to re-export the clip in H.264.
+  const [undecodableUrls, setUndecodableUrls] = useState({})
+  const codecToastedRef = useRef({})
 
   // Ordered shots (all) and timeline shots (enabled only)
   const orderedShots = useMemo(() =>
