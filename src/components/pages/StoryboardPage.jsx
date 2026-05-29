@@ -403,13 +403,6 @@ const AudioMiniPlayer = memo(function AudioMiniPlayer({ url }) {
 const MASONRY_MIN_IMG_W = 120
 const MASONRY_GAP = 6
 const MASONRY_PAD = 4
-// Max thumbnail height as a multiple of its column width. Without this a single
-// portrait/collage image keeps its natural aspect (height:auto) and stretches
-// the column into a tall strip, which forced 16:9 images to share less room.
-// Taller images are shrunk to fit the cap with objectFit:contain — the whole
-// image stays visible (never cropped), just with a little side padding. 16:9
-// images are naturally ~0.56× their width so they stay untouched.
-const MASONRY_MAX_ASPECT = 1.4
 
 // Pick a column count that respects MASONRY_MIN_IMG_W and the cell's width
 // budget, but also aims for a roughly square layout. Without the √count cap the
@@ -437,6 +430,13 @@ function estimateCellH(count) {
   return Math.ceil(perCol * (colW + MASONRY_GAP) - MASONRY_GAP + 2 * MASONRY_PAD)
 }
 
+// First-paint guess for a single full-width image (aspect unknown until it
+// loads). Biased slightly tall so portrait art isn't clipped before the
+// ResizeObserver reports the real height.
+function estimateSingleH() {
+  return Math.round((B_CELL_W - 2 * MASONRY_PAD) * 0.7) + 2 * MASONRY_PAD
+}
+
 const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH, disabled, measureRef }) {
   const count = images?.length || 0
 
@@ -450,23 +450,26 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
         <AudioMiniPlayer url={images[0].image_url} />
       </div>
     )
+    // Single image fills the column width and keeps its natural aspect — no fixed
+    // box, so it's never cropped and never letterboxed (the contain box used to
+    // leave the board's grey background showing around portrait art). Its
+    // measured height drives the row via ResizeObserver.
     return (
-      <div style={{ height: cellH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={thumbUrl(images[0].image_url, 1600, 900)} alt="" onClick={() => onClickImage(0)}
-          draggable={false} onDragStart={(e) => e.preventDefault()}
-          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
+      <div style={{ padding: MASONRY_PAD, boxSizing: 'border-box' }}>
+        <div ref={measureRef} style={{ lineHeight: 0 }}>
+          <Img src={thumbUrl(images[0].image_url, 1600, 900)} alt="" onClick={() => onClickImage(0)}
+            draggable={false} onDragStart={(e) => e.preventDefault()}
+            style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
+        </div>
       </div>
     )
   }
 
-  // Masonry: CSS multi-column with break-inside: avoid. Images keep their natural
-  // aspect (width:100% of column, height:auto) up to MASONRY_MAX_ASPECT — taller
-  // ones are shrunk to fit the cap (objectFit:contain, never cropped) so a single
-  // portrait/collage can't stretch the column into a strip. Columns balance
-  // automatically, killing the dead-cell gaps the old 2×N grid left for odd counts.
+  // Masonry: CSS multi-column with break-inside: avoid. Each image keeps its
+  // natural aspect (width:100% of column, height:auto) so we never letterbox or
+  // crop — and columns balance automatically, killing the dead-cell gaps the old
+  // fixed 2×N grid produced for odd image counts.
   const cols = cellColumns(count)
-  const colW = (B_CELL_W - 2 * MASONRY_PAD - (cols - 1) * MASONRY_GAP) / cols
-  const maxThumbH = Math.round(colW * MASONRY_MAX_ASPECT)
   return (
     <div style={{ minHeight: cellH, padding: MASONRY_PAD, boxSizing: 'border-box' }}>
       <div ref={measureRef} style={{ columnCount: cols, columnGap: MASONRY_GAP }}>
@@ -477,7 +480,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
             ) : (
               <Img src={thumbUrl(img.image_url, 800, 800)} alt="" onClick={() => onClickImage(i)}
                 draggable={false} onDragStart={(e) => e.preventDefault()}
-                style={{ width: '100%', height: 'auto', maxHeight: maxThumbH, objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
+                style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
             )}
           </div>
         ))}
@@ -522,12 +525,18 @@ function computeRowH(item, imageMap, depts, description, descHeights, cellHeight
 
   for (const d of depts) {
     const imgs = imageMap[`${item.id}__${d.id}`] || []
-    if (imgs.length <= 1) continue
-    // Prefer the measured masonry height from ResizeObserver. The synthetic
-    // estimate from estimateCellH() is just a first-paint placeholder, biased
+    if (imgs.length === 0) continue
+    // A lone audio clip renders a fixed mini-player, not a full-width image, so
+    // it shouldn't stretch the row — let it ride the BASE height.
+    if (imgs.length === 1 && isAudioUrl(imgs[0].image_url)) continue
+    // Prefer the measured cell height from ResizeObserver. Both the single
+    // full-width image and the multi-image masonry report their real laid-out
+    // height; the synthetic estimates are just first-paint placeholders, biased
     // tall so portrait imagery doesn't get clipped before measurement lands.
     const observed = cellHeights?.[`${item.id}__${d.id}`]
-    const gridH = observed != null ? observed + 2 * MASONRY_PAD : estimateCellH(imgs.length)
+    const gridH = observed != null
+      ? observed + 2 * MASONRY_PAD
+      : (imgs.length === 1 ? estimateSingleH() : estimateCellH(imgs.length))
     maxGridH = Math.max(maxGridH, gridH)
   }
 
