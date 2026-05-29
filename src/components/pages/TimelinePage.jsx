@@ -526,57 +526,65 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     expCanvas.height = H
     const expCtx = expCanvas.getContext('2d')
 
-    // Pre-load all images with crossOrigin for canvas export
-    const preloadImage = (url) => new Promise((resolve) => {
-      if (!url) return resolve(null)
-      // Check cache first
-      const cached = imageCache.current[url] || imageCache.current[thumbUrl(url)]
-      if (cached?.complete && cached?.naturalWidth) {
-        // If cached image doesn't have crossOrigin, reload it
-        if (!cached.crossOrigin) {
-          const img = new Image()
-          img.crossOrigin = 'anonymous'
-          img.onload = () => resolve(img)
-          img.onerror = () => resolve(cached) // fallback to cached
-          img.src = url
-          return
-        }
-        return resolve(cached)
+    // Track blob object URLs so we can revoke them after export.
+    const objectUrls = []
+
+    // Load an image as an ImageBitmap from a fresh CORS fetch. Fetching the
+    // bytes ourselves and decoding from a Blob produces a same-origin source
+    // that can NEVER taint the canvas — unlike <img crossOrigin>, which the
+    // Cloudflare edge cache (Vary: Origin) can silently serve without the
+    // Access-Control-Allow-Origin header, poisoning the export.
+    const preloadImage = async (url) => {
+      if (!url) return null
+      try {
+        const res = await fetch(url, { mode: 'cors', cache: 'reload' })
+        if (!res.ok) return null
+        return await createImageBitmap(await res.blob())
+      } catch {
+        return null
       }
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.onload = () => resolve(img)
-      img.onerror = () => resolve(null)
-      img.src = url
-    })
+    }
 
     addToast?.('Preparazione export...', 'info')
 
     try {
-      // Pre-load all images with CORS
-      const imageExportCache = {}
-      for (const sh of timelineShots) {
-        const url = sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url
-        if (url && !isVideoUrl(url) && !imageExportCache[url]) {
-          imageExportCache[url] = await preloadImage(url)
-        }
-      }
+      // Collect unique media URLs once.
+      const allUrls = timelineShots
+        .map(sh => sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url)
+        .filter(Boolean)
+      const imageUrls = [...new Set(allUrls.filter(u => !isVideoUrl(u)))]
+      const videoShotUrls = [...new Set(allUrls.filter(u => isVideoUrl(u)))]
 
-      // Pre-load video elements
+      // Pre-load all images in parallel (fresh CORS fetch → ImageBitmap).
+      const imageExportCache = {}
+      await Promise.all(imageUrls.map(async (url) => {
+        imageExportCache[url] = await preloadImage(url)
+      }))
+
+      // Pre-load videos as Blob object URLs. A same-origin object URL can't
+      // taint the canvas, and seeking becomes local (no per-frame network
+      // round-trip) — the single biggest export speedup.
       const exportVideos = {}
-      const videoShotUrls = []
-      for (const sh of timelineShots) {
-        const url = sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url
-        if (url && isVideoUrl(url) && !exportVideos[url]) videoShotUrls.push(url)
-      }
       if (videoShotUrls.length > 0) {
         addToast?.(`Caricamento ${videoShotUrls.length} video...`, 'info')
         for (const origUrl of videoShotUrls) {
           const vid = document.createElement('video')
-          vid.crossOrigin = 'anonymous'
           vid.preload = 'auto'
           vid.muted = true
-          vid.src = playableVideoUrl(origUrl)
+          try {
+            const res = await fetch(playableVideoUrl(origUrl), { mode: 'cors', cache: 'reload' })
+            if (res.ok) {
+              const objUrl = URL.createObjectURL(await res.blob())
+              objectUrls.push(objUrl)
+              vid.src = objUrl
+            } else {
+              vid.crossOrigin = 'anonymous'
+              vid.src = playableVideoUrl(origUrl)
+            }
+          } catch {
+            vid.crossOrigin = 'anonymous'
+            vid.src = playableVideoUrl(origUrl)
+          }
           await new Promise((resolve) => {
             const onReady = () => { vid.removeEventListener('canplaythrough', onReady); resolve() }
             const onErr = () => { vid.removeEventListener('error', onErr); resolve() }
@@ -597,9 +605,11 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         vid.currentTime = clampedTime
       })
 
-      // Helper: draw a single frame
+      // Helper: draw a single frame. Returns the resolved shot info so the
+      // caller doesn't have to recompute it.
       const drawFrame = async (f) => {
-        const { shot, localFrame } = getShotAtFrame(f)
+        const info = getShotAtFrame(f)
+        const { shot, localFrame } = info
         const mediaUrl = shot?.output_cloud_url || shot?.ref_cloud_url || shot?.concept_image_url
 
         expCtx.fillStyle = '#111'
@@ -619,8 +629,9 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           }
         } else if (mediaUrl) {
           const imgToDraw = imageExportCache[mediaUrl]
-          if (imgToDraw?.complete && imgToDraw?.naturalWidth) {
-            const iw = imgToDraw.naturalWidth, ih = imgToDraw.naturalHeight
+          const iw = imgToDraw?.naturalWidth || imgToDraw?.width
+          const ih = imgToDraw?.naturalHeight || imgToDraw?.height
+          if (imgToDraw && iw && ih) {
             const scale = Math.min(W / iw, H / ih)
             const dw = iw * scale, dh = ih * scale
             expCtx.drawImage(imgToDraw, (W - dw) / 2, (H - dh) / 2, dw, dh)
@@ -640,6 +651,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           expCtx.font = '16px monospace'
           expCtx.fillText(`Frame ${f + 1}/${totalFrames}`, W - 20, H - 18)
         }
+        return info
       }
 
       if (useWebCodecs) {
@@ -674,14 +686,17 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           const pct = Math.floor((f / totalFrames) * 100)
           if (pct >= progressToast + 5) { progressToast = pct; addToast?.(`Exporting MP4... (${pct}%)`, 'info') }
 
-          await drawFrame(f)
-          const { shot } = getShotAtFrame(f)
-          const localFrame = f - (timelineShots.slice(0, timelineShots.indexOf(shot)).reduce((s, sh) => s + (sh.duration_frames || DEFAULT_DURATION_FRAMES), 0))
+          const { localFrame } = await drawFrame(f)
           const timestamp = Math.round(f * (1_000_000 / fps))
           const frame = new VideoFrame(expCanvas, { timestamp })
           encoder.encode(frame, { keyFrame: localFrame === 0 || f === 0 })
           frame.close()
-          if (f % 50 === 0) await new Promise(r => setTimeout(r, 0))
+          // Backpressure: don't outrun the encoder or memory balloons.
+          if (encoder.encodeQueueSize > 8) {
+            while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 4))
+          } else if (f % 50 === 0) {
+            await new Promise(r => setTimeout(r, 0))
+          }
         }
 
         await encoder.flush()
@@ -737,6 +752,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     } catch (err) {
       console.error('Export error:', err)
       addToast?.('Export fallito: ' + err.message, 'danger')
+    } finally {
+      objectUrls.forEach(u => URL.revokeObjectURL(u))
     }
     setExporting(false)
   }, [fps, totalFrames, timelineShots, getShotAtFrame, exporting, addToast])
