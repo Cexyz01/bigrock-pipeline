@@ -7,12 +7,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 //
 // When `parseScript` is on we add three typographic affordances on top of the
 // plain paragraph render:
-//   1. First paragraph → document title (h1, centered, big).
-//   2. Contiguous "Name - description" lines appearing before the first SHOT
+//   1. First paragraph → document title (h1, centered, big) — ONLY when it's a
+//      single short line, so a collapsed/title-less script doesn't become one
+//      giant heading.
+//   2. Contiguous "Name - description" lines appearing before the first scene
 //      get grouped under a synthetic "Personaggi" heading, with each name in
-//      bold and the description after.
-//   3. Paragraphs starting with "SHOT NN" → centered uppercase heading
-//      ("SHOT NN" only) + description below.
+//      bold and the description after. Scene-heading slugs are excluded.
+//   3. Scene headings ("SHOT 12", "SCENA 3", "INT./EST. …") → centered
+//      uppercase heading + description below.
 export default function ScrollReveal({
   children,
   fontSize = 22,
@@ -100,34 +102,72 @@ export default function ScrollReveal({
   )
 }
 
-const SHOT_RE = /^(SHOT\s*\d+)\b/i
+// Numbered headings: "SHOT 12", "SCENA 3", "SCENE 5" — keep the prefix as the
+// heading and the rest of the paragraph as its description.
+const SHOT_RE = /^(SHOT|SCEN[AE])\s*\.?\s*\d+/i
+// Slug-line scene headings common in IT/EN scripts: "INT. CASA - GIORNO",
+// "EST./INT. STRADA". The whole first line is the heading.
+const SLUG_RE = /^(INT|EST|INT\.?\/EST|EST\.?\/INT)\b\.?/i
 // A character line is a short name (1-4 words, letters only) followed by a
 // dash (-, –, or —) and a description on a single line. Excludes anything
 // with digits or punctuation in the name part so SHOT lines / sentences with
 // stray dashes don't get swallowed.
 const CHAR_RE = /^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’]*(?:\s+[A-Za-zÀ-ÿ'’]+){0,3})\s+[-–—]\s+(.+)$/
+// Words that signal a scene heading, not a character name — guards the cast
+// heuristic against folding "Interno - giorno" style slugs into "Personaggi".
+const SCENE_WORDS = /^(INT|EST|INTERNO|ESTERNO|SHOT|SCEN[AE])$/i
+
+function firstLine(text) {
+  return text.split('\n', 1)[0].trim()
+}
+
+function isSceneHeading(text) {
+  if (!text) return false
+  return SHOT_RE.test(text) || SLUG_RE.test(firstLine(text))
+}
 
 function isCharacterLine(text) {
   if (!text || text.includes('\n')) return null
-  if (SHOT_RE.test(text)) return null
+  if (isSceneHeading(text)) return null
   const m = CHAR_RE.exec(text)
   if (!m) return null
+  // Reject when the "name" is actually a scene-heading keyword.
+  if (m[1].split(/\s+/).some(w => SCENE_WORDS.test(w))) return null
   return { name: m[1].trim(), desc: m[2].trim() }
 }
 
 function parseShot(text) {
   const m = SHOT_RE.exec(text)
-  if (!m) return null
-  const prefix = m[0]
-  return { title: prefix.trim(), description: text.slice(prefix.length).trim() }
+  if (m) {
+    return { title: m[0].trim(), description: text.slice(m[0].length).trim() }
+  }
+  // Slug line: the heading is the first line, action/description follows below.
+  const fl = firstLine(text)
+  if (SLUG_RE.test(fl)) {
+    return { title: fl, description: text.slice(fl.length).trim() }
+  }
+  return null
+}
+
+// A title is a single short line — not prose, not a scene heading. Without this
+// guard the first block is unconditionally an h1, so a script that collapsed
+// into one paragraph (or doesn't open with a title) renders as a giant heading.
+function looksLikeTitle(text) {
+  if (!text || text.includes('\n')) return false
+  if (text.length > 60) return false
+  if (isSceneHeading(text)) return false
+  return true
 }
 
 function buildBlocks(paragraphs) {
   const blocks = []
   if (paragraphs.length === 0) return blocks
-  blocks.push({ kind: 'title', text: paragraphs[0] })
 
-  let i = 1
+  let i = 0
+  if (looksLikeTitle(paragraphs[0])) {
+    blocks.push({ kind: 'title', text: paragraphs[0] })
+    i = 1
+  }
   // Greedy character block: consume contiguous character lines that appear
   // before the first SHOT. Stop as soon as we hit a non-character paragraph
   // (which might be a SHOT or just prose) so we don't accidentally fold

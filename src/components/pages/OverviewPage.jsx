@@ -249,7 +249,10 @@ function ScriptTab({ user, currentProject, isMobile }) {
       } else if (isPdf) {
         text = await extractPdf(await file.arrayBuffer())
       } else {
-        text = (await file.text()).trim()
+        // Plain-text scripts (.txt/.script/.fountain/…). Screenwriters on Mac
+        // often save these with classic-Mac (\r) or Windows (\r\n) line
+        // endings — normalize so paragraph splitting downstream is reliable.
+        text = normalizeText(await file.text())
       }
       if (!text) {
         setErr('Il documento sembra vuoto.')
@@ -342,10 +345,46 @@ function ScriptTab({ user, currentProject, isMobile }) {
   )
 }
 
+// Normalize line endings + whitespace so paragraph splitting (\n{2,}) is
+// reliable regardless of where the file came from. Classic-Mac CR and Windows
+// CRLF both become LF; runs of blank lines collapse to one paragraph break.
+function normalizeText(raw) {
+  return (raw || '')
+    .replace(/\r\n?/g, '\n')      // CRLF / classic-Mac CR → LF
+    .replace(/ /g, ' ')      // non-breaking space → space
+    .replace(/[ \t]+\n/g, '\n')   // strip trailing whitespace per line
+    .replace(/\n{3,}/g, '\n\n')   // collapse extra blank lines
+    .trim()
+}
+
+function decodeEntities(s) {
+  return (s || '')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')      // decode last so &amp;lt; survives correctly
+}
+
+// Convert mammoth's HTML to text while PRESERVING block boundaries (\n\n) and
+// soft line breaks (\n). extractRawText silently drops <br>/Shift+Enter breaks,
+// which collapses scripts authored with manual line breaks into a single blob.
+function htmlToText(html) {
+  const s = (html || '')
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')                      // soft line breaks
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote|pre)\s*>/gi, '\n\n') // block ends
+    .replace(/<li[^>]*>/gi, '• ')                            // list bullets
+    .replace(/<[^>]+>/g, '')                                 // strip remaining tags
+  return normalizeText(decodeEntities(s))
+}
+
 async function extractDocx(arrayBuffer) {
   const { default: mammoth } = await import('mammoth')
-  const { value } = await mammoth.extractRawText({ arrayBuffer })
-  return (value || '').trim()
+  const { value: html } = await mammoth.convertToHtml({ arrayBuffer })
+  return htmlToText(html)
 }
 
 // pdf.js needs its worker registered once before getDocument(). Using Vite's
@@ -369,27 +408,53 @@ async function extractPdf(arrayBuffer) {
   // Clone the buffer — pdfjs may detach it, breaking any retry attempts.
   const data = arrayBuffer.slice(0)
   const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise
-  const paragraphs = []
+
+  // Collect every visual line across all pages, recording the vertical gap
+  // above it. A line that dropped much further than the typical line spacing
+  // (or sits at the top of a new page) starts a new paragraph — so the result
+  // is split by content, not bluntly one-block-per-page.
+  const lines = [] // { text, gap, pageEnd }
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
-    // Group items by their Y position so original line breaks survive.
-    const lines = []
     let lastY = null
     let buf = []
+    let gap = null
+    const flush = () => {
+      if (buf.length) {
+        const text = buf.join('').replace(/\s+/g, ' ').trim()
+        if (text) lines.push({ text, gap, pageEnd: false })
+      }
+      buf = []
+    }
     for (const item of content.items) {
       const y = item.transform?.[5]
       if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (buf.length) lines.push(buf.join('').trim())
-        buf = []
+        flush()
+        gap = lastY - y // positive = moved down the page
       }
       buf.push(item.str)
       lastY = y
     }
-    if (buf.length) lines.push(buf.join('').trim())
-    paragraphs.push(lines.filter(Boolean).join('\n'))
+    flush()
+    if (lines.length) lines[lines.length - 1].pageEnd = true
   }
-  return paragraphs.join('\n\n').trim()
+  if (!lines.length) return ''
+
+  // Typical single-line spacing = median of positive gaps. A gap clearly above
+  // that marks a paragraph break rather than a wrapped continuation line.
+  const gaps = lines.map(l => l.gap).filter(g => g != null && g > 0).sort((a, b) => a - b)
+  const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0
+  const paraThreshold = median * 1.6
+
+  let out = lines[0].text
+  for (let k = 1; k < lines.length; k++) {
+    const l = lines[k]
+    const bigGap = median > 0 && l.gap != null && l.gap > paraThreshold
+    out += (lines[k - 1].pageEnd || bigGap) ? '\n\n' : '\n'
+    out += l.text
+  }
+  return normalizeText(out)
 }
 
 function formatDateTime(iso) {
