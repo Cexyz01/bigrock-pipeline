@@ -180,9 +180,9 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <div style={{ display: 'flex', flexShrink: 0 }}>
-                {assignees.slice(0, 4).map((a, i) => (
-                  <div key={a.user.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid #fff', borderRadius: '50%', display: 'flex', flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                {assignees.slice(0, 4).map((a) => (
+                  <div key={a.user.id} style={{ border: '2px solid #fff', borderRadius: '50%', display: 'flex', flexShrink: 0 }}>
                     <Av name={a.user.full_name} size={24} url={a.user.avatar_url} mood={a.user.mood_emoji} />
                   </div>
                 ))}
