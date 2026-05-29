@@ -45,7 +45,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const [editDuration, setEditDuration] = useState('')
   const [exporting, setExporting] = useState(false)
   const [volume, setVolume] = useState(0.8)
-  const [playerZoom, setPlayerZoom] = useState(67)
+  const playerZoom = 100
   const [tab, setTab] = useState('player')
   const [tableDurations, setTableDurations] = useState({})
   const [videoPreloadStatus, setVideoPreloadStatus] = useState({}) // { url: 'loading' | 'ready' | 'error' }
@@ -945,12 +945,6 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             <span style={{ fontSize: 10, color: '#64748B' }}>Vol</span>
             <input type="range" min="0" max="1" step="0.05" value={volume} onChange={e => setVolume(parseFloat(e.target.value))}
               style={{ width: 50, accentColor: ACCENT }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, color: '#64748B' }}>Zoom</span>
-            <input type="range" min="30" max="100" step="5" value={playerZoom} onChange={e => setPlayerZoom(Number(e.target.value))}
-              style={{ width: 50, accentColor: ACCENT }} />
-            <span style={{ fontSize: 10, color: '#94A3B8', minWidth: 28 }}>{playerZoom}%</span>
           </div>
           <button onClick={() => setLoop(l => !l)} style={{
             background: loop ? ACCENT + '30' : '#1E293B', border: `1px solid ${loop ? ACCENT : '#334155'}`,
