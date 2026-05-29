@@ -406,6 +406,21 @@ function GroupNavRail({ groups, activeKey, onJump }) {
     else if (bBot > rail.scrollTop + rail.clientHeight) rail.scrollTop = bBot - rail.clientHeight + 8
   }, [activeKey])
 
+  // Scroll the page (the nearest scrollable ancestor) back to the very top —
+  // above the header and filters, not just the first group.
+  const scrollToTop = () => {
+    let el = railRef.current?.parentElement
+    while (el) {
+      const oy = getComputedStyle(el).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) {
+        el.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+      el = el.parentElement
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const colTitle = (text, color) => (
     <div style={{
       fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase',
@@ -452,6 +467,21 @@ function GroupNavRail({ groups, activeKey, onJump }) {
           padding: '4px 6px 4px 0',
         }}
       >
+        <button
+          onClick={scrollToTop}
+          title="Torna in cima alla pagina"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%',
+            padding: '7px 8px', borderRadius: 8, cursor: 'pointer',
+            background: '#F1F5F9', border: '1px solid #E2E8F0',
+            fontSize: 12, fontWeight: 700, color: '#475569',
+            transition: 'background 0.12s ease, color 0.12s ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(242,140,40,0.12)'; e.currentTarget.style.color = '#B45309' }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#F1F5F9'; e.currentTarget.style.color = '#475569' }}
+        >
+          <span style={{ fontSize: 13, lineHeight: 1 }}>↑</span> Torna su
+        </button>
         {assetGroups.length > 0 && (
           <div>
             {colTitle('Asset', '#A78BFA')}
