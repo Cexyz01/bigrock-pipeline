@@ -400,16 +400,22 @@ const AudioMiniPlayer = memo(function AudioMiniPlayer({ url }) {
 // Minimum thumbnail width inside a multi-image cell. Below this we don't shrink —
 // the cell grows vertically instead (so 12 concept sketches end up as a taller
 // masonry stack, not a postage-stamp grid).
-const MASONRY_MIN_IMG_W = 150
+const MASONRY_MIN_IMG_W = 120
 const MASONRY_GAP = 6
 const MASONRY_PAD = 4
 
-// Pick a column count that respects MASONRY_MIN_IMG_W and the cell's width budget.
+// Pick a column count that respects MASONRY_MIN_IMG_W and the cell's width
+// budget, but also aims for a roughly square layout. Without the √count cap the
+// masonry only used as many columns as the width budget strictly required (2 at
+// this width), so a 9-image cell became a 2-wide × 5-tall tower. Capping at
+// ceil(√count) keeps it balanced (9 → 3×3) while `fit` still prevents columns
+// from getting narrower than MASONRY_MIN_IMG_W.
 function cellColumns(count) {
   if (count <= 1) return 1
   const budget = B_CELL_W - 2 * MASONRY_PAD + MASONRY_GAP
   const fit = Math.floor(budget / (MASONRY_MIN_IMG_W + MASONRY_GAP))
-  return Math.max(2, Math.min(count, Math.max(1, fit)))
+  const balanced = Math.ceil(Math.sqrt(count))
+  return Math.max(2, Math.min(count, Math.max(1, fit), balanced))
 }
 
 // Synthetic initial height for a masonry cell, used until ResizeObserver
