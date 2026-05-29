@@ -1117,6 +1117,18 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                 preload="auto"
                 playsInline
                 muted={false}
+                onError={(e) => {
+                  // 3 = MEDIA_ERR_DECODE, 4 = MEDIA_ERR_SRC_NOT_SUPPORTED →
+                  // codec/format the browser can't decode (e.g. MPEG-4 Part 2).
+                  // Ignore network errors (code 2) — covered by the badge.
+                  const code = e.currentTarget?.error?.code
+                  if (code !== 3 && code !== 4) return
+                  setUndecodableUrls(prev => prev[url] ? prev : { ...prev, [url]: true })
+                  if (!codecToastedRef.current[url]) {
+                    codecToastedRef.current[url] = true
+                    addToast?.('Codec video non supportato dal browser. Riesporta la clip in H.264 (MP4).', 'danger')
+                  }
+                }}
                 style={{
                   position: 'absolute', inset: 0, width: '100%', height: '100%',
                   objectFit: 'contain',
@@ -1124,6 +1136,22 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                 }}
               />
             ))}
+            {currentVideoUrl && undecodableUrls[currentVideoUrl] && (
+              <div style={{
+                position: 'absolute', inset: 0, zIndex: 5, padding: 24,
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', gap: 10, textAlign: 'center',
+                background: 'rgba(10,10,15,0.92)',
+              }}>
+                <div style={{ fontSize: 34 }}>🎞️</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: ACCENT }}>Codec non supportato</div>
+                <div style={{ fontSize: 13, color: '#E2E8F0', maxWidth: 440, lineHeight: 1.5 }}>
+                  Il browser non riesce a decodificare questo video (probabilmente
+                  MPEG-4 Part 2, non H.264). Riesporta la clip in <b>H.264</b> (contenitore
+                  MP4) e ricaricala.
+                </div>
+              </div>
+            )}
             {activeVideoShotId && (() => {
               const { shot, localFrame } = getShotAtFrame(currentFrame)
               const dur = shot?.duration_frames || DEFAULT_DURATION_FRAMES
