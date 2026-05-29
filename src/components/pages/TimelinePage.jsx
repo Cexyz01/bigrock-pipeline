@@ -529,15 +529,14 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     // Track blob object URLs so we can revoke them after export.
     const objectUrls = []
 
-    // Load an image as an ImageBitmap from a fresh CORS fetch. Fetching the
-    // bytes ourselves and decoding from a Blob produces a same-origin source
-    // that can NEVER taint the canvas — unlike <img crossOrigin>, which the
-    // Cloudflare edge cache (Vary: Origin) can silently serve without the
-    // Access-Control-Allow-Origin header, poisoning the export.
+    // Load an image as an ImageBitmap from a CORS fetch. Decoding from a Blob
+    // we hold produces a same-origin source that can NEVER taint the canvas,
+    // regardless of HTTP-cache state — so we let the browser cache do its job
+    // (no forced re-download) and only pay the network cost once.
     const preloadImage = async (url) => {
       if (!url) return null
       try {
-        const res = await fetch(url, { mode: 'cors', cache: 'reload' })
+        const res = await fetch(url, { mode: 'cors' })
         if (!res.ok) return null
         return await createImageBitmap(await res.blob())
       } catch {
@@ -605,11 +604,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         vid.currentTime = clampedTime
       })
 
-      // Helper: draw a single frame. Returns the resolved shot info so the
-      // caller doesn't have to recompute it.
-      const drawFrame = async (f) => {
-        const info = getShotAtFrame(f)
-        const { shot, localFrame } = info
+      // Helper: render one shot at a given local frame onto the export canvas.
+      const drawShot = async (shot, localFrame) => {
         const mediaUrl = shot?.output_cloud_url || shot?.ref_cloud_url || shot?.concept_image_url
 
         expCtx.fillStyle = '#111'
@@ -618,8 +614,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         if (mediaUrl && isVideoUrl(mediaUrl)) {
           const vid = exportVideos[mediaUrl]
           if (vid) {
-            const targetTime = localFrame / fps
-            await seekVideo(vid, targetTime)
+            await seekVideo(vid, localFrame / fps)
             try {
               const vw = vid.videoWidth || W, vh = vid.videoHeight || H
               const scale = Math.min(W / vw, H / vh)
@@ -638,19 +633,21 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           }
         }
 
-        // Overlay
+        // Shot label (constant within a shot, so it never forces a redraw).
         if (shot) {
-          const dur = shot.duration_frames || DEFAULT_DURATION_FRAMES
           expCtx.fillStyle = 'rgba(0,0,0,0.5)'
           expCtx.fillRect(0, H - 50, W, 50)
           expCtx.fillStyle = '#fff'
           expCtx.font = 'bold 20px sans-serif'
           expCtx.textAlign = 'left'
           expCtx.fillText(`${shot.code}  —  ${shot.sequence}`, 20, H - 18)
-          expCtx.textAlign = 'right'
-          expCtx.font = '16px monospace'
-          expCtx.fillText(`Frame ${f + 1}/${totalFrames}`, W - 20, H - 18)
         }
+      }
+
+      // Thin per-global-frame wrapper used by the real-time WebM fallback.
+      const drawFrame = async (f) => {
+        const info = getShotAtFrame(f)
+        await drawShot(info.shot, info.localFrame)
         return info
       }
 
@@ -681,22 +678,46 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         })
         encoder.configure(encoderConfig)
 
+        // Encode one frame per *visual change*, not per playback frame. A
+        // static image shot held for N frames becomes a SINGLE encoded frame
+        // whose duration spans the whole shot (variable frame rate). Only
+        // video shots are stepped frame-by-frame for real motion. This cuts
+        // thousands of redundant encodes down to a handful.
+        const usPerFrame = 1_000_000 / fps
+        let startFrame = 0
         let progressToast = 0
-        for (let f = 0; f < totalFrames; f++) {
-          const pct = Math.floor((f / totalFrames) * 100)
+        for (let si = 0; si < timelineShots.length; si++) {
+          const pct = Math.floor((si / timelineShots.length) * 100)
           if (pct >= progressToast + 5) { progressToast = pct; addToast?.(`Exporting MP4... (${pct}%)`, 'info') }
 
-          const { localFrame } = await drawFrame(f)
-          const timestamp = Math.round(f * (1_000_000 / fps))
-          const frame = new VideoFrame(expCanvas, { timestamp })
-          encoder.encode(frame, { keyFrame: localFrame === 0 || f === 0 })
-          frame.close()
-          // Backpressure: don't outrun the encoder or memory balloons.
-          if (encoder.encodeQueueSize > 8) {
-            while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 4))
-          } else if (f % 50 === 0) {
-            await new Promise(r => setTimeout(r, 0))
+          const shot = timelineShots[si]
+          const dur = shot.duration_frames || DEFAULT_DURATION_FRAMES
+          const mediaUrl = shot.output_cloud_url || shot.ref_cloud_url || shot.concept_image_url
+          const isVid = mediaUrl && isVideoUrl(mediaUrl) && exportVideos[mediaUrl]
+
+          if (isVid) {
+            for (let lf = 0; lf < dur; lf++) {
+              await drawShot(shot, lf)
+              const frame = new VideoFrame(expCanvas, {
+                timestamp: Math.round((startFrame + lf) * usPerFrame),
+                duration: Math.round(usPerFrame),
+              })
+              encoder.encode(frame, { keyFrame: lf === 0 })
+              frame.close()
+              if (encoder.encodeQueueSize > 8) {
+                while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 4))
+              }
+            }
+          } else {
+            await drawShot(shot, 0)
+            const frame = new VideoFrame(expCanvas, {
+              timestamp: Math.round(startFrame * usPerFrame),
+              duration: Math.round(dur * usPerFrame),
+            })
+            encoder.encode(frame, { keyFrame: true })
+            frame.close()
           }
+          startFrame += dur
         }
 
         await encoder.flush()
