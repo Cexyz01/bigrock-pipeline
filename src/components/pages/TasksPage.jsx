@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { DEPTS, TASK_STATUSES, hasPermission, ACCENT } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import Fade from '../ui/Fade'
@@ -195,6 +195,44 @@ export default function TasksPage({
     if (addToast) addToast('Task avviato', 'success')
   }, [onUpdateTask, addToast])
 
+  // ── Group navigation rail (jump-to + scroll-spy) ──
+  const groupRefs = useRef({})
+  const [activeGroupKey, setActiveGroupKey] = useState(null)
+
+  const scrollToGroup = useCallback((key) => {
+    const el = groupRefs.current[key]
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setActiveGroupKey(key)
+    }
+  }, [])
+
+  // Scroll-spy: highlight whichever group is currently near the top of the
+  // viewport. rootMargin keeps the "active band" in the top slice of the screen
+  // so the highlighted box matches what the user is actually reading.
+  useEffect(() => {
+    if (isMobile) return
+    const nodes = groupedTasks.map(g => groupRefs.current[g.key]).filter(Boolean)
+    if (nodes.length === 0) return
+    const tops = new Map()
+    const recompute = () => {
+      let best = null, bestTop = Infinity
+      for (const [k, top] of tops) { if (top < bestTop) { bestTop = top; best = k } }
+      if (best) setActiveGroupKey(best)
+    }
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        const key = e.target.getAttribute('data-group-key')
+        if (!key) return
+        if (e.isIntersecting) tops.set(key, e.boundingClientRect.top)
+        else tops.delete(key)
+      })
+      recompute()
+    }, { rootMargin: '-8% 0px -82% 0px', threshold: [0, 0.01, 1] })
+    nodes.forEach(n => io.observe(n))
+    return () => io.disconnect()
+  }, [groupedTasks, isMobile])
+
   return (
     <div>
       <Fade>
@@ -241,10 +279,18 @@ export default function TasksPage({
       {filteredTasks.length === 0 ? (
         <EmptyState icon={<IconClipboard size={48} color="#94A3B8" />} title="No tasks" sub={staff ? 'Create the first task' : 'No tasks assigned'} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+          {!isMobile && groupedTasks.length > 1 && (
+            <GroupNavRail groups={groupedTasks} activeKey={activeGroupKey} onJump={scrollToGroup} />
+          )}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
           {groupedTasks.map((group, gi) => (
             <Fade key={group.key} delay={gi * 40}>
-              <div>
+              <div
+                ref={el => { if (el) groupRefs.current[group.key] = el; else delete groupRefs.current[group.key] }}
+                data-group-key={group.key}
+                style={{ scrollMarginTop: 16 }}
+              >
                 {/* Group header */}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
@@ -311,6 +357,7 @@ export default function TasksPage({
               </div>
             </Fade>
           ))}
+          </div>
         </div>
       )}
 
@@ -334,6 +381,96 @@ export default function TasksPage({
           addToast={addToast} requestConfirm={requestConfirm}
         />
       )}
+    </div>
+  )
+}
+
+// ── Left navigation rail: two columns (Asset / Shot) of jump-to boxes that
+// stay visible while scrolling and highlight the section currently in view. ──
+function GroupNavRail({ groups, activeKey, onJump }) {
+  const railRef = useRef(null)
+
+  const assetGroups = groups.filter(g => g.kind === 'asset')
+  const shotGroups = groups.filter(g => g.kind === 'shot')
+  const noneGroup = groups.find(g => g.kind === 'none')
+
+  // Keep the active box scrolled into view *within the rail only* (never the page).
+  useEffect(() => {
+    if (!activeKey || !railRef.current) return
+    const btn = railRef.current.querySelector(`[data-rail-key="${CSS.escape(activeKey)}"]`)
+    if (!btn) return
+    const rail = railRef.current
+    const bTop = btn.offsetTop
+    const bBot = bTop + btn.offsetHeight
+    if (bTop < rail.scrollTop) rail.scrollTop = bTop - 8
+    else if (bBot > rail.scrollTop + rail.clientHeight) rail.scrollTop = bBot - rail.clientHeight + 8
+  }, [activeKey])
+
+  const colTitle = (text, color) => (
+    <div style={{
+      fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase',
+      color, marginBottom: 6, paddingLeft: 2,
+    }}>{text}</div>
+  )
+
+  const box = (g, label, sub, accent, accentBg) => {
+    const active = g.key === activeKey
+    return (
+      <button
+        key={g.key}
+        data-rail-key={g.key}
+        onClick={() => onJump(g.key)}
+        title={label + (sub ? ` — ${sub}` : '')}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+          padding: '6px 8px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+          background: active ? 'rgba(242,140,40,0.12)' : accentBg,
+          border: `1px solid ${active ? '#F28C28' : 'transparent'}`,
+          transition: 'background 0.12s ease, border-color 0.12s ease',
+          marginBottom: 4,
+        }}
+        onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(242,140,40,0.06)' }}
+        onMouseLeave={e => { if (!active) e.currentTarget.style.background = accentBg }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? '#F28C28' : accent, flexShrink: 0 }} />
+        <span style={{
+          fontSize: 12, fontWeight: active ? 700 : 600, color: active ? '#B45309' : '#334155',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0,
+        }}>{label}</span>
+        <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, flexShrink: 0 }}>{g.tasks.length}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ position: 'sticky', top: 0, alignSelf: 'flex-start', flexShrink: 0, width: 180 }}>
+      <div
+        ref={railRef}
+        style={{
+          maxHeight: 'calc(100vh - 90px)', overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 16,
+          padding: '4px 6px 4px 0',
+        }}
+      >
+        {assetGroups.length > 0 && (
+          <div>
+            {colTitle('Asset', '#A78BFA')}
+            {assetGroups.map(g => box(g, g.asset?.name || 'Asset', g.asset?.description, '#A78BFA', 'rgba(167,139,250,0.08)'))}
+          </div>
+        )}
+        {shotGroups.length > 0 && (
+          <div>
+            {colTitle('Shot', '#64748B')}
+            {shotGroups.map(g => box(g, g.shot?.code || 'Shot', g.shot?.sequence, '#64748B', '#F1F5F9'))}
+          </div>
+        )}
+        {noneGroup && (
+          <div>
+            {colTitle('Altro', '#94A3B8')}
+            {box(noneGroup, 'Senza Shot / Asset', null, '#CBD5E1', '#F8FAFC')}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
