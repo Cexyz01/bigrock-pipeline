@@ -21,7 +21,7 @@ const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for video
 
 export default function TaskDetailModal({
-  task, user, staff, profiles, students: studentsProp = null, projectStartDate = null,
+  task, user, staff, profiles, students: studentsProp = null, shots = [], projectStartDate = null,
   onClose, onUpdate, onSetAssignees, onDelete, onReject, onAddWipComment,
   onCreateWipUpdate, onDeleteWipUpdate, onCommitForReview, onMarkWipViewed,
   addToast, requestConfirm,
@@ -33,6 +33,7 @@ export default function TaskDetailModal({
   const [editTitle, setEditTitle] = useState(task.title || '')
   const [editDesc, setEditDesc] = useState(task.description || '')
   const [editDept, setEditDept] = useState(task.department || '')
+  const [editShotId, setEditShotId] = useState(task.shot_id || '')
   const [editStartDate, setEditStartDate] = useState(task.start_date || projectStartDate || '')
   const [editDuration, setEditDuration] = useState(task.duration_days || 1)
   const [editRequired, setEditRequired] = useState(task.required_assignees || 1)
@@ -45,6 +46,7 @@ export default function TaskDetailModal({
     setEditTitle(task.title || '')
     setEditDesc(task.description || '')
     setEditDept(task.department || '')
+    setEditShotId(task.shot_id || '')
     const initStart = task.start_date || projectStartDate || ''
     setEditStartDate(initStart)
     initialStartRef.current = initStart
@@ -72,6 +74,14 @@ export default function TaskDetailModal({
   const changeDept = (val) => {
     setEditDept(val)
     if (val !== task.department) saveField('department', val || null)
+  }
+  const changeShot = (val) => {
+    const next = val || null
+    setEditShotId(val || '')
+    if (next !== (task.shot_id || null)) {
+      // Moving to a shot detaches the task from any asset so it can't belong to both.
+      onUpdate(task.id, { shot_id: next, ...(next ? { asset_id: null } : {}) }).then(flashSaved)
+    }
   }
   const blurStartDate = () => {
     // Don't auto-persist the project-default fallback: only save if the user actually
@@ -369,6 +379,22 @@ export default function TaskDetailModal({
   const students = studentsProp ?? (profiles ? profiles.filter(p => p.role_slug === 'studente') : [])
   const hasWipUpdates = wipUpdates.length > 0
 
+  // Shot selector options (staff "move to another shot"). Sorted like CreateTaskModal,
+  // with a leading detach option so a task can be unlinked from its current shot.
+  const truncate = (s, n = 40) => !s ? '' : (s.length > n ? s.slice(0, n - 1) + '…' : s)
+  const shotOptions = [
+    { value: '', label: '— Nessuno —' },
+    ...[...(shots || [])]
+      .sort((a, b) =>
+        (a.sequence || '').localeCompare(b.sequence || '') ||
+        ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+        (a.code || '').localeCompare(b.code || ''))
+      .map(s => {
+        const desc = s.description ? truncate(s.description) : s.sequence
+        return { value: s.id, label: desc ? `${s.code}  ·  ${desc}` : s.code }
+      }),
+  ]
+
   // ── Shared content renderers ──
   // Visual hierarchy:
   //   Section headers   → 10px / 700 / uppercase / letter-spaced gray
@@ -434,6 +460,12 @@ export default function TaskDetailModal({
               <span style={fieldLabel}>Dipartimento</span>
               <Select value={editDept} onChange={changeDept} options={DEPTS.map(d => ({ value: d.id, label: d.label }))} placeholder="Select department" style={{ fontSize: 13 }} />
             </div>
+            {!task.asset_id && (
+              <div>
+                <span style={fieldLabel}>Shot</span>
+                <Select value={editShotId} onChange={changeShot} options={shotOptions} placeholder="Nessuno shot" style={{ fontSize: 13 }} />
+              </div>
+            )}
             <div>
               <span style={fieldLabel}>Descrizione</span>
               <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} onBlur={blurDesc} placeholder="Descrizione del task..." rows={3}

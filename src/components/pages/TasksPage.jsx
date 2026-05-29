@@ -322,7 +322,7 @@ export default function TasksPage({
       {/* Task Detail Modal */}
       {selectedTask && (
         <TaskDetailModal
-          task={selectedTask} user={user} staff={staff} profiles={profiles} students={students}
+          task={selectedTask} user={user} staff={staff} profiles={profiles} students={students} shots={shots}
           projectStartDate={currentProject?.start_date || null}
           onClose={() => { setSelectedTask(null); setScrollToWipId(null) }}
           scrollToWipId={scrollToWipId}

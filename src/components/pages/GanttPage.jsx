@@ -1104,7 +1104,7 @@ export default function GanttPage({
         if (!t) return null
         return (
           <TaskDetailModal
-            task={t} user={user} staff={staff} profiles={profiles} students={students}
+            task={t} user={user} staff={staff} profiles={profiles} students={students} shots={shots}
             projectStartDate={currentProject?.start_date || null}
             onClose={() => setSelectedTaskId(null)}
             onUpdate={onUpdateTask}
