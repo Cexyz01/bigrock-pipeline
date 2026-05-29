@@ -406,8 +406,9 @@ const MASONRY_PAD = 4
 // Max thumbnail height as a multiple of its column width. Without this a single
 // portrait/collage image keeps its natural aspect (height:auto) and stretches
 // the column into a tall strip, which forced 16:9 images to share less room.
-// Anything taller than this gets cropped (objectFit:cover); 16:9 images are
-// naturally ~0.56× their width so they stay untouched.
+// Taller images are shrunk to fit the cap with objectFit:contain — the whole
+// image stays visible (never cropped), just with a little side padding. 16:9
+// images are naturally ~0.56× their width so they stay untouched.
 const MASONRY_MAX_ASPECT = 1.4
 
 // Pick a column count that respects MASONRY_MIN_IMG_W and the cell's width
@@ -460,9 +461,9 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
 
   // Masonry: CSS multi-column with break-inside: avoid. Images keep their natural
   // aspect (width:100% of column, height:auto) up to MASONRY_MAX_ASPECT — taller
-  // ones are capped and cropped (objectFit:cover) so a single portrait/collage
-  // can't stretch the column into a strip. Columns balance automatically,
-  // killing the dead-cell gaps the old fixed 2×N grid produced for odd counts.
+  // ones are shrunk to fit the cap (objectFit:contain, never cropped) so a single
+  // portrait/collage can't stretch the column into a strip. Columns balance
+  // automatically, killing the dead-cell gaps the old 2×N grid left for odd counts.
   const cols = cellColumns(count)
   const colW = (B_CELL_W - 2 * MASONRY_PAD - (cols - 1) * MASONRY_GAP) / cols
   const maxThumbH = Math.round(colW * MASONRY_MAX_ASPECT)
@@ -476,7 +477,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
             ) : (
               <Img src={thumbUrl(img.image_url, 800, 800)} alt="" onClick={() => onClickImage(i)}
                 draggable={false} onDragStart={(e) => e.preventDefault()}
-                style={{ width: '100%', height: 'auto', maxHeight: maxThumbH, objectFit: 'cover', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
+                style={{ width: '100%', height: 'auto', maxHeight: maxThumbH, objectFit: 'contain', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
             )}
           </div>
         ))}
