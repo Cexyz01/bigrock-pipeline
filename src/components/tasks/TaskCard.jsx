@@ -179,10 +179,10 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
               <span style={{ fontSize: 11, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{assignees[0].user.full_name}</span>
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ display: 'flex' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <div style={{ display: 'flex', flexShrink: 0 }}>
                 {assignees.slice(0, 4).map((a, i) => (
-                  <div key={a.user.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid #fff', borderRadius: '50%', display: 'flex' }}>
+                  <div key={a.user.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid #fff', borderRadius: '50%', display: 'flex', flexShrink: 0 }}>
                     <Av name={a.user.full_name} size={24} url={a.user.avatar_url} mood={a.user.mood_emoji} />
                   </div>
                 ))}
@@ -190,7 +190,7 @@ export default function TaskCard({ task, user, staff, onClick, wipViews, onStart
               <span style={{ fontSize: 11, color: '#64748B' }}>{assignees.length}</span>
             </div>
           )}
-          {task.shot && <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 10, border: '1px solid #E2E8F0' }}>{task.shot.code}</span>}
+          {task.shot && <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 10, border: '1px solid #E2E8F0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{task.shot.code}</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {canStart && (() => {
