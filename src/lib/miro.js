@@ -107,11 +107,6 @@ export async function cleanupAll(boardId) {
   return callMiroSync({ action: 'cleanup', ...(boardId && { board_id: boardId }) })
 }
 
-// Get Cloudinary plan usage (admin only — the edge function holds the secret)
-export async function getCloudinaryUsage() {
-  return callMiroSync({ action: 'cloudinary_usage' })
-}
-
 // Get R2 bucket usage (scans the bucket via S3 ListObjectsV2 and aggregates
 // total bytes, object count, and bytes-per-top-level-prefix).
 export async function getR2Usage() {

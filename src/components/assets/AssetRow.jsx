@@ -12,19 +12,9 @@ const iconBtnStyle = {
 
 const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${ASSET_DEPTS.length}, 1fr)` : `280px repeat(${ASSET_DEPTS.length}, 72px) 56px`
 
-const thumbUrl = (url, w = 56, h = 56) => {
-  if (!url) return null
-  const idx = url.indexOf('/upload/')
-  if (idx === -1) return url
-  return url.slice(0, idx + 8) + `c_fill,w_${w},h_${h},q_auto,f_auto/` + url.slice(idx + 8)
-}
-
-const previewUrl = (url) => {
-  if (!url) return null
-  const idx = url.indexOf('/upload/')
-  if (idx === -1) return url
-  return url.slice(0, idx + 8) + 'c_fit,w_400,h_260,q_auto,f_auto/' + url.slice(idx + 8)
-}
+// R2 serves images at their stored size (Cloudinary removed). Passthroughs.
+const thumbUrl = (url) => url || null
+const previewUrl = (url) => url || null
 
 const AssetRow = React.memo(function AssetRow({
   asset, staff, canEdit, deptStatuses, onDelete, onUploadReference, onUploadOutput, onUpdate,

@@ -13,11 +13,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || ""
 
-const CLD_CLOUD = Deno.env.get("CLOUDINARY_CLOUD_NAME") || ""
-const CLD_KEY = Deno.env.get("CLOUDINARY_API_KEY") || ""
-const CLD_SECRET = Deno.env.get("CLOUDINARY_API_SECRET") || ""
-
-// ── Cloudflare R2 (new media backend) ─────────────────────────────
+// ── Cloudflare R2 (sole media backend — Cloudinary fully removed) ──
 const R2_ACCESS_KEY_ID = Deno.env.get("R2_ACCESS_KEY_ID") || ""
 const R2_SECRET_ACCESS_KEY = Deno.env.get("R2_SECRET_ACCESS_KEY") || ""
 const R2_ENDPOINT = (Deno.env.get("R2_ENDPOINT") || "").replace(/\/$/, "")
@@ -53,19 +49,10 @@ const ROW_H = 1000
 const CELL_PAD = 30   // padding inside each department cell
 const IMG_GAP = 10    // gap between task sub-cells and images
 
-// Insert Cloudinary c_fit transformation into a Cloudinary URL.
-// This makes Cloudinary serve the image ALREADY resized to fit within w×h.
-// Miro then receives the image at the perfect size — no geometry needed.
-// f_jpg forces JPEG output — Miro does NOT support AVIF/WebP uploads.
-function cloudFitUrl(url: string, w: number, h: number): string {
-  // Cloudinary URL: .../upload/v1234/...  →  .../upload/c_fit,w_X,h_Y,f_jpg/v1234/...
-  if (url.includes("/upload/")) {
-    return url.replace("/upload/", `/upload/c_fit,w_${Math.floor(w)},h_${Math.floor(h)},f_jpg/`)
-  }
-  // Non-Cloudinary URL: use Cloudinary fetch to transform any external image
-  if (CLD_CLOUD) {
-    return `https://res.cloudinary.com/${CLD_CLOUD}/image/fetch/c_fit,w_${Math.floor(w)},h_${Math.floor(h)},f_jpg/${url}`
-  }
+// Cloudinary removed: R2 has no on-the-fly transform endpoint, so images are
+// served at their stored size. Kept as a passthrough only so the (now dead,
+// boardless) Miro layout code still compiles. `w`/`h` are ignored.
+function cloudFitUrl(url: string, _w: number, _h: number): string {
   return url
 }
 
@@ -418,43 +405,70 @@ async function placeCellImages(
 }
 
 // ══════════════════════════════════════════════════════════════
-// CLOUDINARY
+// IMAGE UPLOAD → R2  (Cloudinary fully removed 2026-05-29)
 // ══════════════════════════════════════════════════════════════
-
-async function sha1(msg: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(msg))
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
-}
 
 interface CloudResult { url: string; width: number; height: number }
 
-async function cloudUpload(base64: string, folder: string): Promise<CloudResult | null> {
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return null
-  try {
-    const ts = Math.floor(Date.now() / 1000).toString()
-    const sig = await sha1(`folder=${folder}&timestamp=${ts}${CLD_SECRET}`)
-    const fd = new FormData()
-    fd.append("file", base64)
-    fd.append("folder", folder)
-    fd.append("timestamp", ts)
-    fd.append("api_key", CLD_KEY)
-    fd.append("signature", sig)
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: "POST", body: fd })
-    if (!res.ok) { console.error("[cloudinary]", res.status, await res.text()); return null }
-    const json = await res.json()
-    return { url: json.secure_url || "", width: json.width || 0, height: json.height || 0 }
-  } catch (e) { console.error("[cloudinary] error:", e); return null }
+// Read intrinsic dimensions straight from the file header. Covers PNG and
+// JPEG (everything the app uploads); anything else falls back to 0×0, which
+// is fine — no view depends on these stored dimensions for layout.
+function imageSize(bytes: Uint8Array): { width: number; height: number } {
+  // PNG: 8-byte signature, then IHDR with width@16 height@20 (big-endian).
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    const width = ((bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]) >>> 0
+    const height = ((bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]) >>> 0
+    return { width, height }
+  }
+  // JPEG: walk the marker segments until a Start-Of-Frame (SOFn).
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let i = 2
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 0xff) { i++; continue }
+      const marker = bytes[i + 1]
+      const isSOF = (marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) ||
+                    (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)
+      if (isSOF) {
+        const height = (bytes[i + 5] << 8) | bytes[i + 6]
+        const width = (bytes[i + 7] << 8) | bytes[i + 8]
+        return { width, height }
+      }
+      i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3])
+    }
+  }
+  return { width: 0, height: 0 }
 }
 
-async function cloudDeletePrefix(prefix: string): Promise<void> {
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return
+// Decode a base64 data URL (or bare base64) into bytes + content type.
+function decodeDataUrl(input: string): { bytes: Uint8Array; contentType: string; ext: string } {
+  const m = /^data:([^;,]+)?(?:;base64)?,(.*)$/s.exec(input)
+  const contentType = (m && m[1]) || "image/png"
+  const b64 = m ? m[2] : input
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const ext = (contentType.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "").slice(0, 6) || "png"
+  return { bytes, contentType, ext }
+}
+
+// Upload a base64 image to R2 under `folder/<random>.<ext>` and return its
+// public URL + dimensions. Mirrors the old cloudUpload() contract so callers
+// are unchanged.
+async function r2UploadImage(base64: string, folder: string): Promise<CloudResult | null> {
+  if (!r2 || !R2_BUCKET || !R2_ENDPOINT || !R2_PUBLIC_URL) return null
   try {
-    const auth = btoa(`${CLD_KEY}:${CLD_SECRET}`)
-    await fetch(
-      `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/resources/image/upload?prefix=${encodeURIComponent(prefix)}&type=upload`,
-      { method: "DELETE", headers: { "Authorization": `Basic ${auth}` } },
-    )
-  } catch (_e) { /* ignore */ }
+    const { bytes, contentType, ext } = decodeDataUrl(base64)
+    const cleanFolder = folder.replace(/^\/+|\/+$/g, "")
+    const key = `${cleanFolder}/${randomId()}.${safeExt(ext)}`
+    const put = await r2.fetch(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`, {
+      method: "PUT",
+      body: bytes,
+      headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=31536000, immutable" },
+    })
+    if (!put.ok) { console.error("[r2 upload]", put.status, await put.text()); return null }
+    const { width, height } = imageSize(bytes)
+    return { url: `${R2_PUBLIC_URL}/${key}`, width, height }
+  } catch (e) { console.error("[r2 upload] error:", e); return null }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -777,8 +791,8 @@ async function handleUploadReference(supabase: any, params: any) {
   const { shot_id, image_base64 } = params
   if (!shot_id || !image_base64) return err("shot_id and image_base64 required")
 
-  const upload = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/reference`)
-  if (!upload) return err("Cloudinary upload failed", 500)
+  const upload = await r2UploadImage(image_base64, `bigrock-wip/${shot_id}/reference`)
+  if (!upload) return err("R2 upload failed", 500)
 
   // Save Cloudinary URL + dimensions to shots table for future full_sync
   await supabase.from("shots").update({
@@ -833,8 +847,8 @@ async function handleUploadWipImage(supabase: any, params: any) {
     }
   }
 
-  const upload = await cloudUpload(image_base64, `bigrock-wip/${shot_id}/${department}`)
-  if (!upload) return err("Cloudinary upload failed", 500)
+  const upload = await r2UploadImage(image_base64, `bigrock-wip/${shot_id}/${department}`)
+  if (!upload) return err("R2 upload failed", 500)
 
   await supabase.from("miro_wip_images").insert({
     shot_id, task_id: task_id || null, department,
@@ -887,7 +901,7 @@ async function handleUploadWipImages(supabase: any, params: any) {
   // Upload all to Cloudinary
   const uploads: CloudResult[] = []
   for (const b64 of images_base64) {
-    const upload = await cloudUpload(b64, `bigrock-wip/${shot_id}/${department}`)
+    const upload = await r2UploadImage(b64, `bigrock-wip/${shot_id}/${department}`)
     if (upload) uploads.push(upload)
   }
   if (uploads.length === 0) return err("All uploads failed", 500)
@@ -1106,20 +1120,6 @@ function handleLegacyCloudinarySig(_supabase: any, _params: any) {
   return err("Cloudinary uploads removed — refresh the page to load the R2 build", 410)
 }
 
-// ══════════════════════════════════════════════════════════════
-// CLOUDINARY USAGE — plan quota + storage/bandwidth/credits
-// ══════════════════════════════════════════════════════════════
-
-async function handleCloudinaryUsage() {
-  if (!CLD_CLOUD || !CLD_KEY || !CLD_SECRET) return err("Cloudinary not configured", 500)
-  const auth = btoa(`${CLD_KEY}:${CLD_SECRET}`)
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/usage`, {
-    headers: { Authorization: `Basic ${auth}` },
-  })
-  if (!res.ok) return err(`Cloudinary usage failed: ${res.status} ${await res.text()}`, 500)
-  const data = await res.json()
-  return ok(data)
-}
 
 // ══════════════════════════════════════════════════════════════
 // FIX SYNC — Incremental repair (only fix cells with missing images)
@@ -1251,23 +1251,10 @@ async function handlePreregStudent(supabase: any, params: any, authHeader: strin
 
 // ══════════════════════════════════════════════════════════════
 // DELETE WIP UPDATE — gated by access_review (prof+) OR delete_tasks
-// (producer+); also purges the Cloudinary assets to free space (the
-// whole point — students sometimes post by accident, this lets staff
-// clean up).
+// (producer+). Removes the WIP update + its storyboard rows. The
+// underlying R2 objects are left in place (cheap; same keep-assets
+// policy as the rest of the function).
 // ══════════════════════════════════════════════════════════════
-
-function parseCloudinaryUrl(url: string): { resourceType: string; publicId: string } | null {
-  if (!url) return null
-  const m = url.match(/\/(image|video|raw)\/upload\/(.+)$/)
-  if (!m) return null
-  const parts = m[2].split("/")
-  // Find version segment (vNNNN). Anything before it is transformations.
-  const vIdx = parts.findIndex(p => /^v\d+$/.test(p))
-  if (vIdx === -1) return null
-  const tail = parts.slice(vIdx + 1).join("/")
-  const dot = tail.lastIndexOf(".")
-  return { resourceType: m[1], publicId: dot === -1 ? tail : tail.slice(0, dot) }
-}
 
 async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: string | null) {
   const { wip_update_id } = params
@@ -1294,7 +1281,7 @@ async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: str
 
   // Read the WIP update to get its image/audio URLs + the task/user it belongs to.
   // We need task_id + user_id later to scope the miro_wip_images cleanup correctly
-  // (the same Cloudinary URL might in theory exist for a different task/user — match
+  // (the same URL might in theory exist for a different task/user — match
   // on the whole triple to be safe).
   const { data: wipRow, error: fetchErr } = await supabase
     .from("task_wip_updates")
@@ -1303,38 +1290,6 @@ async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: str
     .maybeSingle()
   if (fetchErr) return err("DB read failed: " + fetchErr.message, 500)
   if (!wipRow) return err("WIP update not found", 404)
-
-  // Group public_ids by Cloudinary resource type — image/video/raw each need
-  // their own DELETE call.
-  const byType: Record<string, string[]> = {}
-  for (const url of (wipRow.images || [])) {
-    const parsed = parseCloudinaryUrl(url)
-    if (!parsed) continue
-    ;(byType[parsed.resourceType] ||= []).push(parsed.publicId)
-  }
-
-  let cloudinaryDeleted = 0
-  if (CLD_CLOUD && CLD_KEY && CLD_SECRET) {
-    const auth = btoa(`${CLD_KEY}:${CLD_SECRET}`)
-    for (const [resourceType, ids] of Object.entries(byType)) {
-      try {
-        const qp = new URLSearchParams()
-        ids.forEach(id => qp.append("public_ids[]", id))
-        const res = await fetch(
-          `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/resources/${resourceType}/upload?${qp.toString()}`,
-          { method: "DELETE", headers: { "Authorization": `Basic ${auth}` } },
-        )
-        if (res.ok) {
-          const j = await res.json().catch(() => null)
-          if (j?.deleted) cloudinaryDeleted += Object.values(j.deleted).filter(v => v === "deleted").length
-        } else {
-          console.warn(`[delete_wip_update] Cloudinary ${resourceType} delete returned`, res.status, await res.text())
-        }
-      } catch (e) {
-        console.warn(`[delete_wip_update] Cloudinary ${resourceType} delete failed:`, e)
-      }
-    }
-  }
 
   // Comments first (no ON DELETE CASCADE assumed), then the WIP row itself.
   await supabase.from("wip_comments").delete().eq("wip_update_id", wip_update_id)
@@ -1368,8 +1323,7 @@ async function handleDeleteWipUpdate(supabase: any, params: any, authHeader: str
 
   return ok({
     success: true,
-    cloudinary_deleted: cloudinaryDeleted,
-    asset_count: Object.values(byType).reduce((a, b) => a + b.length, 0),
+    asset_count: (wipRow.images || []).length,
     storyboard_rows_deleted: storyboardRowsDeleted,
   })
 }
@@ -1414,7 +1368,6 @@ serve(async (req) => {
       case "get_output_upload_sig":
       case "get_timeline_upload_sig":
         return handleLegacyCloudinarySig(supabase, params)
-      case "cloudinary_usage":  return await handleCloudinaryUsage()
       case "prereg_student":    return await handlePreregStudent(supabase, params, req.headers.get("Authorization"))
       case "delete_wip_update": return await handleDeleteWipUpdate(supabase, params, req.headers.get("Authorization"))
       default:                  return err(`Unknown action: ${action}`)

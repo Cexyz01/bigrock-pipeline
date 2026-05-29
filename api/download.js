@@ -1,10 +1,9 @@
-// Same-origin download proxy. R2/Cloudinary public URLs are cross-origin and
-// don't send Content-Disposition, so a browser opens the image in a tab instead
-// of downloading it. This streams the file back from our own origin with an
+// Same-origin download proxy. R2 public URLs are cross-origin and don't send
+// Content-Disposition, so a browser opens the image in a tab instead of
+// downloading it. This streams the file back from our own origin with an
 // attachment disposition so the download starts directly — no extra tab.
 const ALLOWED_HOSTS = [
   'pub-8ac8b6b594594dd59ff520c81cc243ea.r2.dev',
-  'res.cloudinary.com',
 ]
 
 export default async function handler(req, res) {

@@ -22,20 +22,10 @@ const B_GAP = 10
 const B_SEQ_H = 36
 const B_HDR_H = 48
 
-// Source size budget: the user can zoom the board canvas up to 5× AND the
-// browser at 200% on top of that. We floor DPR at 2 (so even non-retina
-// users get headroom for browser zoom) and cap at 4. Combined with bigger
-// base widths at the call sites this keeps thumbs sharp through ~10× of
-// effective zoom before Cloudinary's `fit=limit` caps at the original.
-function thumbUrl(url, w = 300, h = 260) {
-  if (!url) return null
-  const dpr = typeof window !== 'undefined'
-    ? Math.min(4, Math.max(2, Math.ceil(window.devicePixelRatio || 1)))
-    : 3
-  const W = Math.round(w * dpr)
-  const H = Math.round(h * dpr)
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_limit,w_${W},h_${H},q_auto,f_auto/`)
-  return url
+// R2 serves images at their stored size (Cloudinary removed — no on-the-fly
+// resize). Passthrough kept so call sites stay unchanged.
+function thumbUrl(url) {
+  return url || null
 }
 
 // DOM-based wrap measurement. Uses a hidden div with the exact same font/lineHeight/wrap
@@ -489,16 +479,9 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
   )
 })
 
-// Cloudinary fit (no crop) for references
-function refThumbUrl(url, w = 320, h = 180) {
-  if (!url) return null
-  const dpr = typeof window !== 'undefined'
-    ? Math.min(4, Math.max(2, Math.ceil(window.devicePixelRatio || 1)))
-    : 3
-  const W = Math.round(w * dpr)
-  const H = Math.round(h * dpr)
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_limit,w_${W},h_${H},q_auto,f_auto/`)
-  return url
+// Passthrough (Cloudinary removed — R2 has no on-the-fly resize).
+function refThumbUrl(url) {
+  return url || null
 }
 
 const RefCell = memo(function RefCell({ url, onClick, cellH }) {

@@ -12,21 +12,9 @@ const iconBtnStyle = {
 
 const GRID_COLS = isMobile => isMobile ? `2.2fr repeat(${DEPTS.length}, 1fr)` : `280px repeat(${DEPTS.length}, 72px) 56px`
 
-// Cloudinary thumbnail transform
-const thumbUrl = (url, w = 56, h = 56) => {
-  if (!url) return null
-  const idx = url.indexOf('/upload/')
-  if (idx === -1) return url
-  return url.slice(0, idx + 8) + `c_fill,w_${w},h_${h},q_auto,f_auto/` + url.slice(idx + 8)
-}
-
-// Bigger preview transform
-const previewUrl = (url) => {
-  if (!url) return null
-  const idx = url.indexOf('/upload/')
-  if (idx === -1) return url
-  return url.slice(0, idx + 8) + 'c_fit,w_400,h_260,q_auto,f_auto/' + url.slice(idx + 8)
-}
+// R2 serves images at their stored size (Cloudinary removed). Passthroughs.
+const thumbUrl = (url) => url || null
+const previewUrl = (url) => url || null
 
 const ShotRow = React.memo(function ShotRow({ shot, staff, deptStatuses, onDelete, onUploadReference, onUploadOutput, onUpdateShot, onDragStart, onDragOver, onDrop, requestConfirm, canEditShots, onGoToTasks, sequences = [] }) {
   const isMobile = useIsMobile()

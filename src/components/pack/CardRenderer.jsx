@@ -1,6 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
 import { IconCards } from '../ui/Icons'
-import { cld } from '../../lib/cld'
 import { RARITY_COLORS, CARD_W, CARD_H, DEPTH_LAYERS } from '../../lib/cardConstants'
 import { observeWidth } from '../../lib/sharedResizeObserver'
 import bigrockLogo from '../../../Images/bigrock.png'
@@ -80,15 +79,6 @@ if (typeof document !== 'undefined' && !document.getElementById('card-renderer-c
     @keyframes crDiamond { to { --diamond-angle: 360deg; } }
   `
   document.head.appendChild(s)
-}
-
-// Pick Cloudinary bucket size that matches the rendered card.
-// Doubles up for retina, snaps to discrete sizes for cache friendliness.
-function pickBucket(displayW) {
-  const target = Math.max(1, (displayW || CARD_W)) * (typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1.5)
-  const buckets = [320, 480, 640, 800, 1024, 1280]
-  for (const b of buckets) if (target <= b) return b
-  return 1280
 }
 
 /**
@@ -200,7 +190,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
         <div style={{
           flex: isFullArt ? 1 : '0 0 55%',
           background: card.image_url ? undefined : `linear-gradient(135deg, ${r.bg}, #222222)`,
-          backgroundImage: card.image_url ? `url(${cld(card.image_url, { w: pickBucket(displayW), h: pickBucket(displayW), fit: 'limit' })})` : undefined,
+          backgroundImage: card.image_url ? `url(${card.image_url})` : undefined,
           backgroundPosition: card.image_url && card.image_position
             ? `${card.image_position.x}% ${card.image_position.y}%` : 'center',
           backgroundSize: card.image_url && card.image_position

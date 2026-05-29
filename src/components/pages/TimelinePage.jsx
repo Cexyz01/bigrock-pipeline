@@ -14,22 +14,14 @@ const fmt = (sec) => {
   return `${m}:${s.padStart(4, '0')}`
 }
 
-const thumbUrl = (url, w = 1280, h = 720) => {
-  if (!url) return null
-  if (url.includes('/upload/')) return url.replace('/upload/', `/upload/c_fill,w_${w},h_${h},q_auto,f_auto/`)
-  return url
-}
+// R2 has no on-the-fly transforms (Cloudinary removed), so images are served
+// at their stored size. Kept as a passthrough so call sites stay unchanged.
+const thumbUrl = (url) => url || null
 
-const smallThumb = (url) => thumbUrl(url, 200, 112)
+const smallThumb = (url) => url || null
 
-// For video files, get a poster/thumbnail from Cloudinary (first frame as jpg)
-const videoThumb = (url, w = 200, h = 112) => {
-  if (!url) return null
-  if (url.includes('/upload/')) {
-    return url.replace('/upload/', `/upload/c_fill,w_${w},h_${h},q_auto,f_jpg,so_0/`)
-  }
-  return null
-}
+// No server-side video poster on R2 — the player draws its own first frame.
+const videoThumb = () => null
 
 // Pre-migration this applied a `c_limit,h_720,q_auto` Cloudinary transform
 // so the player streamed a downscaled copy. R2 has no on-the-fly transforms,
