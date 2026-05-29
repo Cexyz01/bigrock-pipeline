@@ -2,7 +2,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { ACCENT, DEFAULT_FPS, DEFAULT_DURATION_FRAMES, isAudioUrl, isVideoUrl } from '../../lib/constants'
 import { IconTimeline, IconX } from '../ui/Icons'
 import Img from '../ui/Img'
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer'
+import {
+  Input, BlobSource, ALL_FORMATS, VideoSampleSink,
+  Output, Mp4OutputFormat, BufferTarget, CanvasSource,
+} from 'mediabunny'
 
 // ── Helpers ──
 const fmt = (sec) => {
@@ -44,6 +47,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const [selectedShotId, setSelectedShotId] = useState(null)
   const [editDuration, setEditDuration] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [exportSD, setExportSD] = useState(false)
   const [volume, setVolume] = useState(0.8)
   const playerZoom = 100
   const [tab, setTab] = useState('player')
@@ -514,34 +518,65 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     return () => window.removeEventListener('keydown', handler)
   }, [totalFrames])
 
-  // ── Export as MP4 (with WebM fallback for unsupported browsers) ──
+  // ── Export as MP4 (mediabunny: sequential hardware decode → re-encode) ──
+  //
+  // The timeline is just clips glued one after another with a burned-in band
+  // (shot code + a frame counter spanning the whole movie). The clips are
+  // heterogeneous (different codecs/resolutions/profiles) so they can't be
+  // stream-copy concatenated — they must be re-encoded to one uniform track.
+  //
+  // The old approach used `video.currentTime` + `seeked` per frame: random
+  // access seeking is the ~200s bottleneck. mediabunny decodes each clip
+  // *sequentially* (no seeks) via WebCodecs, which is the actual fix. We emit
+  // a constant-frame-rate output so the frame counter ticks exactly once per
+  // output frame.
   const handleExport = useCallback(async () => {
     if (exporting) return
     setExporting(true)
 
-    const useWebCodecs = typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined'
-    const W = 1920, H = 1080
+    const hasWebCodecs = typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined'
+    if (!hasWebCodecs) {
+      addToast?.('Export richiede un browser con WebCodecs (Chrome o Edge).', 'danger')
+      setExporting(false)
+      return
+    }
+
+    // HD = full 1080p; SD = 540p (¼ the pixels → far less encode work).
+    const W = exportSD ? 960 : 1920
+    const H = exportSD ? 540 : 1080
+    const bitrate = exportSD ? 2_500_000 : 8_000_000
+    const bandH = Math.round(H * 0.046)
+    const fontSize = Math.round(H * 0.0185)
+
     const expCanvas = document.createElement('canvas')
     expCanvas.width = W
     expCanvas.height = H
     const expCtx = expCanvas.getContext('2d')
 
-    // Track blob object URLs so we can revoke them after export.
-    const objectUrls = []
-
-    // Load an image as an ImageBitmap from a CORS fetch. Decoding from a Blob
-    // we hold produces a same-origin source that can NEVER taint the canvas,
-    // regardless of HTTP-cache state — so we let the browser cache do its job
-    // (no forced re-download) and only pay the network cost once.
-    const preloadImage = async (url) => {
-      if (!url) return null
-      try {
-        const res = await fetch(url, { mode: 'cors' })
-        if (!res.ok) return null
-        return await createImageBitmap(await res.blob())
-      } catch {
-        return null
+    // Draw a drawable (VideoSample or ImageBitmap) contain-scaled, then the band.
+    const drawContain = (drawable, natW, natH) => {
+      expCtx.fillStyle = '#000'
+      expCtx.fillRect(0, 0, W, H)
+      if (drawable && natW && natH) {
+        const scale = Math.min(W / natW, H / natH)
+        const dw = natW * scale, dh = natH * scale
+        const dx = (W - dw) / 2, dy = (H - dh) / 2
+        if (typeof drawable.draw === 'function') drawable.draw(expCtx, dx, dy, dw, dh) // VideoSample
+        else expCtx.drawImage(drawable, dx, dy, dw, dh) // ImageBitmap
       }
+    }
+    const drawBand = (shot, globalFrame) => {
+      expCtx.fillStyle = 'rgba(0,0,0,0.55)'
+      expCtx.fillRect(0, H - bandH, W, bandH)
+      expCtx.fillStyle = '#fff'
+      expCtx.font = `bold ${fontSize}px sans-serif`
+      expCtx.textBaseline = 'middle'
+      const cy = H - bandH / 2
+      expCtx.textAlign = 'left'
+      const label = `${shot?.code || ''}${shot?.sequence ? '  —  ' + shot.sequence : ''}`
+      expCtx.fillText(label, Math.round(W * 0.012), cy)
+      expCtx.textAlign = 'right'
+      expCtx.fillText(`F ${globalFrame}/${totalFrames}`, W - Math.round(W * 0.012), cy)
     }
 
     addToast?.('Preparazione export...', 'info')
@@ -552,232 +587,112 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
         .map(sh => sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url)
         .filter(Boolean)
       const imageUrls = [...new Set(allUrls.filter(u => !isVideoUrl(u)))]
-      const videoShotUrls = [...new Set(allUrls.filter(u => isVideoUrl(u)))]
+      const videoUrls = [...new Set(allUrls.filter(u => isVideoUrl(u)))]
 
-      // Pre-load all images in parallel (fresh CORS fetch → ImageBitmap).
-      const imageExportCache = {}
+      // Fetch images as ImageBitmaps (CORS fetch → Blob → bitmap never taints).
+      const imageCache = {}
       await Promise.all(imageUrls.map(async (url) => {
-        imageExportCache[url] = await preloadImage(url)
+        try {
+          const res = await fetch(url, { mode: 'cors' })
+          if (res.ok) imageCache[url] = await createImageBitmap(await res.blob())
+        } catch { /* leave shot black */ }
       }))
 
-      // Pre-load videos as Blob object URLs. A same-origin object URL can't
-      // taint the canvas, and seeking becomes local (no per-frame network
-      // round-trip) — the single biggest export speedup.
-      const exportVideos = {}
-      if (videoShotUrls.length > 0) {
-        addToast?.(`Caricamento ${videoShotUrls.length} video...`, 'info')
-        for (const origUrl of videoShotUrls) {
-          const vid = document.createElement('video')
-          vid.preload = 'auto'
-          vid.muted = true
+      // Fetch each clip once as a Blob — mediabunny decodes from a same-origin
+      // BlobSource (no per-frame network, no CORS-range flakiness, no taint).
+      const videoBlobs = {}
+      if (videoUrls.length > 0) {
+        addToast?.(`Caricamento ${videoUrls.length} clip...`, 'info')
+        await Promise.all(videoUrls.map(async (url) => {
           try {
-            const res = await fetch(playableVideoUrl(origUrl), { mode: 'cors', cache: 'reload' })
-            if (res.ok) {
-              const objUrl = URL.createObjectURL(await res.blob())
-              objectUrls.push(objUrl)
-              vid.src = objUrl
-            } else {
-              vid.crossOrigin = 'anonymous'
-              vid.src = playableVideoUrl(origUrl)
-            }
-          } catch {
-            vid.crossOrigin = 'anonymous'
-            vid.src = playableVideoUrl(origUrl)
-          }
-          await new Promise((resolve) => {
-            const onReady = () => { vid.removeEventListener('canplaythrough', onReady); resolve() }
-            const onErr = () => { vid.removeEventListener('error', onErr); resolve() }
-            vid.addEventListener('canplaythrough', onReady)
-            vid.addEventListener('error', onErr)
-            vid.load()
-          })
-          if (vid.readyState >= 2) exportVideos[origUrl] = vid
-        }
+            const res = await fetch(playableVideoUrl(url), { mode: 'cors' })
+            if (res.ok) videoBlobs[url] = await res.blob()
+          } catch { /* leave shot black */ }
+        }))
       }
 
-      // Helper: seek video and wait
-      const seekVideo = (vid, time) => new Promise((resolve) => {
-        const clampedTime = Math.min(Math.max(time, 0), vid.duration || 0)
-        if (Math.abs(vid.currentTime - clampedTime) < 0.02) return resolve()
-        const onSeeked = () => { vid.removeEventListener('seeked', onSeeked); resolve() }
-        vid.addEventListener('seeked', onSeeked)
-        vid.currentTime = clampedTime
-      })
+      // One output, one re-encoded AVC track at the chosen resolution/fps.
+      const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })
+      const videoSource = new CanvasSource(expCanvas, { codec: 'avc', bitrate })
+      output.addVideoTrack(videoSource, { frameRate: fps })
+      await output.start()
 
-      // Helper: render one shot at a given local frame onto the export canvas.
-      const drawShot = async (shot, localFrame) => {
-        const mediaUrl = shot?.output_cloud_url || shot?.ref_cloud_url || shot?.concept_image_url
+      const frameDur = 1 / fps
+      let globalFrame = 0   // 0-based output frame index
+      let progressPct = 0
+      addToast?.(`Esportazione MP4 ${exportSD ? 'SD' : 'HD'}... (0%)`, 'info')
 
-        expCtx.fillStyle = '#111'
-        expCtx.fillRect(0, 0, W, H)
+      for (let si = 0; si < timelineShots.length; si++) {
+        const shot = timelineShots[si]
+        const dur = shot.duration_frames || DEFAULT_DURATION_FRAMES
+        const mediaUrl = shot.output_cloud_url || shot.ref_cloud_url || shot.concept_image_url
+        const blob = mediaUrl && isVideoUrl(mediaUrl) ? videoBlobs[mediaUrl] : null
 
-        if (mediaUrl && isVideoUrl(mediaUrl)) {
-          const vid = exportVideos[mediaUrl]
-          if (vid) {
-            await seekVideo(vid, localFrame / fps)
-            try {
-              const vw = vid.videoWidth || W, vh = vid.videoHeight || H
-              const scale = Math.min(W / vw, H / vh)
-              const dw = vw * scale, dh = vh * scale
-              expCtx.drawImage(vid, (W - dw) / 2, (H - dh) / 2, dw, dh)
-            } catch (e) { /* frame stays black */ }
-          }
-        } else if (mediaUrl) {
-          const imgToDraw = imageExportCache[mediaUrl]
-          const iw = imgToDraw?.naturalWidth || imgToDraw?.width
-          const ih = imgToDraw?.naturalHeight || imgToDraw?.height
-          if (imgToDraw && iw && ih) {
-            const scale = Math.min(W / iw, H / ih)
-            const dw = iw * scale, dh = ih * scale
-            expCtx.drawImage(imgToDraw, (W - dw) / 2, (H - dh) / 2, dw, dh)
-          }
-        }
-
-        // Shot label (constant within a shot, so it never forces a redraw).
-        if (shot) {
-          expCtx.fillStyle = 'rgba(0,0,0,0.5)'
-          expCtx.fillRect(0, H - 50, W, 50)
-          expCtx.fillStyle = '#fff'
-          expCtx.font = 'bold 20px sans-serif'
-          expCtx.textAlign = 'left'
-          expCtx.fillText(`${shot.code}  —  ${shot.sequence}`, 20, H - 18)
-        }
-      }
-
-      // Thin per-global-frame wrapper used by the real-time WebM fallback.
-      const drawFrame = async (f) => {
-        const info = getShotAtFrame(f)
-        await drawShot(info.shot, info.localFrame)
-        return info
-      }
-
-      if (useWebCodecs) {
-        // ── MP4 export via WebCodecs + mp4-muxer ──
-        addToast?.('Exporting MP4... (0%)', 'info')
-        const muxer = new Muxer({
-          target: new ArrayBufferTarget(),
-          video: { codec: 'avc', width: W, height: H },
-          fastStart: 'in-memory',
-        })
-
-        // Try codecs in order of compatibility
-        let encoderConfig = null
-        for (const codec of ['avc1.42001f', 'avc1.640028', 'avc1.4d401f']) {
+        if (blob) {
+          // Sequentially decode the clip and resample to CFR. We walk the
+          // decoded samples forward (never backward → no seeking) and, for
+          // each output frame, draw the sample whose presentation interval
+          // covers the target time. Window = the shot's allotted duration.
+          let cur = null, next = null, iterDone = false
+          let iter = null
           try {
-            const support = await VideoEncoder.isConfigSupported({
-              codec, width: W, height: H, bitrate: 8_000_000, framerate: fps,
-            })
-            if (support.supported) { encoderConfig = { codec, width: W, height: H, bitrate: 8_000_000, framerate: fps }; break }
-          } catch (e) { /* try next */ }
-        }
-        if (!encoderConfig) throw new Error('Nessun codec H.264 supportato. Usa Chrome o Edge.')
-
-        const encoder = new VideoEncoder({
-          output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-          error: (e) => console.error('Encoder error:', e),
-        })
-        encoder.configure(encoderConfig)
-
-        // Encode one frame per *visual change*, not per playback frame. A
-        // static image shot held for N frames becomes a SINGLE encoded frame
-        // whose duration spans the whole shot (variable frame rate). Only
-        // video shots are stepped frame-by-frame for real motion. This cuts
-        // thousands of redundant encodes down to a handful.
-        const usPerFrame = 1_000_000 / fps
-        let startFrame = 0
-        let progressToast = 0
-        for (let si = 0; si < timelineShots.length; si++) {
-          const pct = Math.floor((si / timelineShots.length) * 100)
-          if (pct >= progressToast + 5) { progressToast = pct; addToast?.(`Exporting MP4... (${pct}%)`, 'info') }
-
-          const shot = timelineShots[si]
-          const dur = shot.duration_frames || DEFAULT_DURATION_FRAMES
-          const mediaUrl = shot.output_cloud_url || shot.ref_cloud_url || shot.concept_image_url
-          const isVid = mediaUrl && isVideoUrl(mediaUrl) && exportVideos[mediaUrl]
-
-          if (isVid) {
-            for (let lf = 0; lf < dur; lf++) {
-              await drawShot(shot, lf)
-              const frame = new VideoFrame(expCanvas, {
-                timestamp: Math.round((startFrame + lf) * usPerFrame),
-                duration: Math.round(usPerFrame),
-              })
-              encoder.encode(frame, { keyFrame: lf === 0 })
-              frame.close()
-              if (encoder.encodeQueueSize > 8) {
-                while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 4))
-              }
+            const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(blob) })
+            const track = await input.getPrimaryVideoTrack()
+            if (track) {
+              const sink = new VideoSampleSink(track)
+              iter = sink.samples(0, dur / fps + frameDur)
+              const first = await iter.next()
+              cur = first.done ? null : first.value
+              const second = await iter.next()
+              if (second.done) iterDone = true; else next = second.value
             }
-          } else {
-            await drawShot(shot, 0)
-            const frame = new VideoFrame(expCanvas, {
-              timestamp: Math.round(startFrame * usPerFrame),
-              duration: Math.round(dur * usPerFrame),
-            })
-            encoder.encode(frame, { keyFrame: true })
-            frame.close()
+          } catch { /* fall through → black frames */ }
+
+          for (let lf = 0; lf < dur; lf++) {
+            const t = lf / fps
+            while (next && next.timestamp <= t + 1e-6) {
+              cur?.close()
+              cur = next
+              if (iterDone) { next = null; break }
+              const r = await iter.next()
+              if (r.done) { iterDone = true; next = null } else { next = r.value }
+            }
+            drawContain(cur, cur?.displayWidth, cur?.displayHeight)
+            drawBand(shot, globalFrame + 1)
+            await videoSource.add(globalFrame * frameDur, frameDur)
+            globalFrame++
           }
-          startFrame += dur
+          cur?.close(); next?.close()
+        } else {
+          // Static shot (image, or black when no/failed media). One visual,
+          // but still emitted per-frame so the counter band keeps ticking.
+          const img = mediaUrl && !isVideoUrl(mediaUrl) ? imageCache[mediaUrl] : null
+          for (let lf = 0; lf < dur; lf++) {
+            drawContain(img, img?.width, img?.height)
+            drawBand(shot, globalFrame + 1)
+            await videoSource.add(globalFrame * frameDur, frameDur)
+            globalFrame++
+          }
         }
 
-        await encoder.flush()
-        encoder.close()
-        muxer.finalize()
-
-        const buf = muxer.target.buffer
-        const blob = new Blob([buf], { type: 'video/mp4' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url; a.download = `movieboard_${fps}fps.mp4`; a.click()
-        URL.revokeObjectURL(url)
-        addToast?.('Export MP4 completato!', 'success')
-
-      } else {
-        // ── Fallback: WebM export via MediaRecorder (Firefox, Safari, older browsers) ──
-        addToast?.('Exporting video (WebM)... (0%)', 'info')
-        const stream = expCanvas.captureStream(0)
-        const recorder = new MediaRecorder(stream, {
-          mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9'
-            : MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8'
-            : 'video/webm',
-          videoBitsPerSecond: 8_000_000,
-        })
-        const chunks = []
-        recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
-
-        const done = new Promise(resolve => { recorder.onstop = resolve })
-        recorder.start()
-
-        let progressToast = 0
-        for (let f = 0; f < totalFrames; f++) {
-          const pct = Math.floor((f / totalFrames) * 100)
-          if (pct >= progressToast + 5) { progressToast = pct; addToast?.(`Exporting video... (${pct}%)`, 'info') }
-
-          await drawFrame(f)
-          const canvasTrack = stream.getVideoTracks()[0]
-          if (canvasTrack?.requestFrame) canvasTrack.requestFrame()
-
-          await new Promise(r => setTimeout(r, 1000 / fps))
-        }
-
-        recorder.stop()
-        await done
-
-        const blob = new Blob(chunks, { type: 'video/webm' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url; a.download = `movieboard_${fps}fps.webm`; a.click()
-        URL.revokeObjectURL(url)
-        addToast?.('Export video completato! (WebM — il tuo browser non supporta MP4)', 'success')
+        const pct = Math.floor(((si + 1) / timelineShots.length) * 100)
+        if (pct >= progressPct + 5) { progressPct = pct; addToast?.(`Esportazione MP4 ${exportSD ? 'SD' : 'HD'}... (${pct}%)`, 'info') }
       }
+
+      await output.finalize()
+      const buf = output.target.buffer
+      const blob = new Blob([buf], { type: 'video/mp4' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `movieboard_${exportSD ? 'sd' : 'hd'}_${fps}fps.mp4`; a.click()
+      URL.revokeObjectURL(url)
+      addToast?.('Export MP4 completato!', 'success')
     } catch (err) {
       console.error('Export error:', err)
       addToast?.('Export fallito: ' + err.message, 'danger')
-    } finally {
-      objectUrls.forEach(u => URL.revokeObjectURL(u))
     }
     setExporting(false)
-  }, [fps, totalFrames, timelineShots, getShotAtFrame, exporting, addToast])
+  }, [fps, totalFrames, timelineShots, exporting, exportSD, addToast])
 
   // ── Handlers ──
   const handleDurationSave = useCallback(async () => {
@@ -988,6 +903,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             background: loop ? ACCENT + '30' : '#1E293B', border: `1px solid ${loop ? ACCENT : '#334155'}`,
             borderRadius: 5, padding: '3px 8px', fontSize: 10, color: loop ? ACCENT : '#94A3B8', cursor: 'pointer', fontWeight: 600,
           }}>Loop</button>
+          <button onClick={() => setExportSD(s => !s)} disabled={exporting} title="Risoluzione export"
+            style={{
+              background: exportSD ? ACCENT + '30' : '#1E293B', border: `1px solid ${exportSD ? ACCENT : '#334155'}`,
+              borderRadius: 5, padding: '3px 8px', fontSize: 10, color: exportSD ? ACCENT : '#94A3B8',
+              cursor: exporting ? 'default' : 'pointer', fontWeight: 700, opacity: exporting ? 0.5 : 1,
+            }}>{exportSD ? 'SD' : 'HD'}</button>
           <button onClick={handleExport} disabled={exporting} style={{
             background: '#1E293B', border: '1px solid #334155', borderRadius: 5,
             padding: '4px 10px', fontSize: 11, color: '#E2E8F0', cursor: 'pointer', fontWeight: 600,

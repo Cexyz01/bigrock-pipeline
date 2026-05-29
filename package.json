@@ -14,6 +14,7 @@
     "jspdf": "^4.2.0",
     "mammoth": "^1.12.0",
     "matter-js": "^0.20.0",
+    "mediabunny": "^1.45.4",
     "mp4-muxer": "^5.2.2",
     "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
