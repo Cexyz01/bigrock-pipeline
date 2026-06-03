@@ -87,7 +87,11 @@ export default function App() {
   const [projectPauses, setProjectPauses] = useState([])
   const [events, setEvents] = useState([])
   const [notifications, setNotifications] = useState([])
-  const [view, setViewRaw] = useState('overview')
+  // Persist the active page so a hard refresh (Ctrl+R / F5) keeps the user on
+  // the same view instead of dumping them back on Overview.
+  const [view, setViewRaw] = useState(() => {
+    try { return localStorage.getItem('bigrock_current_view') || 'overview' } catch { return 'overview' }
+  })
   const [chatOpen, setChatOpen] = useState(false)
   const [deepLink, setDeepLink] = useState(null)
   const [dmUnreadCount, setDmUnreadCount] = useState(0)
@@ -133,6 +137,7 @@ export default function App() {
   // Wrap setView to check for super notifications on every page change
   const setView = useCallback((v) => {
     setViewRaw(v)
+    try { localStorage.setItem('bigrock_current_view', v) } catch {}
     if (user) {
       getUnseenSuperNotifications(user.id).then(sn => {
         if (sn.length > 0) {

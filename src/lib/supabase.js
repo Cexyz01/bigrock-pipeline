@@ -30,6 +30,9 @@ export function consumeIntentionalSignOut() {
 }
 export async function signOut() {
   _intentionalSignOut = true
+  // Drop the persisted page so the next user on this browser starts on
+  // Overview rather than a (possibly permission-gated) leftover view.
+  try { localStorage.removeItem('bigrock_current_view') } catch {}
   return supabase.auth.signOut()
 }
 

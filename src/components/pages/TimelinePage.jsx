@@ -435,21 +435,55 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
 
     const { localFrame } = getShotAtFrame(currentFrame)
     const targetTime = localFrame / fps
-    if (Math.abs(vid.currentTime - targetTime) > 0.15) {
-      try { vid.currentTime = targetTime } catch {}
-    }
     vid.volume = volume
 
+    // Seek to the target frame. Wrapped so we can also run it *after* the
+    // element has data: a freshly uploaded output mounts a brand-new <video>
+    // at readyState 0, and a one-shot seek issued before any media loaded
+    // never paints — leaving the player black until a full reload re-warms
+    // the preloader. Re-applying on `loadeddata` fixes that.
+    const seekToTarget = () => {
+      if (Math.abs(vid.currentTime - targetTime) > 0.15) {
+        try { vid.currentTime = targetTime } catch {}
+      }
+    }
+
     if (playing) {
+      seekToTarget()
       if (vid.readyState >= 3) {
         if (vid.paused) vid.play().catch(() => {})
-      } else {
-        const onCanPlay = () => { vid.play().catch(() => {}); vid.removeEventListener('canplay', onCanPlay) }
-        vid.addEventListener('canplay', onCanPlay)
+        return
       }
-    } else if (!vid.paused) {
-      vid.pause()
+      const onCanPlay = () => { vid.play().catch(() => {}); vid.removeEventListener('canplay', onCanPlay) }
+      vid.addEventListener('canplay', onCanPlay)
+      return () => vid.removeEventListener('canplay', onCanPlay)
     }
+
+    if (!vid.paused) vid.pause()
+
+    if (vid.readyState >= 2) {
+      // Already has a decoded frame → seek immediately.
+      seekToTarget()
+      return
+    }
+
+    // Not ready yet (e.g. just-uploaded output): wait for the first decoded
+    // frame, then force a seek so a visible frame is painted instead of black.
+    const onLoaded = () => {
+      vid.removeEventListener('loadeddata', onLoaded)
+      try {
+        if (Math.abs(vid.currentTime - targetTime) > 0.15) {
+          vid.currentTime = targetTime
+        } else {
+          // targetTime ≈ current (often 0). A plain assignment wouldn't fire a
+          // seek, so nudge by a hair to force the browser to decode & paint.
+          const dur = vid.duration || 0.001
+          vid.currentTime = Math.min(targetTime + 0.001, Math.max(dur - 0.001, 0))
+        }
+      } catch {}
+    }
+    vid.addEventListener('loadeddata', onLoaded)
+    return () => vid.removeEventListener('loadeddata', onLoaded)
   }, [currentVideoUrl, currentFrame, playing, volume, fps, getShotAtFrame])
 
   // ── Audio sync ──
