@@ -169,7 +169,25 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     const el = stageRef.current
     if (!el) return
     const { scale, panX, panY } = xformRef.current
-    el.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
+    // Only promote the stage to its own GPU layer while it's actually
+    // transformed (mid pan/zoom). At rest we emit `transform: none` +
+    // `will-change: auto` so the image composites as an ordinary layer.
+    //
+    // Why this matters: a permanently-promoted layer (translate3d / a sticky
+    // will-change:transform) is the one thing the annotator image had that no
+    // other image in the app has — and macOS mirrored / AirPlay outputs are
+    // notorious for not repainting promoted layers on the *secondary* display
+    // until something forces a recomposite. That's the "instant on the Mac,
+    // minutes on the duplicated TV, and only these images" bug. Keeping the
+    // resting state un-promoted lets the mirror paint it at the same instant.
+    const identity = scale === 1 && panX === 0 && panY === 0
+    if (identity) {
+      el.style.transform = 'none'
+      el.style.willChange = 'auto'
+    } else {
+      el.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
+      el.style.willChange = 'transform'
+    }
   }, [])
   useLayoutEffect(applyXform, [applyXform, rect.w])
 
@@ -748,16 +766,19 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
           ref={stageRef}
           style={{
             position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-            transformOrigin: '0 0', willChange: 'transform',
+            // transformOrigin only; `transform` + `will-change` are managed
+            // imperatively by applyXform so the layer is promoted only during
+            // an active gesture (see the comment there re: mirrored displays).
+            transformOrigin: '0 0',
             pointerEvents: 'none',
           }}
         >
-          {/* Only paint once we know the natural size: otherwise `rect` falls
-              back to the full (wide) container and `objectFit:fill` would
-              stretch the image horizontally for the whole load — invisible on
-              a fast panel, but it lingers for seconds on a slow mirrored TV.
-              `contain` is also a safety net so a stale rect can never distort. */}
-          {rect.w > 0 && natural.w > 0 && (
+          {/* Paint as soon as we have a container rect — don't wait for the
+              hidden size-detector to load first (that gate just delayed the
+              visible paint, worst on a slow mirrored TV). `objectFit: contain`
+              already guarantees no horizontal stretch even while `rect` is the
+              provisional full-container box, so the stretch flash can't return. */}
+          {rect.w > 0 && (
             <div style={{
               position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
             }}>
