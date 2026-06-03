@@ -587,6 +587,13 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     return () => cancelAnimationFrame(rafId)
   }, [playing, fps, totalFrames, loop])
 
+  // Keep the playback clock's internal counter in sync with currentFrame so an
+  // external jump (clicking a shot, the dot nav, arrow keys) takes effect even
+  // WHILE PLAYING. Without this the rAF loop owns its own counter and overrides
+  // the jump on the next tick — the playhead would snap straight back. During
+  // playback this is a no-op (the value already matches what the tick just set).
+  useEffect(() => { currentFrameRef.current = currentFrame }, [currentFrame])
+
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handler = (e) => {
