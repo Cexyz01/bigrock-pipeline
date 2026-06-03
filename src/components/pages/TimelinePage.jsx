@@ -830,18 +830,6 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     }
   }, [addToast, fps, onUpdateShot, readVideoDuration, requestConfirm])
 
-  if (orderedShots.length === 0) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94A3B8' }}>
-        <div style={{ textAlign: 'center' }}>
-          <IconTimeline size={48} color="#CBD5E1" />
-          <div style={{ fontSize: 18, fontWeight: 600, marginTop: 16 }}>No shots yet</div>
-          <div style={{ fontSize: 14, marginTop: 4 }}>Add shots in the Shot Tracker to use the Timeline</div>
-        </div>
-      </div>
-    )
-  }
-
   const shotPositions = useMemo(() => {
     const positions = []
     let acc = 0
@@ -871,6 +859,23 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     }
     return { total, ready, errored, loading, allReady: loading === 0, erroredUrls }
   }, [videoPreloadStatus])
+
+  // NOTE: this early return MUST stay below every hook above — React requires
+  // a stable hook order across renders. On a cold load (e.g. refresh restoring
+  // the Timeline view) this component mounts before `shots` has arrived, so
+  // orderedShots is briefly empty; returning early before the useMemos ran
+  // would change the hook count once shots load → React error #310.
+  if (orderedShots.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94A3B8' }}>
+        <div style={{ textAlign: 'center' }}>
+          <IconTimeline size={48} color="#CBD5E1" />
+          <div style={{ fontSize: 18, fontWeight: 600, marginTop: 16 }}>No shots yet</div>
+          <div style={{ fontSize: 14, marginTop: 4 }}>Add shots in the Shot Tracker to use the Timeline</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0A0A0F', color: '#E2E8F0', overflow: 'hidden' }}>
