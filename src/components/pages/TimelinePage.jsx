@@ -420,6 +420,31 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     }
   }, [uniqueVideoUrls])
 
+  // ── Prime window ──
+  // A <video> only reliably HOLDS its decoded frame while it's actually
+  // rendered. `display:none` lets Chromium drop the decode surface, so a
+  // hidden clip shows black (or a stale frame) for a beat when first revealed
+  // — fatal on a movieboard where every shot must hit on time. So instead of
+  // hiding all-but-one, we keep a small WINDOW of clips around the playhead
+  // truly rendered (just transparent), pre-decoded and parked at frame 0, so
+  // the next/previous shot is always ready the instant the playhead arrives.
+  // Far-away clips stay display:none to bound decoder/memory use on big boards;
+  // they re-enter the window (and decode) well before they're needed.
+  const PRIME_BEHIND = 1   // keep the previous shot hot (clean rewind)
+  const PRIME_AHEAD = 3    // and the next few (clean forward playback)
+  const hotVideoUrls = useMemo(() => {
+    const set = new Set()
+    if (currentVideoUrl) set.add(currentVideoUrl)
+    const idx = currentShotInfo?.index ?? 0
+    for (let i = idx - PRIME_BEHIND; i <= idx + PRIME_AHEAD; i++) {
+      const sh = timelineShots[i]
+      if (!sh) continue
+      const u = sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url
+      if (u && isVideoUrl(u)) set.add(u)
+    }
+    return set
+  }, [currentVideoUrl, currentShotInfo, timelineShots])
+
   useEffect(() => {
     // Pause every non-active video, and rewind it to its first frame. A
     // <video> keeps painting whatever frame it last decoded, so a shot that
@@ -1153,9 +1178,16 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             <canvas ref={canvasRef} width={1920} height={1080}
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: activeVideoShotId ? 'none' : 'block' }} />
             {/* Video pool: one mounted <video> per unique URL with preload=auto.
-                Keeps each shot's first frame decoded so shot-to-shot transitions
-                are instant — no src swap, no decode gap, no black flash. */}
-            {uniqueVideoUrls.map(url => (
+                The active clip is opaque on top; the rest of the prime window
+                (prev + next few shots) stays RENDERED but transparent so their
+                decoded frame-0 is held ready for an instant, gapless cut. Only
+                clips outside the window are display:none (decode surface freed).
+                Switching active shot is then just an opacity flip — no src swap,
+                no decode gap, no black/stale flash. */}
+            {uniqueVideoUrls.map(url => {
+              const isActive = currentVideoUrl === url
+              const isHot = isActive || hotVideoUrls.has(url)
+              return (
               <video
                 key={url}
                 ref={el => { if (el) videoElsRef.current[url] = el }}
@@ -1178,10 +1210,17 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                 style={{
                   position: 'absolute', inset: 0, width: '100%', height: '100%',
                   objectFit: 'contain',
-                  display: currentVideoUrl === url ? 'block' : 'none',
+                  // Hot but inactive clips stay rendered (block) yet transparent
+                  // so the browser keeps their decoded frame; cold clips are
+                  // fully hidden to free the decoder. No z-index: the inactive
+                  // clips are invisible via opacity, and leaving stacking in DOM
+                  // order keeps the info band/overlays painted above the video.
+                  display: isHot ? 'block' : 'none',
+                  opacity: isActive ? 1 : 0,
+                  pointerEvents: 'none',
                 }}
               />
-            ))}
+            )})}
             {currentVideoUrl && undecodableUrls[currentVideoUrl] && (
               <div style={{
                 position: 'absolute', inset: 0, zIndex: 5, padding: 24,
