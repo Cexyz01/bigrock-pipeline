@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react'
 import { ACCENT, DEFAULT_FPS, DEFAULT_DURATION_FRAMES, isAudioUrl, isVideoUrl } from '../../lib/constants'
 import { IconTimeline, IconX } from '../ui/Icons'
 import Img from '../ui/Img'
@@ -395,7 +395,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     }
   }, [getShotAtFrame, getShotMedia, preloadImage])
 
-  useEffect(() => { drawFrame(currentFrame) }, [currentFrame, drawFrame, imagesLoaded])
+  const drawFrameRef = useRef(drawFrame)
+  drawFrameRef.current = drawFrame
 
   // ── Video sync ──
   const currentVideoUrl = useMemo(() => {
@@ -423,100 +424,110 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   // ── Prime window ──
   // A <video> only reliably HOLDS its decoded frame while it's actually
   // rendered. `display:none` lets Chromium drop the decode surface, so a
-  // hidden clip shows black (or a stale frame) for a beat when first revealed
-  // — fatal on a movieboard where every shot must hit on time. So instead of
-  // hiding all-but-one, we keep a small WINDOW of clips around the playhead
-  // truly rendered (just transparent), pre-decoded and parked at frame 0, so
-  // the next/previous shot is always ready the instant the playhead arrives.
-  // Far-away clips stay display:none to bound decoder/memory use on big boards;
-  // they re-enter the window (and decode) well before they're needed.
+  // hidden clip shows black (or a stale frame) for a beat when first revealed.
+  // So instead of hiding all-but-one, we keep a small WINDOW of clips around
+  // the playhead truly rendered (just transparent), pre-decoded and parked at
+  // frame 0, so the next/previous shot is ready the instant the playhead lands.
+  // Far-away clips stay display:none to bound decoder/memory use on big boards.
   const PRIME_BEHIND = 1   // keep the previous shot hot (clean rewind)
   const PRIME_AHEAD = 3    // and the next few (clean forward playback)
-  const hotVideoUrls = useMemo(() => {
-    const set = new Set()
-    if (currentVideoUrl) set.add(currentVideoUrl)
-    const idx = currentShotInfo?.index ?? 0
+
+  // Imperative player sync — the single source of truth for which clip is on
+  // screen, where it's seeked, and whether it's playing. Driven DIRECTLY by
+  // the rAF playback clock (and a pre-paint layout effect for scrub/pause), NOT
+  // by React's render cycle. That's the whole point: routing the cut through
+  // React state added a 1–2 frame lag during which the OUTGOING clip kept
+  // playing and stayed visible past its cut point — the "wrong frames when a
+  // new clip starts" flash. Flipping opacity/play here, frame-locked, kills it.
+  const syncVideos = useCallback((frame, isPlaying) => {
+    const info = getShotAtFrame(frame)
+    const media = getShotMedia(info.shot)
+    const activeUrl = media.type === 'video' ? media.url : null
+
+    // Hot window around the active shot.
+    const hot = new Set()
+    if (activeUrl) hot.add(activeUrl)
+    const idx = info.index
     for (let i = idx - PRIME_BEHIND; i <= idx + PRIME_AHEAD; i++) {
       const sh = timelineShots[i]
       if (!sh) continue
       const u = sh.output_cloud_url || sh.ref_cloud_url || sh.concept_image_url
-      if (u && isVideoUrl(u)) set.add(u)
+      if (u && isVideoUrl(u)) hot.add(u)
     }
-    return set
-  }, [currentVideoUrl, currentShotInfo, timelineShots])
 
-  useEffect(() => {
-    // Pause every non-active video, and rewind it to its first frame. A
-    // <video> keeps painting whatever frame it last decoded, so a shot that
-    // already played to the end retains its FINAL frame. When the playhead
-    // later re-enters that shot (e.g. you rewind and hit play again), the
-    // element flashes that stale end frame for an instant before the seek to
-    // 0 lands — the visible "end frame → reset" jump. Parking inactive videos
-    // at 0 means the frame they show the moment they become active again is
-    // already the start, so the transition stays clean. Guarded so we don't
-    // re-seek (and re-decode) videos that are already at the start every tick.
+    // Park every non-active clip: paused, rewound to frame 0 (so the frame it
+    // shows the instant it becomes active is the START, never a stale end
+    // frame), transparent, and display:none unless it's in the hot window.
     for (const [url, el] of Object.entries(videoElsRef.current)) {
-      if (url === currentVideoUrl || !el) continue
+      if (!el) continue
+      if (url === activeUrl) continue
+      el.style.display = hot.has(url) ? 'block' : 'none'
+      el.style.opacity = '0'
       if (!el.paused) { try { el.pause() } catch {} }
       if (el.currentTime > 0.01) { try { el.currentTime = 0 } catch {} }
     }
 
-    if (!currentVideoUrl) return
-    const vid = videoElsRef.current[currentVideoUrl]
+    if (!activeUrl) return
+    const vid = videoElsRef.current[activeUrl]
     if (!vid) return
-
-    const { localFrame } = getShotAtFrame(currentFrame)
-    const targetTime = localFrame / fps
+    // Reveal the active clip on top.
+    vid.style.display = 'block'
+    vid.style.opacity = '1'
     vid.volume = volume
 
-    // Seek to the target frame. Wrapped so we can also run it *after* the
-    // element has data: a freshly uploaded output mounts a brand-new <video>
-    // at readyState 0, and a one-shot seek issued before any media loaded
-    // never paints — leaving the player black until a full reload re-warms
-    // the preloader. Re-applying on `loadeddata` fixes that.
+    const targetTime = info.localFrame / fps
     const seekToTarget = () => {
       if (Math.abs(vid.currentTime - targetTime) > 0.15) {
         try { vid.currentTime = targetTime } catch {}
       }
     }
 
-    if (playing) {
+    if (isPlaying) {
       seekToTarget()
       if (vid.readyState >= 3) {
         if (vid.paused) vid.play().catch(() => {})
         return
       }
+      // Not buffered enough yet — play as soon as it can (rare: prime window
+      // means clips are normally ready well ahead of their cue).
       const onCanPlay = () => { vid.play().catch(() => {}); vid.removeEventListener('canplay', onCanPlay) }
       vid.addEventListener('canplay', onCanPlay)
-      return () => vid.removeEventListener('canplay', onCanPlay)
-    }
-
-    if (!vid.paused) vid.pause()
-
-    if (vid.readyState >= 2) {
-      // Already has a decoded frame → seek immediately.
-      seekToTarget()
       return
     }
 
-    // Not ready yet (e.g. just-uploaded output): wait for the first decoded
-    // frame, then force a seek so a visible frame is painted instead of black.
+    if (!vid.paused) vid.pause()
+    if (vid.readyState >= 2) { seekToTarget(); return }
+
+    // Not ready yet (e.g. a just-uploaded output): wait for the first decoded
+    // frame, then force a seek so a real frame is painted instead of black.
     const onLoaded = () => {
       vid.removeEventListener('loadeddata', onLoaded)
       try {
         if (Math.abs(vid.currentTime - targetTime) > 0.15) {
           vid.currentTime = targetTime
         } else {
-          // targetTime ≈ current (often 0). A plain assignment wouldn't fire a
-          // seek, so nudge by a hair to force the browser to decode & paint.
           const dur = vid.duration || 0.001
           vid.currentTime = Math.min(targetTime + 0.001, Math.max(dur - 0.001, 0))
         }
       } catch {}
     }
     vid.addEventListener('loadeddata', onLoaded)
-    return () => vid.removeEventListener('loadeddata', onLoaded)
-  }, [currentVideoUrl, currentFrame, playing, volume, fps, getShotAtFrame])
+  }, [getShotAtFrame, getShotMedia, timelineShots, volume, fps])
+
+  // Latest-value refs so the rAF playback loop can call the freshest draw/sync
+  // without listing them as effect deps (which would restart the loop — and
+  // hitch playback — every time volume/fps/shots change).
+  const syncVideosRef = useRef(syncVideos)
+  syncVideosRef.current = syncVideos
+
+  // Paint the player for the current frame. useLayoutEffect runs synchronously
+  // after commit and BEFORE the browser paints, so scrubbing / paused frame
+  // changes / a fresh upload land on screen without a flash. During playback
+  // the rAF loop below also calls these every tick, frame-locked to the clock.
+  useLayoutEffect(() => {
+    drawFrameRef.current(currentFrame)
+    syncVideosRef.current(currentFrame, playing)
+  }, [currentFrame, playing, syncVideos, imagesLoaded, uniqueVideoUrls])
 
   // ── Audio sync ──
   useEffect(() => {
@@ -551,15 +562,24 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
     const tick = (now) => {
       frameAcc += now - lastTime
       lastTime = now
+      let ended = false
       while (frameAcc >= interval) {
         frameAcc -= interval
         currentFrameRef.current++
         if (currentFrameRef.current >= totalFrames) {
           if (loop) { currentFrameRef.current = 0 }
-          else { currentFrameRef.current = totalFrames - 1; setCurrentFrame(currentFrameRef.current); setPlaying(false); return }
+          else { currentFrameRef.current = totalFrames - 1; ended = true; break }
         }
-        setCurrentFrame(currentFrameRef.current)
       }
+      const f = currentFrameRef.current
+      // Frame-lock the visuals to the playback clock: paint the canvas and
+      // flip the active <video> HERE, before React re-renders. Routing this
+      // through React state lagged the cut by 1–2 frames, during which the
+      // outgoing clip kept showing — the "wrong frame on a new clip" flash.
+      drawFrameRef.current(f)
+      syncVideosRef.current(f, !ended)
+      setCurrentFrame(f)
+      if (ended) { setPlaying(false); return }
       rafId = requestAnimationFrame(tick)
     }
     currentFrameRef.current = currentFrame
@@ -1175,8 +1195,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', position: 'relative', overflow: 'hidden' }}>
             {/* Fixed 16:9 container with zoom */}
             <div style={{ position: 'relative', width: `${playerZoom}%`, maxHeight: '100%', aspectRatio: '16 / 9', background: '#000' }}>
+            {/* Canvas stays visible always: image shots draw onto it, video
+                shots fill it dark and the active <video> paints on top. Keeping
+                it mounted means a video→image cut never flashes blank waiting
+                for React to toggle it — drawFrame has already repainted it. */}
             <canvas ref={canvasRef} width={1920} height={1080}
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: activeVideoShotId ? 'none' : 'block' }} />
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
             {/* Video pool: one mounted <video> per unique URL with preload=auto.
                 The active clip is opaque on top; the rest of the prime window
                 (prev + next few shots) stays RENDERED but transparent so their
@@ -1184,10 +1208,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                 clips outside the window are display:none (decode surface freed).
                 Switching active shot is then just an opacity flip — no src swap,
                 no decode gap, no black/stale flash. */}
-            {uniqueVideoUrls.map(url => {
-              const isActive = currentVideoUrl === url
-              const isHot = isActive || hotVideoUrls.has(url)
-              return (
+            {uniqueVideoUrls.map(url => (
               <video
                 key={url}
                 ref={el => { if (el) videoElsRef.current[url] = el }}
@@ -1207,20 +1228,21 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
                     addToast?.('Codec video non supportato dal browser. Riesporta la clip in H.264 (MP4).', 'danger')
                   }
                 }}
+                // display / opacity are NOT set here on purpose — syncVideos
+                // drives them imperatively, frame-locked to the playback clock,
+                // so the cut never lags React's render (and React never reasserts
+                // them on re-render, which would fight the imperative writes).
+                // A pre-paint layout effect sets them on first mount so nothing
+                // flashes opaque before the clock takes over. No z-index:
+                // inactive clips are invisible via opacity and DOM order keeps
+                // the info band/overlays painted above the video.
                 style={{
                   position: 'absolute', inset: 0, width: '100%', height: '100%',
                   objectFit: 'contain',
-                  // Hot but inactive clips stay rendered (block) yet transparent
-                  // so the browser keeps their decoded frame; cold clips are
-                  // fully hidden to free the decoder. No z-index: the inactive
-                  // clips are invisible via opacity, and leaving stacking in DOM
-                  // order keeps the info band/overlays painted above the video.
-                  display: isHot ? 'block' : 'none',
-                  opacity: isActive ? 1 : 0,
                   pointerEvents: 'none',
                 }}
               />
-            )})}
+            ))}
             {currentVideoUrl && undecodableUrls[currentVideoUrl] && (
               <div style={{
                 position: 'absolute', inset: 0, zIndex: 5, padding: 24,
