@@ -680,12 +680,39 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       const videoUrls = [...new Set(allUrls.filter(u => isVideoUrl(u)))]
 
       // Fetch images as ImageBitmaps (CORS fetch → Blob → bitmap never taints).
+      //
+      // Cache-bust + cache:'reload' is load-bearing: the player preloads images
+      // with a plain <Image> (NO crossOrigin, on purpose — see the note at the
+      // top of this file) for display, which parks a NON-CORS response in the
+      // HTTP cache. A later mode:'cors' fetch served from that cached entry
+      // fails the CORS check, throws, and the shot would export BLACK. Forcing a
+      // fresh network request with an Origin header gets a CORS-valid response.
+      // (Videos don't hit this because their preloader sets crossOrigin.)
       const imageCache = {}
       await Promise.all(imageUrls.map(async (url) => {
+        const bust = url + (url.includes('?') ? '&' : '?') + '_cors=1'
         try {
-          const res = await fetch(url, { mode: 'cors' })
-          if (res.ok) imageCache[url] = await createImageBitmap(await res.blob())
-        } catch { /* leave shot black */ }
+          const res = await fetch(bust, { mode: 'cors', cache: 'reload' })
+          if (res.ok) { imageCache[url] = await createImageBitmap(await res.blob()); return }
+          console.warn('[export] image fetch not ok:', res.status, url)
+        } catch (e) {
+          console.warn('[export] image fetch failed (CORS?):', url, e?.message || e)
+        }
+        // Last resort: load via a crossOrigin <img>, which makes its own CORS
+        // request and can succeed even if the fetch path was blocked.
+        try {
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          await new Promise((resolve, reject) => {
+            img.onload = resolve
+            img.onerror = reject
+            img.src = bust
+          })
+          imageCache[url] = await createImageBitmap(img)
+        } catch (e2) {
+          console.warn('[export] image <img> fallback failed:', url, e2?.message || e2)
+          // leave shot black
+        }
       }))
 
       // Fetch each clip once as a Blob — mediabunny decodes from a same-origin
