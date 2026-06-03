@@ -421,12 +421,19 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   }, [uniqueVideoUrls])
 
   useEffect(() => {
-    // Pause every non-active video. The active one stays as-is so its
-    // current frame remains painted while we transition into it.
+    // Pause every non-active video, and rewind it to its first frame. A
+    // <video> keeps painting whatever frame it last decoded, so a shot that
+    // already played to the end retains its FINAL frame. When the playhead
+    // later re-enters that shot (e.g. you rewind and hit play again), the
+    // element flashes that stale end frame for an instant before the seek to
+    // 0 lands — the visible "end frame → reset" jump. Parking inactive videos
+    // at 0 means the frame they show the moment they become active again is
+    // already the start, so the transition stays clean. Guarded so we don't
+    // re-seek (and re-decode) videos that are already at the start every tick.
     for (const [url, el] of Object.entries(videoElsRef.current)) {
-      if (url !== currentVideoUrl && el && !el.paused) {
-        try { el.pause() } catch {}
-      }
+      if (url === currentVideoUrl || !el) continue
+      if (!el.paused) { try { el.pause() } catch {} }
+      if (el.currentTime > 0.01) { try { el.currentTime = 0 } catch {} }
     }
 
     if (!currentVideoUrl) return
@@ -1208,6 +1215,12 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           <div style={{ padding: '8px 16px 10px', background: '#0F172A', borderTop: '1px solid #1E293B', flexShrink: 0 }}>
             <input type="range" min={0} max={Math.max(totalFrames - 1, 1)} value={currentFrame}
               onChange={e => { setCurrentFrame(Number(e.target.value)); if (playing) setPlaying(false) }}
+              // Drop focus the instant the drag/click ends. Otherwise the range
+              // input keeps focus and Space (play/pause) — which the global
+              // keyboard handler ignores while an <input> is focused — silently
+              // stops working until you click some empty area of the page.
+              onPointerUp={e => e.currentTarget.blur()}
+              onMouseUp={e => e.currentTarget.blur()}
               style={{ width: '100%', accentColor: ACCENT, height: 4, cursor: 'pointer' }} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
