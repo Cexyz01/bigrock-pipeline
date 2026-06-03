@@ -230,6 +230,20 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     }
   }, [tool, size, color, rect.w, cursorDiameter])
   useEffect(updateCursorVisual, [updateCursorVisual])
+  // Resting cursor for the drawing surface — what shows when the custom brush
+  // ring is NOT up. Managed imperatively (not via React inline style) so the
+  // frequent re-renders while drawing can't clobber the `none` we set while
+  // the ring is over the image. Pen/eraser fall back to the normal arrow in
+  // the dark margin so the pointer is never lost there.
+  const restingCursor = useCallback(() => {
+    if (!rect.w) return 'default'
+    if (tool === 'view') return 'grab'
+    return 'default'
+  }, [rect.w, tool])
+  useEffect(() => {
+    const el = wrapRef.current
+    if (el) el.style.cursor = restingCursor()
+  }, [restingCursor])
   const moveCursor = useCallback((x, y) => {
     const el = cursorRef.current
     if (!el) return
@@ -237,11 +251,16 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     el.style.width = el.style.height = `${d}px`
     el.style.transform = `translate3d(${x - d / 2}px, ${y - d / 2}px, 0)`
     el.style.display = 'block'
+    // Hide the OS cursor only while the brush ring is actually on screen.
+    if (wrapRef.current) wrapRef.current.style.cursor = 'none'
   }, [cursorDiameter])
   const hideCursor = useCallback(() => {
     const el = cursorRef.current
     if (el) el.style.display = 'none'
-  }, [])
+    // Ring is gone → bring back a real cursor (arrow in the margin, grab in
+    // view mode) so it's never invisible.
+    if (wrapRef.current) wrapRef.current.style.cursor = restingCursor()
+  }, [restingCursor])
 
   // True if (clientX, clientY) is over the actual image after pan/zoom,
   // not the dark margin around it.
@@ -754,9 +773,10 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         onContextMenu={(e) => e.preventDefault()}
         style={{
           flex: 1, position: 'relative', overflow: 'hidden',
-          // Pen/eraser use the custom brush-size ring (so native cursor is
-          // hidden). View mode shows a real grab/grabbing hand instead.
-          cursor: rect.w === 0 ? 'default' : tool === 'view' ? 'grab' : 'none',
+          // `cursor` is managed imperatively (see restingCursor / moveCursor /
+          // hideCursor): arrow in the margin, hidden only while the brush ring
+          // is over the image, grab in view mode. Keeping it out of React's
+          // inline style avoids re-renders clobbering the imperative value.
           touchAction: 'none',
         }}
       >
