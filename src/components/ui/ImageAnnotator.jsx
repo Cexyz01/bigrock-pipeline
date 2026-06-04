@@ -5,6 +5,7 @@ import { AnnotationOverlay } from './AnnotatedImage'
 import { useImageAnnotation } from '../../hooks/useImageAnnotations'
 import { detectObjects } from '../../lib/detectObjects'
 import { cld } from '../../lib/cld'
+import { downloadMedia } from '../../lib/downloadFile'
 
 // Fullscreen pen-on-image editor. Opens over the current page (no nav). Pen
 // strokes are stored in normalised [0..1] of the image's natural size so they
@@ -746,6 +747,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         )}
         <button onClick={undo} style={toolBtnStyle(false)}>↶ Undo</button>
         <button onClick={clearAll} style={toolBtnStyle(false)}>🗑 Pulisci</button>
+        <button onClick={() => downloadMedia(src, 'immagine')} title="Scarica immagine" style={toolBtnStyle(false)}>⬇ Scarica</button>
         <button onClick={resetZoom} title="Reset zoom (1:1)" style={toolBtnStyle(false)}>⌖ 1:1</button>
         {(onPrev || onNext) && (
           <>
