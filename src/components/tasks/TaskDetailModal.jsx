@@ -9,9 +9,10 @@ import Input from '../ui/Input'
 import DateInput from '../ui/DateInput'
 import Select from '../ui/Select'
 import ImageLightbox from '../ui/ImageLightbox'
-import { IconX, IconImage, IconSend, IconCheck, IconTrash, IconStar } from '../ui/Icons'
+import { IconX, IconImage, IconSend, IconCheck, IconTrash, IconStar, IconDownload } from '../ui/Icons'
 import AssigneePicker from './AssigneePicker'
 import { cld } from '../../lib/cld'
+import { downloadMedia } from '../../lib/downloadFile'
 import Img from '../ui/Img'
 import AnnotatedImage from '../ui/AnnotatedImage'
 
@@ -817,6 +818,35 @@ export default function TaskDetailModal({
                             }}
                             style={{ borderRadius: 8, border: isPinned ? '2px solid #F28C28' : '1px solid #E2E8F0', aspectRatio: '1', objectFit: 'cover', cursor: 'pointer', display: 'block', width: '100%' }}
                           />
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); downloadMedia(imgUrl, `${task.title || 'wip'}_${imgIdx + 1}`) }}
+                            title="Scarica immagine"
+                            style={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              width: 28,
+                              height: 28,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: 999,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: 'rgba(15,23,42,0.55)',
+                              color: '#fff',
+                              backdropFilter: 'blur(6px)',
+                              WebkitBackdropFilter: 'blur(6px)',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                              opacity: 0.92,
+                              transition: 'all 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = '#F28C28' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.92'; e.currentTarget.style.background = 'rgba(15,23,42,0.55)' }}
+                          >
+                            <IconDownload size={15} color="#fff" />
+                          </button>
                           {showOverlay && (
                             <button
                               type="button"
