@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { DEPTS, CHAT_EMOJIS, isStaff, displayRole } from '../../lib/constants'
-import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, getDMConversations, getDMMessages, sendDM, markDMsRead, subscribeToDMs } from '../../lib/supabase'
+import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, getDMConversations, getDMMessages, sendDM, markDMsRead, subscribeToDMs, uploadChatFile } from '../../lib/supabase'
 import Av from '../ui/Av'
-import { IconX, IconSmile, IconSend } from '../ui/Icons'
+import { IconX, IconSmile, IconSend, IconDownload } from '../ui/Icons'
+
+const MAX_FILE_BYTES = 100 * 1024 * 1024 // 100MB
+
+function formatBytes(n) {
+  if (!n && n !== 0) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
 
 export default function ChatPanel({ user, open, onToggle, profiles, projectMembers = [], currentProject, dmUnreadCount = 0, onDmRead, isMobile = false }) {
   const staff = isStaff(user)
@@ -43,8 +52,11 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState([])   // File[] queued for the next message
+  const [attachError, setAttachError] = useState('')      // inline (non-toast) error near composer
   const endRef = useRef(null)
   const inputRef = useRef(null)
+  const fileInputRef = useRef(null)
   const openRef = useRef(open)
   const channelRef = useRef(channel)
 
@@ -207,18 +219,64 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     }
   }, [open, mode, channel, dmPeer])
 
+  // ── Attachment handlers ──
+  const addFiles = (fileList) => {
+    const files = Array.from(fileList || [])
+    if (files.length === 0) return
+    const tooBig = files.filter(f => f.size > MAX_FILE_BYTES)
+    const ok = files.filter(f => f.size <= MAX_FILE_BYTES)
+    if (tooBig.length) {
+      setAttachError(`${tooBig.length === 1 ? 'Il file supera' : 'Alcuni file superano'} il limite di 100MB`)
+    } else {
+      setAttachError('')
+    }
+    if (ok.length) setPendingFiles(prev => [...prev, ...ok])
+  }
+
+  const handleFileInput = (e) => {
+    addFiles(e.target.files)
+    e.target.value = '' // allow re-selecting the same file
+  }
+
+  const removePendingFile = (idx) => setPendingFiles(prev => prev.filter((_, i) => i !== idx))
+
+  // Upload all queued files to R2 and return the attachments array, or null on
+  // failure (r2Upload already retries transient blips internally per
+  // feedback_uploads_must_succeed — only a hard failure lands here).
+  const uploadPending = async (files) => {
+    const results = await Promise.all(files.map(f => uploadChatFile(f).then(r => ({ r, f }))))
+    if (results.some(({ r }) => r.error || !r.url)) return null
+    return results.map(({ r, f }) => ({
+      url: r.url,
+      name: f.name,
+      type: f.type || 'application/octet-stream',
+      size: f.size,
+    }))
+  }
+
   // ── Send handlers ──
   const handleSendChannel = async () => {
-    if (!input.trim() || sending) return
+    if ((!input.trim() && pendingFiles.length === 0) || sending) return
     const body = input.trim()
-    setInput(''); setSending(true); setShowEmoji(false)
+    const files = pendingFiles
+    setInput(''); setPendingFiles([]); setAttachError(''); setSending(true); setShowEmoji(false)
+    let attachments = []
+    if (files.length) {
+      attachments = await uploadPending(files)
+      if (!attachments) {
+        // Restore the composer so the user can retry; nothing was sent.
+        setPendingFiles(files); setInput(body); setSending(false)
+        setAttachError('Caricamento file non riuscito, riprova')
+        return
+      }
+    }
     const optimisticMsg = {
-      id: `temp-${Date.now()}`, channel, author_id: user.id, body,
+      id: `temp-${Date.now()}`, channel, author_id: user.id, body, attachments,
       created_at: new Date().toISOString(),
       author: { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, role: user.role, mood_emoji: user.mood_emoji },
     }
     setMessages(prev => [...prev, optimisticMsg])
-    const { data, error } = await sendChatMessage(channel, user.id, body, projectId)
+    const { data, error } = await sendChatMessage(channel, user.id, body, projectId, attachments)
     setSending(false)
     if (error) {
       setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
@@ -237,16 +295,26 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
   }
 
   const handleSendDM = async () => {
-    if (!input.trim() || sending || !dmPeer) return
+    if ((!input.trim() && pendingFiles.length === 0) || sending || !dmPeer) return
     const body = input.trim()
-    setInput(''); setSending(true); setShowEmoji(false)
+    const files = pendingFiles
+    setInput(''); setPendingFiles([]); setAttachError(''); setSending(true); setShowEmoji(false)
+    let attachments = []
+    if (files.length) {
+      attachments = await uploadPending(files)
+      if (!attachments) {
+        setPendingFiles(files); setInput(body); setSending(false)
+        setAttachError('Caricamento file non riuscito, riprova')
+        return
+      }
+    }
     const optimisticMsg = {
-      id: `temp-${Date.now()}`, sender_id: user.id, recipient_id: dmPeer.id, body,
+      id: `temp-${Date.now()}`, sender_id: user.id, recipient_id: dmPeer.id, body, attachments,
       created_at: new Date().toISOString(),
       sender: { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, role: user.role, mood_emoji: user.mood_emoji },
     }
     setDmMessages(prev => [...prev, optimisticMsg])
-    const { data, error } = await sendDM(user.id, dmPeer.id, body)
+    const { data, error } = await sendDM(user.id, dmPeer.id, body, attachments)
     setSending(false)
     if (error) {
       setDmMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
@@ -305,6 +373,50 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     return `${d.toLocaleDateString('it', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${time}`
   }
 
+  // ── Single attachment renderer: image preview, else downloadable chip ──
+  const renderAttachment = (a, i) => {
+    if (!a || !a.url) return null
+    const isImage = (a.type || '').startsWith('image/')
+    if (isImage) {
+      return (
+        <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block' }}>
+          <img
+            src={a.url}
+            alt={a.name || 'immagine'}
+            style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 12, display: 'block', objectFit: 'cover' }}
+          />
+        </a>
+      )
+    }
+    return (
+      <a
+        key={i}
+        href={a.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        download={a.name || true}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+          background: 'rgba(0,0,0,0.25)', border: '1px solid #3a3a3a', borderRadius: 10,
+          textDecoration: 'none', maxWidth: 240,
+        }}
+      >
+        <span style={{
+          flexShrink: 0, width: 30, height: 30, borderRadius: 8, background: 'rgba(242,140,40,0.15)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <IconDownload size={15} color="#F28C28" />
+        </span>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ display: 'block', fontSize: 12, color: '#E4E4E7', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {a.name || 'file'}
+          </span>
+          {a.size ? <span style={{ display: 'block', fontSize: 10, color: '#71717a' }}>{formatBytes(a.size)}</span> : null}
+        </span>
+      </a>
+    )
+  }
+
   // ── Message bubble (shared between channel + DM) ──
   const renderMessage = (m, isDM) => {
     const authorId = isDM ? m.sender_id : m.author_id
@@ -329,7 +441,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
               {author?.role !== 'studente' && <span style={{ color: '#F28C28', marginLeft: 4 }}>{displayRole(author?.role)}</span>}
             </div>
           )}
-          <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{m.body}</div>
+          {m.body && <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{m.body}</div>}
+          {Array.isArray(m.attachments) && m.attachments.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: m.body ? 8 : 0 }}>
+              {m.attachments.map((a, i) => renderAttachment(a, i))}
+            </div>
+          )}
           <div style={{ fontSize: 9, color: '#71717a', marginTop: 4, textAlign: isMine ? 'right' : 'left' }}>
             {formatMsgTime(m.created_at)}
           </div>
@@ -417,7 +534,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           {/* Mode toggle: Canali | DM */}
           <div style={{ display: 'flex', padding: '10px 16px', gap: 6, borderBottom: '1px solid #2d2d2d' }}>
             {['channels', 'dm'].map(m => (
-              <button key={m} onClick={() => { setMode(m); setShowEmoji(false); setInput('') }}
+              <button key={m} onClick={() => { setMode(m); setShowEmoji(false); setInput(''); setPendingFiles([]); setAttachError('') }}
                 style={{
                   flex: 1, padding: '8px 0', borderRadius: 10, fontSize: 12, fontWeight: mode === m ? 700 : 500,
                   background: mode === m ? 'rgba(242,140,40,0.12)' : '#222222',
@@ -582,12 +699,45 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                   </div>
                 </div>
               )}
+
+              {/* Pending attachments + inline error */}
+              {(pendingFiles.length > 0 || attachError) && (
+                <div style={{ padding: '10px 18px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {pendingFiles.map((f, i) => (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
+                      background: '#222222', border: '1px solid #2d2d2d', borderRadius: 10,
+                    }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 12, color: '#E4E4E7', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                        <span style={{ display: 'block', fontSize: 10, color: '#71717a' }}>{formatBytes(f.size)}</span>
+                      </span>
+                      <button onClick={() => removePendingFile(i)} disabled={sending}
+                        style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: sending ? 'not-allowed' : 'pointer', padding: 2, display: 'flex' }}>
+                        <IconX size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  {attachError && <div style={{ fontSize: 11, color: '#EF4444' }}>{attachError}</div>}
+                </div>
+              )}
+
               <div style={{ padding: '14px 18px', borderTop: '1px solid #2d2d2d', display: 'flex', gap: 10, alignItems: 'center' }}>
+                <input ref={fileInputRef} type="file" multiple onChange={handleFileInput} style={{ display: 'none' }} />
                 <button onClick={() => setShowEmoji(!showEmoji)}
                   style={{
                     background: showEmoji ? 'rgba(242,140,40,0.12)' : 'transparent',
                     border: 'none', fontSize: 20, cursor: 'pointer', padding: 4, borderRadius: 12,
                   }}><IconSmile size={20} color={showEmoji ? '#F28C28' : '#94A3B8'} /></button>
+                <button onClick={() => fileInputRef.current?.click()} disabled={sending} title="Allega file (max 100MB)"
+                  style={{
+                    background: 'transparent', border: 'none', cursor: sending ? 'not-allowed' : 'pointer',
+                    padding: 4, borderRadius: 12, display: 'flex', opacity: sending ? 0.4 : 1,
+                  }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
                 <input
                   ref={inputRef}
                   value={input}
@@ -600,13 +750,13 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                     color: '#E4E4E7', outline: 'none',
                   }}
                 />
-                <button onClick={handleSend} disabled={sending || !input.trim()}
+                <button onClick={handleSend} disabled={sending || (!input.trim() && pendingFiles.length === 0)}
                   style={{
                     background: '#F28C28',
                     border: 'none', borderRadius: 14, padding: '11px 16px',
                     color: '#fff', fontWeight: 800, fontSize: 15,
-                    opacity: sending || !input.trim() ? 0.4 : 1,
-                    cursor: sending || !input.trim() ? 'not-allowed' : 'pointer',
+                    opacity: sending || (!input.trim() && pendingFiles.length === 0) ? 0.4 : 1,
+                    cursor: sending || (!input.trim() && pendingFiles.length === 0) ? 'not-allowed' : 'pointer',
                   }}><IconSend size={18} /></button>
               </div>
             </>

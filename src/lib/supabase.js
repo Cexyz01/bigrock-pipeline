@@ -622,13 +622,19 @@ export async function getChatMessages(channel, projectId, limit = 100) {
   return data || []
 }
 
-export async function sendChatMessage(channel, authorId, body, projectId) {
+export async function sendChatMessage(channel, authorId, body, projectId, attachments = []) {
   if (!projectId) return { data: null, error: new Error('Missing projectId') }
   const { data, error } = await supabase.from('chat_messages')
-    .insert({ channel, author_id: authorId, body, project_id: projectId })
+    .insert({ channel, author_id: authorId, body, project_id: projectId, attachments })
     .select('*, author:profiles(id, full_name, avatar_url, role, mood_emoji)')
     .single()
   return { data, error }
+}
+
+// Chat file attachments — any type, up to 100MB. Stored on R2 (kind="chat").
+export async function uploadChatFile(file) {
+  if (file && file.size > 100 * 1024 * 1024) return { url: null, error: { message: 'File troppo grande (max 100MB)' } }
+  return r2Upload('chat', file, {})
 }
 
 // ── Direct Messages ──
@@ -662,9 +668,9 @@ export async function getDMMessages(userId, otherUserId, limit = 100) {
   return data || []
 }
 
-export async function sendDM(senderId, recipientId, body) {
+export async function sendDM(senderId, recipientId, body, attachments = []) {
   const { data, error } = await supabase.from('direct_messages')
-    .insert({ sender_id: senderId, recipient_id: recipientId, body })
+    .insert({ sender_id: senderId, recipient_id: recipientId, body, attachments })
     .select('*, sender:profiles!direct_messages_sender_id_fkey(id, full_name, avatar_url, role, mood_emoji)')
     .single()
   return { data, error }

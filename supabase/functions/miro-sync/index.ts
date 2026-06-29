@@ -990,6 +990,7 @@ function r2KeyFor(kind: string, params: any, ext: string): string | null {
     case "timeline": return params.shot_id ? `timeline/${params.shot_id}/${id}.${e}` : null
     case "sticker":  return params.project_id ? `stickers/${params.project_id}/${id}.${e}` : null
     case "avatar":   return params.user_id ? `avatars/${params.user_id}/${id}.${e}` : null
+    case "chat":     return `chat/${id}.${e}`
     default: return null
   }
 }
