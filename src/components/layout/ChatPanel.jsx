@@ -54,9 +54,11 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
   const [showEmoji, setShowEmoji] = useState(false)
   const [pendingFiles, setPendingFiles] = useState([])   // File[] queued for the next message
   const [attachError, setAttachError] = useState('')      // inline (non-toast) error near composer
+  const [dragOver, setDragOver] = useState(false)         // file drag hovering the panel
   const endRef = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
+  const dragDepth = useRef(0)
   const openRef = useRef(open)
   const channelRef = useRef(channel)
 
@@ -261,6 +263,36 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
       e.preventDefault() // don't also dump binary text into the input
       addFiles(files)
     }
+  }
+
+  // Drag-and-drop files onto the panel. We use a depth counter so moving over
+  // child elements doesn't flicker the overlay off. Only active when there's a
+  // live composer (a channel, or an open DM thread).
+  const canCompose = mode === 'channels' || (mode === 'dm' && dmPeer)
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
+
+  const handleDragEnter = (e) => {
+    if (!canCompose || !hasFiles(e)) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setDragOver(true)
+  }
+  const handleDragOver = (e) => {
+    if (!canCompose || !hasFiles(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  const handleDragLeave = (e) => {
+    if (!canCompose) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragOver(false)
+  }
+  const handleDrop = (e) => {
+    if (!canCompose) return
+    e.preventDefault()
+    dragDepth.current = 0
+    setDragOver(false)
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
   }
 
   const removePendingFile = (idx) => setPendingFiles(prev => prev.filter((_, i) => i !== idx))
@@ -537,7 +569,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
       ) : null}
 
       {open && (
-        <div style={{
+        <div
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          style={{
           position: 'fixed',
           ...(isMobile
             ? { inset: 0, width: '100%', borderRadius: 0, animation: 'slideInUp 0.25s ease' }
@@ -547,6 +584,25 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           display: 'flex', flexDirection: 'column', zIndex: isMobile ? 100 : 55,
           boxShadow: isMobile ? 'none' : '-4px 0 24px rgba(0,0,0,0.3)',
         }}>
+          {/* Drag-and-drop overlay */}
+          {dragOver && canCompose && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 200,
+              background: 'rgba(26,26,26,0.92)',
+              border: '2px dashed #F28C28',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 12, pointerEvents: 'none',
+            }}>
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#F28C28" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#F28C28' }}>Rilascia per allegare</div>
+              <div style={{ fontSize: 11, color: '#94A3B8' }}>File e immagini, max 100MB</div>
+            </div>
+          )}
+
           {/* Header */}
           <div style={{ padding: '18px 20px', borderBottom: '1px solid #2d2d2d', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
