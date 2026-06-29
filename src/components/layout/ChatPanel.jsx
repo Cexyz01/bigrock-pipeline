@@ -13,6 +13,39 @@ function formatBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Turn http(s):// and www. URLs inside a plain-text message into clickable
+// links (open in a new tab). The text is React-escaped, and only http/https/www
+// are matched, so there's no javascript: / injection risk.
+const URL_RE = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi
+
+function linkify(text) {
+  if (!text) return text
+  const out = []
+  let last = 0
+  let m
+  URL_RE.lastIndex = 0
+  while ((m = URL_RE.exec(text)) !== null) {
+    const start = m.index
+    let url = m[0]
+    // Don't swallow trailing punctuation that's likely sentence-level, not URL.
+    const trail = url.match(/[.,!?:;)\]}'"]+$/)
+    let trailing = ''
+    if (trail) { trailing = trail[0]; url = url.slice(0, -trailing.length) }
+    if (start > last) out.push(text.slice(last, start))
+    const href = url.toLowerCase().startsWith('www.') ? `https://${url}` : url
+    out.push(
+      <a key={start} href={href} target="_blank" rel="noopener noreferrer"
+        style={{ color: '#F28C28', textDecoration: 'underline', wordBreak: 'break-all' }}>
+        {url}
+      </a>
+    )
+    if (trailing) out.push(trailing)
+    last = start + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 export default function ChatPanel({ user, open, onToggle, profiles, projectMembers = [], currentProject, dmUnreadCount = 0, onDmRead, isMobile = false }) {
   const staff = isStaff(user)
   const projectId = currentProject?.id || null
@@ -498,7 +531,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
               {author?.role !== 'studente' && <span style={{ color: '#F28C28', marginLeft: 4 }}>{displayRole(author?.role)}</span>}
             </div>
           )}
-          {m.body && <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{m.body}</div>}
+          {m.body && <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{linkify(m.body)}</div>}
           {Array.isArray(m.attachments) && m.attachments.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: m.body ? 8 : 0 }}>
               {m.attachments.map((a, i) => renderAttachment(a, i))}
