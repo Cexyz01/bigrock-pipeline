@@ -153,7 +153,7 @@ export default function Sidebar({
                 <Av name={user.full_name} size={36} url={user.avatar_url} mood={user.mood_emoji} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{user.full_name}</div>
-                  <div style={{ fontSize: 11, color: '#94A3B8' }}>{displayRole(user.role)}</div>
+                  <div style={{ fontSize: 11, color: '#94A3B8' }}>{displayRole(user)}</div>
                 </div>
               </div>
 
@@ -507,7 +507,7 @@ export default function Sidebar({
               </div>
               <div style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                 <div style={{ fontSize: 12, fontWeight: 600, textOverflow: 'ellipsis', overflow: 'hidden', color: '#d4d4d8' }}>{user.full_name}</div>
-                <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(user.role)}</div>
+                <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(user)}</div>
               </div>
             </div>
 

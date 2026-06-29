@@ -731,7 +731,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                       <Av name={p.full_name} size={28} url={p.avatar_url} mood={p.mood_emoji} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: '#E4E4E7' }}>{p.full_name}</div>
-                        <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(p.role)}{p.department ? ` · ${p.department}` : ''}</div>
+                        <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(p)}{p.department ? ` · ${p.department}` : ''}</div>
                       </div>
                     </div>
                   ))}
@@ -789,7 +789,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                 <Av name={dmPeer.full_name} size={28} url={dmPeer.avatar_url} mood={dmPeer.mood_emoji} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#E4E4E7' }}>{dmPeer.full_name}</div>
-                  <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(dmPeer.role)}</div>
+                  <div style={{ fontSize: 10, color: '#71717a' }}>{displayRole(dmPeer)}</div>
                 </div>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
