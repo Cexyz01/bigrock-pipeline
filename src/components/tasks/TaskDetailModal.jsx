@@ -109,6 +109,7 @@ export default function TaskDetailModal({
   const [wipPreviews, setWipPreviews] = useState([])
   const [wipNote, setWipNote] = useState('')
   const [publishing, setPublishing] = useState(false)
+  const [wipDragOver, setWipDragOver] = useState(false)
   // Image lightbox
   const [lightboxUrl, setLightboxUrl] = useState(null)
   const [lightboxImages, setLightboxImages] = useState(null)
@@ -200,9 +201,10 @@ export default function TaskDetailModal({
     if (addToast) addToast('Assignment updated', 'success')
   }
 
-  // WIP file management
-  const handleFilesSelect = (e) => {
-    const selected = Array.from(e.target.files || [])
+  // WIP file management — shared core used by the picker, paste (Ctrl+V) and
+  // drag-and-drop. Enforces MAX_IMAGES count + per-type size limits.
+  const addWipFiles = (fileList) => {
+    const selected = Array.from(fileList || [])
     if (!selected.length) return
     const available = MAX_IMAGES - wipFiles.length
     if (available <= 0) {
@@ -225,7 +227,53 @@ export default function TaskDetailModal({
     const newPreviews = valid.map(f => URL.createObjectURL(f))
     setWipFiles(prev => [...prev, ...valid])
     setWipPreviews(prev => [...prev, ...newPreviews])
+  }
+
+  const handleFilesSelect = (e) => {
+    addWipFiles(e.target.files)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Ctrl+V of a clipboard image/file (e.g. a screenshot) → add it as a WIP file.
+  // Pasted images usually have a generic/blank name, so we give them one.
+  const handleWipPaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const files = []
+    for (const it of items) {
+      if (it.kind !== 'file') continue
+      const f = it.getAsFile()
+      if (!f) continue
+      if (!f.name || f.name === 'image.png' || f.name === 'blob') {
+        const ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+        files.push(new File([f], `incolla-${stamp}.${ext}`, { type: f.type }))
+      } else {
+        files.push(f)
+      }
+    }
+    if (files.length) { e.preventDefault(); addWipFiles(files) }
+  }
+
+  // Drag-and-drop onto the WIP composer. Depth counter avoids overlay flicker
+  // when the cursor moves over child elements.
+  const wipDragDepth = useRef(0)
+  const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
+  const handleWipDragEnter = (e) => {
+    if (!dragHasFiles(e)) return
+    e.preventDefault(); wipDragDepth.current += 1; setWipDragOver(true)
+  }
+  const handleWipDragOver = (e) => {
+    if (!dragHasFiles(e)) return
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy'
+  }
+  const handleWipDragLeave = () => {
+    wipDragDepth.current = Math.max(0, wipDragDepth.current - 1)
+    if (wipDragDepth.current === 0) setWipDragOver(false)
+  }
+  const handleWipDrop = (e) => {
+    e.preventDefault(); wipDragDepth.current = 0; setWipDragOver(false)
+    if (e.dataTransfer?.files?.length) addWipFiles(e.dataTransfer.files)
   }
 
   const handleRemoveFile = (index) => {
@@ -901,7 +949,23 @@ export default function TaskDetailModal({
 
       {/* Student: WIP publish form */}
       {!staff && isOwner && task.status === 'wip' && (
-        <div style={{ borderTop: '1px solid #E8ECF1', padding: isMobile ? 12 : 16, background: '#FAFBFD', flexShrink: 0 }}>
+        <div
+          onDragEnter={handleWipDragEnter}
+          onDragOver={handleWipDragOver}
+          onDragLeave={handleWipDragLeave}
+          onDrop={handleWipDrop}
+          style={{ position: 'relative', borderTop: '1px solid #E8ECF1', padding: isMobile ? 12 : 16, background: '#FAFBFD', flexShrink: 0 }}>
+          {wipDragOver && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 30,
+              background: 'rgba(250,251,253,0.95)', border: '2px dashed #F28C28', borderRadius: 12,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 8, pointerEvents: 'none',
+            }}>
+              <IconImage size={28} color="#F28C28" />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#F28C28' }}>Rilascia per allegare</div>
+            </div>
+          )}
           <input ref={fileInputRef} type="file" accept={task.department === 'sound' ? 'image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,audio/mpeg,audio/wav,audio/ogg,audio/aac,audio/mp4,audio/x-m4a,audio/flac,audio/webm,.mp3,.wav,.ogg,.aac,.m4a,.flac' : 'image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm'} multiple onChange={handleFilesSelect} style={{ display: 'none' }} />
           {wipPreviews.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
@@ -933,11 +997,11 @@ export default function TaskDetailModal({
               <button onClick={() => fileInputRef.current?.click()} style={{ width: 40, height: 40, borderRadius: 10, border: '2px dashed #CBD5E1', background: '#F8FAFC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#94A3B8' }}><IconImage size={18} /></button>
             )}
             <div style={{ flex: 1 }}>
-              <input value={wipNote} onChange={e => setWipNote(e.target.value)} placeholder="What did you work on?..." onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handlePublishWip())} style={{ width: '100%', padding: '10px 14px', fontSize: 13, border: '1px solid #E2E8F0', borderRadius: 10, outline: 'none', background: '#fff' }} />
+              <input value={wipNote} onChange={e => setWipNote(e.target.value)} onPaste={handleWipPaste} placeholder="What did you work on?..." onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handlePublishWip())} style={{ width: '100%', padding: '10px 14px', fontSize: 13, border: '1px solid #E2E8F0', borderRadius: 10, outline: 'none', background: '#fff' }} />
             </div>
             <Btn variant="primary" loading={publishing} onClick={handlePublishWip} disabled={wipFiles.length === 0 && !wipNote.trim()} style={{ flexShrink: 0, padding: '10px 16px' }}>Publish</Btn>
           </div>
-          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files · 4MB immagini · 10MB audio · 100MB video' : 'files · 4MB immagini · 100MB video'}</div>
+          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files · 4MB immagini · 10MB audio · 100MB video' : 'files · 4MB immagini · 100MB video'} · trascina o incolla (Ctrl+V)</div>
         </div>
       )}
       {staff && task.status === 'wip' && hasWipUpdates && (
