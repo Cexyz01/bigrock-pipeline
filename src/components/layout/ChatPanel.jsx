@@ -238,6 +238,31 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     e.target.value = '' // allow re-selecting the same file
   }
 
+  // Paste (Ctrl+V) of a clipboard image/file (e.g. a screenshot) → queue it as
+  // an attachment. Pasted images often have a generic/blank name, so we give
+  // them a readable timestamped one.
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const files = []
+    for (const it of items) {
+      if (it.kind !== 'file') continue
+      const f = it.getAsFile()
+      if (!f) continue
+      if (!f.name || f.name === 'image.png' || f.name === 'blob') {
+        const ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+        files.push(new File([f], `incolla-${stamp}.${ext}`, { type: f.type }))
+      } else {
+        files.push(f)
+      }
+    }
+    if (files.length) {
+      e.preventDefault() // don't also dump binary text into the input
+      addFiles(files)
+    }
+  }
+
   const removePendingFile = (idx) => setPendingFiles(prev => prev.filter((_, i) => i !== idx))
 
   // Upload all queued files to R2 and return the attachments array, or null on
@@ -742,6 +767,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                   ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
+                  onPaste={handlePaste}
                   placeholder={mode === 'dm' ? `Message to ${dmPeer?.full_name}...` : 'Write a message...'}
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
                   style={{
