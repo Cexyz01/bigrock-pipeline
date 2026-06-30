@@ -284,6 +284,7 @@ function GalleryLightbox({ images, index, shotCode, deptLabel, statusObj, onClos
               w={hd ? LIGHTBOX_HD_W : LIGHTBOX_BASE_W}
               h={hd ? LIGHTBOX_HD_W : LIGHTBOX_BASE_W}
               fit="limit" alt=""
+              loading="eager"
               draggable={false}
               onLoad={() => { if (hd) setHdLoaded(true) }}
               style={{

@@ -1003,14 +1003,20 @@ async function handleR2SignUpload(params: any) {
   if (!key) return err(`Missing required field for kind=${kind}`)
 
   // Presigned PUT URL via AWS SigV4 (query-string signature, 5 min TTL).
-  // The Content-Type sent by the client must match what we sign here.
+  // Every header we sign here MUST be echoed verbatim by the client on the PUT,
+  // otherwise R2 rejects the request with a SignatureDoesNotMatch error.
+  //
+  // We bake in a long, immutable Cache-Control: R2 keys are content-addressed
+  // (random id per upload, never overwritten), so a stored object never changes
+  // — the browser can cache it for a year and skip revalidation entirely. This
+  // is what stops the storyboard from re-fetching every image on each visit.
+  const CACHE_CONTROL = "public, max-age=31536000, immutable"
+  const putHeaders: Record<string, string> = { "Cache-Control": CACHE_CONTROL }
+  if (content_type) putHeaders["Content-Type"] = content_type
   const url = new URL(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`)
   url.searchParams.set("X-Amz-Expires", "300")
   const signed = await r2.sign(
-    new Request(url.toString(), {
-      method: "PUT",
-      headers: content_type ? { "Content-Type": content_type } : undefined,
-    }),
+    new Request(url.toString(), { method: "PUT", headers: putHeaders }),
     { aws: { signQuery: true } },
   )
   return ok({
@@ -1018,7 +1024,7 @@ async function handleR2SignUpload(params: any) {
     public_url: `${R2_PUBLIC_URL}/${key}`,
     key,
     method: "PUT",
-    headers: content_type ? { "Content-Type": content_type } : {},
+    headers: putHeaders,
   })
 }
 

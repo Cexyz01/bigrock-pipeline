@@ -906,7 +906,7 @@ export default function App() {
         task?.title || 'Task',
         'task', taskId,
         undefined,
-        wipUpdateId ? { wip_update_id: wipUpdateId } : undefined,
+        { ...(wipUpdateId ? { wip_update_id: wipUpdateId } : {}), ...(task?.department ? { dept: task.department } : {}) },
       )
     }
 

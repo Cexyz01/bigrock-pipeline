@@ -11,7 +11,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 
 const RETRY_DELAYS = [250, 1000, 3000]
 
-export default function Img({ src, w, h, fit, alt = '', style, onLoad, onError, ...rest }) {
+export default function Img({ src, w, h, fit, alt = '', style, onLoad, onError, loading = 'lazy', ...rest }) {
   const [attempt, setAttempt] = useState(0)
   const [failed, setFailed] = useState(false)
   const timerRef = useRef(null)
@@ -51,6 +51,7 @@ export default function Img({ src, w, h, fit, alt = '', style, onLoad, onError, 
       alt={alt}
       style={style}
       decoding="async"
+      loading={loading}
       onLoad={onLoad}
       onError={handleError}
       {...rest}

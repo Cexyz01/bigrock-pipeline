@@ -1,6 +1,9 @@
 import Fade from '../ui/Fade'
 import Btn from '../ui/Btn'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from '../ui/Icons'
+import { DEPTS } from '../../lib/constants'
+
+const getDept = (id) => DEPTS.find(d => d.id === id) || null
 
 // ── Notification category config ──
 const NOTIF_CATEGORIES = {
@@ -107,6 +110,18 @@ export default function NotificationsPanel({ notifications, onMarkRead, onMarkAl
                           padding: '2px 7px', borderRadius: 4,
                           textTransform: 'uppercase', letterSpacing: '0.04em',
                         }}>{cat.label}</span>
+                        {/* Department pill */}
+                        {(() => {
+                          const dept = getDept(n.meta?.dept)
+                          return dept ? (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, color: dept.color,
+                              background: `${dept.color}1F`,
+                              padding: '2px 7px', borderRadius: 4,
+                              textTransform: 'uppercase', letterSpacing: '0.04em',
+                            }}>{dept.label}</span>
+                          ) : null
+                        })()}
                         {/* Unread dot */}
                         {isUnread && <span style={{
                           width: 6, height: 6, borderRadius: '50%',

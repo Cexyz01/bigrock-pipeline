@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { isStaff, isAdmin, hasPermission, displayRole } from '../../lib/constants'
+import { isStaff, isAdmin, hasPermission, displayRole, DEPTS } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 
 // ── Notification category colors ──
@@ -15,6 +15,7 @@ const NOTIF_CAT = {
 }
 const NOTIF_DEFAULT = { label: 'Notification', color: '#64748B', bg: '#F1F5F9', icon: <IconBell size={15} /> }
 const getNotifCat = (type) => NOTIF_CAT[type] || NOTIF_DEFAULT
+const getDept = (id) => DEPTS.find(d => d.id === id) || null
 import NavBtn from '../ui/NavBtn'
 import Av from '../ui/Av'
 import Btn from '../ui/Btn'
@@ -408,6 +409,16 @@ export default function Sidebar({
                               letterSpacing: '0.04em', background: unread ? `${cat.color}15` : '#E8ECF1',
                               padding: '1px 5px', borderRadius: 3,
                             }}>{cat.label}</span>
+                            {(() => {
+                              const dept = getDept(n.meta?.dept)
+                              return dept ? (
+                                <span style={{
+                                  fontSize: 8, fontWeight: 700, color: dept.color, textTransform: 'uppercase',
+                                  letterSpacing: '0.04em', background: `${dept.color}1F`,
+                                  padding: '1px 5px', borderRadius: 3,
+                                }}>{dept.label}</span>
+                              ) : null
+                            })()}
                             {unread && <span style={{ width: 5, height: 5, borderRadius: '50%', background: cat.color }} />}
                           </div>
                           <div style={{ fontSize: 12, fontWeight: unread ? 600 : 400, color: '#1a1a1a', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</div>

@@ -771,12 +771,20 @@ async function r2Upload(kind, file, meta) {
   // PUT to R2 with one retry — the network blip case (per
   // feedback_uploads_must_succeed: uploads are workflow-critical, so we
   // retry rather than surface a transient failure to the user).
+  //
+  // The PUT headers MUST match exactly what the signer signed (it now signs
+  // Cache-Control too, so objects are cached long-term by the browser). Echo
+  // the signer's `headers` verbatim; fall back to Content-Type for older
+  // signer responses that didn't return a headers map.
+  const putHeaders = sigJson.headers && Object.keys(sigJson.headers).length
+    ? sigJson.headers
+    : { 'Content-Type': contentType }
   let lastErr = null
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const putRes = await fetch(sigJson.upload_url, {
         method: 'PUT',
-        headers: { 'Content-Type': contentType },
+        headers: putHeaders,
         body: file,
       })
       if (putRes.ok) return { url: sigJson.public_url, error: null }
