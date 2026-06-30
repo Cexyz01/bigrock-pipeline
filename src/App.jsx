@@ -1126,6 +1126,17 @@ export default function App() {
     setProjects(prev => prev.map(p => p.id === currentProject.id ? { ...p, start_date: data?.start_date ?? start, end_date: data?.end_date ?? end } : p))
   }
 
+  // Which student categories (departments) get read-only Timeline access.
+  const handleUpdateTimelineViewers = async (depts) => {
+    if (!currentProject) return
+    const next = depts || []
+    // Optimistic — the Permessi checkboxes already mirror this locally.
+    setCurrentProject(prev => prev ? { ...prev, timeline_viewer_depts: next } : prev)
+    setProjects(prev => prev.map(p => p.id === currentProject.id ? { ...p, timeline_viewer_depts: next } : p))
+    const { error } = await updateProject(currentProject.id, { timeline_viewer_depts: next })
+    if (error) addToast('Errore salvataggio visibilità: ' + error.message, 'danger')
+  }
+
   const handleCreateGanttLane = async (name) => {
     const trimmed = (name || '').trim()
     if (!trimmed) return
@@ -1245,6 +1256,18 @@ export default function App() {
 
   const unreadCount = notifications.filter(n => !n.read).length
 
+  // Timeline access tier:
+  //   'edit' — staff with the access_timeline permission (full control)
+  //   'view' — a student whose per-project category (project_role) was granted
+  //            read-only access via the project's timeline_viewer_depts
+  //   'none' — no access (hide the nav + page)
+  const myProjectRole = projectMembers.find(m => m.user_id === user.id)?.project_role || null
+  const timelineAccess = hasPermission(user, 'access_timeline')
+    ? 'edit'
+    : (myProjectRole && (currentProject?.timeline_viewer_depts || []).includes(myProjectRole))
+      ? 'view'
+      : 'none'
+
   // ── Notification rendering for mobile full-page view ──
   const renderMobileNotifications = () => {
     const NOTIF_CAT = {
@@ -1344,7 +1367,7 @@ export default function App() {
         requestConfirm={requestConfirm} unreadCount={unreadCount} tcgGameActive={tcgGameActive}
         reviewCount={tasks.filter(t => t.status === 'review').length}
         projects={projects} currentProject={currentProject} onSelectProject={handleSelectProject}
-        myPerms={myPerms}
+        myPerms={myPerms} timelineAccess={timelineAccess}
       />
 
       {/* Main content */}
@@ -1353,7 +1376,7 @@ export default function App() {
         {(view === 'storyboard' || view === 'timeline' || view === 'pack' || view === 'gantt' || view === 'review') ? (
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', ...(isMobile ? { paddingBottom: 49 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
-            {view === 'timeline' && hasPermission(user, 'access_timeline') && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
+            {view === 'timeline' && timelineAccess !== 'none' && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} accessMode={timelineAccess} currentProject={currentProject} onUpdateTimelineViewers={handleUpdateTimelineViewers} />}
             {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
               <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
             )}

@@ -35,7 +35,7 @@ export default function Sidebar({
   notifications, onMarkRead, onMarkAllRead, onNavigate,
   requestConfirm, unreadCount, tcgGameActive, reviewCount,
   projects, currentProject, onSelectProject,
-  myPerms,
+  myPerms, timelineAccess = 'none',
 }) {
   const isMobile = useIsMobile()
   const [showCalendar, setShowCalendar] = useState(false)
@@ -53,7 +53,7 @@ export default function Sidebar({
     { id: 'tasks', icon: <IconClipboard size={20} />, label: 'Tasks' },
     { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard' },
   ]
-  if (hasPermission(user, 'access_timeline')) mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
+  if (timelineAccess !== 'none') mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
   mainNav.push({ id: 'gantt', icon: <IconGantt size={20} />, label: 'Planning' })
   if (hasPermission(user, 'access_activity')) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
   if (myPerms?.can_review) mainNav.push({ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount || 0 })
@@ -192,7 +192,7 @@ export default function Sidebar({
               {/* Menu items */}
               {[
                 { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard', show: true },
-                ...(hasPermission(user, 'access_timeline') ? [
+                ...(timelineAccess !== 'none' ? [
                   { id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline', show: true },
                 ] : []),
                 ...(hasPermission(user, 'access_activity') ? [

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react'
-import { ACCENT, DEFAULT_FPS, DEFAULT_DURATION_FRAMES, isAudioUrl, isVideoUrl } from '../../lib/constants'
+import { ACCENT, DEFAULT_FPS, DEFAULT_DURATION_FRAMES, isAudioUrl, isVideoUrl, DEPTS } from '../../lib/constants'
 import { IconTimeline, IconX } from '../ui/Icons'
 import Img from '../ui/Img'
 import {
@@ -31,7 +31,11 @@ const videoThumb = () => null
 const playableVideoUrl = (url) => url || null
 
 // ── Main Component ──
-export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, requestConfirm, onGoToShotTasks }) {
+export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, requestConfirm, onGoToShotTasks, accessMode = 'edit', currentProject, onUpdateTimelineViewers }) {
+  // View-only students (their per-project category was granted read access by
+  // staff): they can watch the player and scrub the timeline but cannot edit
+  // anything — no table, no Shot Properties panel, no export, no Permessi tab.
+  const isViewer = accessMode === 'view'
   const [fps, setFps] = useState(DEFAULT_FPS)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -43,7 +47,25 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const [volume, setVolume] = useState(0.8)
   const playerZoom = 100
   const [tab, setTab] = useState('player')
+  // Viewers are pinned to the player — they never have access to table/permissions.
+  const activeTab = isViewer ? 'player' : tab
   const [tableDurations, setTableDurations] = useState({})
+
+  // ── Timeline visibility config (Permessi tab) ──
+  // Which student categories (departments) may view the timeline read-only,
+  // stored on the project. Local mirror so the checkboxes feel instant; the
+  // save handler persists + lifts state to the project.
+  const [viewerDepts, setViewerDepts] = useState(currentProject?.timeline_viewer_depts || [])
+  useEffect(() => {
+    setViewerDepts(currentProject?.timeline_viewer_depts || [])
+  }, [currentProject?.id, currentProject?.timeline_viewer_depts])
+  const toggleViewerDept = useCallback((deptId) => {
+    setViewerDepts(prev => {
+      const next = prev.includes(deptId) ? prev.filter(d => d !== deptId) : [...prev, deptId]
+      onUpdateTimelineViewers?.(next)
+      return next
+    })
+  }, [onUpdateTimelineViewers])
   const [videoPreloadStatus, setVideoPreloadStatus] = useState({}) // { url: 'loading' | 'ready' | 'error' }
   // Real wall-clock duration (seconds) for each output video URL, populated
   // from the preload <video>'s `loadedmetadata` event. Used by the sync-frames
@@ -995,8 +1017,9 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
               {videoPreloadInfo.ready}/{videoPreloadInfo.total} pronti · {videoPreloadInfo.errored} errore
             </span>
           )}
+          {!isViewer && (
           <div style={{ display: 'flex', background: '#1E293B', borderRadius: 6, padding: 2 }}>
-            {[{ id: 'player', label: 'Player' }, { id: 'table', label: 'Tabella' }].map(t => (
+            {[{ id: 'player', label: 'Player' }, { id: 'table', label: 'Tabella' }, { id: 'permissions', label: 'Permessi' }].map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: '3px 12px', borderRadius: 5, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
                 background: tab === t.id ? ACCENT : 'transparent',
@@ -1005,6 +1028,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
               }}>{t.label}</button>
             ))}
           </div>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1025,21 +1049,61 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             background: loop ? ACCENT + '30' : '#1E293B', border: `1px solid ${loop ? ACCENT : '#334155'}`,
             borderRadius: 5, padding: '3px 8px', fontSize: 10, color: loop ? ACCENT : '#94A3B8', cursor: 'pointer', fontWeight: 600,
           }}>Loop</button>
-          <button onClick={() => setExportSD(s => !s)} disabled={exporting} title="Risoluzione export"
-            style={{
-              background: exportSD ? ACCENT + '30' : '#1E293B', border: `1px solid ${exportSD ? ACCENT : '#334155'}`,
-              borderRadius: 5, padding: '3px 8px', fontSize: 10, color: exportSD ? ACCENT : '#94A3B8',
-              cursor: exporting ? 'default' : 'pointer', fontWeight: 700, opacity: exporting ? 0.5 : 1,
-            }}>{exportSD ? 'SD' : 'HD'}</button>
-          <button onClick={handleExport} disabled={exporting} style={{
-            background: '#1E293B', border: '1px solid #334155', borderRadius: 5,
-            padding: '4px 10px', fontSize: 11, color: '#E2E8F0', cursor: 'pointer', fontWeight: 600,
-            opacity: exporting ? 0.5 : 1,
-          }}>{exporting ? 'Exporting...' : 'Export MP4'}</button>
+          {!isViewer && (
+            <button onClick={() => setExportSD(s => !s)} disabled={exporting} title="Risoluzione export"
+              style={{
+                background: exportSD ? ACCENT + '30' : '#1E293B', border: `1px solid ${exportSD ? ACCENT : '#334155'}`,
+                borderRadius: 5, padding: '3px 8px', fontSize: 10, color: exportSD ? ACCENT : '#94A3B8',
+                cursor: exporting ? 'default' : 'pointer', fontWeight: 700, opacity: exporting ? 0.5 : 1,
+              }}>{exportSD ? 'SD' : 'HD'}</button>
+          )}
+          {!isViewer && (
+            <button onClick={handleExport} disabled={exporting} style={{
+              background: '#1E293B', border: '1px solid #334155', borderRadius: 5,
+              padding: '4px 10px', fontSize: 11, color: '#E2E8F0', cursor: 'pointer', fontWeight: 600,
+              opacity: exporting ? 0.5 : 1,
+            }}>{exporting ? 'Exporting...' : 'Export MP4'}</button>
+          )}
         </div>
       </div>
 
-      {tab === 'table' ? (
+      {activeTab === 'permissions' ? (
+        /* ══ PERMISSIONS VIEW (staff only) — pick which student categories can
+              watch the timeline read-only ══ */
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '24px' }}>
+          <div style={{ maxWidth: 560, margin: '0 auto', background: '#111827', borderRadius: 12, border: '1px solid #1E293B', padding: '20px 22px' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#F1F5F9', marginBottom: 4 }}>Visibilità Timeline</div>
+            <p style={{ fontSize: 12, color: '#94A3B8', lineHeight: 1.5, margin: '0 0 18px' }}>
+              Seleziona le categorie di studenti che possono <b style={{ color: '#CBD5E1' }}>vedere</b> la Timeline.
+              Gli studenti abilitati possono guardare il player e spostarsi nel video, ma <b style={{ color: '#CBD5E1' }}>non</b> possono
+              modificare durate, output, audio o la tabella. La categoria di uno studente è il reparto assegnato
+              in questo progetto.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {DEPTS.map(d => {
+                const checked = viewerDepts.includes(d.id)
+                return (
+                  <label key={d.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8,
+                    cursor: 'pointer', background: checked ? ACCENT + '14' : 'transparent',
+                    border: `1px solid ${checked ? ACCENT + '40' : 'transparent'}`, transition: 'all 0.12s ease',
+                  }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleViewerDept(d.id)}
+                      style={{ accentColor: ACCENT, width: 16, height: 16, cursor: 'pointer' }} />
+                    <span style={{ width: 9, height: 9, borderRadius: 3, background: d.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#E2E8F0' }}>{d.label}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: '#64748B', marginTop: 16, paddingTop: 14, borderTop: '1px solid #1E293B' }}>
+              {viewerDepts.length === 0
+                ? 'Nessuna categoria abilitata — solo lo staff può accedere alla Timeline.'
+                : `${viewerDepts.length} ${viewerDepts.length === 1 ? 'categoria abilitata' : 'categorie abilitate'} in sola visualizzazione.`}
+            </div>
+          </div>
+        </div>
+      ) : activeTab === 'table' ? (
         /* ══ TABLE VIEW ══ */
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '20px 24px' }}>
           <div style={{ width: '100%', maxWidth: 900, margin: '0 auto', background: '#111827', borderRadius: 12, border: '1px solid #1E293B', overflow: 'hidden' }}>
@@ -1343,7 +1407,8 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           </div>
         </div>
 
-        {/* ══ Editor Panel ══ */}
+        {/* ══ Editor Panel ══ — hidden for view-only students */}
+        {!isViewer && (
         <div style={{ width: 270, borderLeft: '1px solid #1E293B', background: '#0F172A', display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden' }}>
           <div style={{ padding: '10px 14px', borderBottom: '1px solid #1E293B', fontSize: 12, fontWeight: 600, color: '#94A3B8' }}>
             Shot Properties
@@ -1466,6 +1531,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* ══ TIMELINE STRIP ══ */}
