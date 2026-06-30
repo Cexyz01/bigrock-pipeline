@@ -631,6 +631,19 @@ export async function sendChatMessage(channel, authorId, body, projectId, attach
   return { data, error }
 }
 
+// Toggle the calling user's reaction on a channel message. WhatsApp semantics:
+// one reaction per user — re-tapping the same emoji removes it, tapping a
+// different one moves the user. Returns { data: <new reactions jsonb>, error }.
+// The DB function is atomic (row lock) and derives the user from auth.uid(),
+// so concurrent reactions don't clobber each other.
+export async function toggleChatReaction(messageId, emoji) {
+  return supabase.rpc('toggle_chat_reaction', { p_message_id: messageId, p_emoji: emoji })
+}
+
+export async function toggleDmReaction(messageId, emoji) {
+  return supabase.rpc('toggle_dm_reaction', { p_message_id: messageId, p_emoji: emoji })
+}
+
 // Chat file attachments — any type, up to 100MB. Stored on R2 (kind="chat").
 export async function uploadChatFile(file) {
   if (file && file.size > 100 * 1024 * 1024) return { url: null, error: { message: 'File troppo grande (max 100MB)' } }

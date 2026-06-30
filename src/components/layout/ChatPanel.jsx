@@ -1,10 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { DEPTS, CHAT_EMOJIS, isStaff, displayRole } from '../../lib/constants'
-import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, getDMConversations, getDMMessages, sendDM, markDMsRead, subscribeToDMs, uploadChatFile } from '../../lib/supabase'
+import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, getDMConversations, getDMMessages, sendDM, markDMsRead, subscribeToDMs, uploadChatFile, toggleChatReaction, toggleDmReaction } from '../../lib/supabase'
 import Av from '../ui/Av'
 import { IconX, IconSmile, IconSend, IconDownload } from '../ui/Icons'
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024 // 100MB
+
+// WhatsApp-style quick reactions shown in the little popover.
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉']
+
+// Apply a reaction toggle locally (optimistic) with the same one-per-user rule
+// the DB function enforces: tapping an emoji you already used removes it,
+// tapping a different one moves you, empty buckets are dropped.
+function applyReactionToggle(reactions, emoji, uid) {
+  const next = {}
+  for (const [e, ids] of Object.entries(reactions || {})) {
+    const kept = (Array.isArray(ids) ? ids : []).filter(id => id !== uid)
+    if (kept.length) next[e] = kept
+  }
+  const had = Array.isArray(reactions?.[emoji]) && reactions[emoji].includes(uid)
+  if (!had) next[emoji] = [...(next[emoji] || []), uid]
+  return next
+}
 
 function formatBytes(n) {
   if (!n && n !== 0) return ''
@@ -88,6 +105,8 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
   const [pendingFiles, setPendingFiles] = useState([])   // File[] queued for the next message
   const [attachError, setAttachError] = useState('')      // inline (non-toast) error near composer
   const [dragOver, setDragOver] = useState(false)         // file drag hovering the panel
+  const [reactionPickerFor, setReactionPickerFor] = useState(null) // message id with the quick-emoji popover open
+  const [reactionDetailsFor, setReactionDetailsFor] = useState(null) // message id whose "who reacted" list is open
   const endRef = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -426,6 +445,27 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
 
   const handleSend = mode === 'channels' ? handleSendChannel : handleSendDM
 
+  // Resolve reactor ids → profiles for the "who reacted" list.
+  const profileById = Object.fromEntries((profiles || []).map(p => [p.id, p]))
+
+  // Toggle my reaction on a message. Optimistic (instant), then reconciled with
+  // the authoritative reactions the DB function returns. On error we just
+  // refetch so we never leave a wrong count on screen.
+  const handleToggleReaction = useCallback(async (m, emoji, isDM) => {
+    if (typeof m.id === 'string' && m.id.startsWith('temp-')) return // not persisted yet
+    const setList = isDM ? setDmMessages : setMessages
+    setReactionPickerFor(null)
+    setList(prev => prev.map(x => x.id === m.id ? { ...x, reactions: applyReactionToggle(x.reactions, emoji, user.id) } : x))
+    const { data, error } = await (isDM ? toggleDmReaction : toggleChatReaction)(m.id, emoji)
+    if (error) {
+      if (isDM) { if (dmPeer) fetchDMThread(dmPeer.id) } else fetchMessages(channelRef.current)
+      return
+    }
+    if (data !== undefined && data !== null) {
+      setList(prev => prev.map(x => x.id === m.id ? { ...x, reactions: data } : x))
+    }
+  }, [user.id, dmPeer, fetchDMThread, fetchMessages])
+
   const deptLabel = (ch) => {
     if (ch === 'general') return 'Gen'
     const d = DEPTS.find(dep => dep.id === ch)
@@ -513,6 +553,12 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     const author = isDM ? m.sender : m.author
     const isMine = authorId === user.id
     const isOptimistic = typeof m.id === 'string' && m.id.startsWith('temp-')
+
+    const reactions = (m.reactions && typeof m.reactions === 'object' && !Array.isArray(m.reactions)) ? m.reactions : {}
+    const reactionEntries = Object.entries(reactions).filter(([, ids]) => Array.isArray(ids) && ids.length > 0)
+    const pickerOpen = reactionPickerFor === m.id
+    const detailsOpen = reactionDetailsFor === m.id && reactionEntries.length > 0
+
     return (
       <div key={m.id} style={{
         display: 'flex', gap: 8, alignItems: 'flex-start',
@@ -520,26 +566,127 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
         opacity: isOptimistic ? 0.6 : 1, transition: 'opacity 0.2s ease',
       }}>
         <Av name={author?.full_name} size={26} url={author?.avatar_url} mood={author?.mood_emoji} />
+
+        {/* Click-away backdrop while this message's picker/details is open */}
+        {(pickerOpen || detailsOpen) && (
+          <div onClick={() => { setReactionPickerFor(null); setReactionDetailsFor(null) }}
+            style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+        )}
+
         <div style={{
-          maxWidth: '70%', padding: '10px 14px', borderRadius: 20,
-          background: isMine ? 'rgba(242,140,40,0.1)' : '#222222',
-          border: `1px solid ${isMine ? 'rgba(242,140,40,0.25)' : '#2d2d2d'}`,
+          display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: '78%',
+          alignItems: isMine ? 'flex-end' : 'flex-start',
+          position: 'relative', zIndex: (pickerOpen || detailsOpen) ? 25 : undefined,
         }}>
-          {!isMine && !isDM && (
-            <div style={{ fontSize: 10, fontWeight: 600, color: '#71717a', marginBottom: 3 }}>
-              {author?.full_name}
-              {author?.role !== 'studente' && <span style={{ color: '#F28C28', marginLeft: 4 }}>{displayRole(author?.role)}</span>}
+          {/* Bubble + reaction trigger + quick-emoji popover */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: '100%', flexDirection: isMine ? 'row-reverse' : 'row', position: 'relative' }}>
+            <div style={{
+              maxWidth: '100%', padding: '10px 14px', borderRadius: 20,
+              background: isMine ? 'rgba(242,140,40,0.1)' : '#222222',
+              border: `1px solid ${isMine ? 'rgba(242,140,40,0.25)' : '#2d2d2d'}`,
+            }}>
+              {!isMine && !isDM && (
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#71717a', marginBottom: 3 }}>
+                  {author?.full_name}
+                  {author?.role !== 'studente' && <span style={{ color: '#F28C28', marginLeft: 4 }}>{displayRole(author?.role)}</span>}
+                </div>
+              )}
+              {m.body && <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{linkify(m.body)}</div>}
+              {Array.isArray(m.attachments) && m.attachments.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: m.body ? 8 : 0 }}>
+                  {m.attachments.map((a, i) => renderAttachment(a, i))}
+                </div>
+              )}
+              <div style={{ fontSize: 9, color: '#71717a', marginTop: 4, textAlign: isMine ? 'right' : 'left' }}>
+                {formatMsgTime(m.created_at)}
+              </div>
             </div>
-          )}
-          {m.body && <div style={{ fontSize: 13, color: '#E4E4E7', lineHeight: 1.6, wordBreak: 'break-word' }}>{linkify(m.body)}</div>}
-          {Array.isArray(m.attachments) && m.attachments.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: m.body ? 8 : 0 }}>
-              {m.attachments.map((a, i) => renderAttachment(a, i))}
-            </div>
-          )}
-          <div style={{ fontSize: 9, color: '#71717a', marginTop: 4, textAlign: isMine ? 'right' : 'left' }}>
-            {formatMsgTime(m.created_at)}
+
+            {!isOptimistic && (
+              <button
+                title="Reagisci"
+                onClick={() => { setReactionPickerFor(pickerOpen ? null : m.id); setReactionDetailsFor(null) }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0,
+                  color: pickerOpen ? '#F28C28' : '#71717a', opacity: pickerOpen ? 1 : 0.55, lineHeight: 0,
+                }}
+              ><IconSmile size={16} /></button>
+            )}
+
+            {pickerOpen && (
+              <div style={{
+                position: 'absolute', bottom: '100%', marginBottom: 6, zIndex: 30,
+                ...(isMine ? { right: 0 } : { left: 0 }),
+                background: '#1b1b1b', border: '1px solid #333', borderRadius: 24,
+                padding: '4px 6px', display: 'flex', gap: 2, boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
+              }}>
+                {QUICK_REACTIONS.map(e => {
+                  const active = (reactions[e] || []).includes(user.id)
+                  return (
+                    <button key={e} onClick={() => handleToggleReaction(m, e, isDM)}
+                      style={{
+                        background: active ? 'rgba(242,140,40,0.2)' : 'none', border: 'none', borderRadius: '50%',
+                        width: 30, height: 30, fontSize: 17, cursor: 'pointer', lineHeight: 1,
+                        transition: 'transform 0.1s ease, background 0.1s ease',
+                      }}
+                      onMouseEnter={ev => { ev.currentTarget.style.transform = 'scale(1.25)' }}
+                      onMouseLeave={ev => { ev.currentTarget.style.transform = 'scale(1)' }}
+                    >{e}</button>
+                  )
+                })}
+              </div>
+            )}
           </div>
+
+          {/* Reaction pills — click to see who reacted */}
+          {reactionEntries.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4, justifyContent: isMine ? 'flex-end' : 'flex-start', maxWidth: '100%' }}>
+              {reactionEntries.map(([e, ids]) => {
+                const mine = ids.includes(user.id)
+                return (
+                  <button key={e}
+                    onClick={() => { setReactionDetailsFor(detailsOpen ? null : m.id); setReactionPickerFor(null) }}
+                    title="Vedi chi ha reagito"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 7px 1px 5px', borderRadius: 12,
+                      background: mine ? 'rgba(242,140,40,0.16)' : '#2a2a2a',
+                      border: `1px solid ${mine ? 'rgba(242,140,40,0.4)' : '#3a3a3a'}`,
+                      cursor: 'pointer', lineHeight: 1.5, color: '#E4E4E7',
+                    }}>
+                    <span style={{ fontSize: 13 }}>{e}</span>
+                    <span style={{ fontSize: 11, color: '#a1a1aa', fontWeight: 600 }}>{ids.length}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {/* "Who reacted" list */}
+          {detailsOpen && (
+            <div style={{
+              marginTop: 6, width: '100%', maxWidth: 240, background: '#1b1b1b', border: '1px solid #333',
+              borderRadius: 12, padding: '8px 10px', alignSelf: isMine ? 'flex-end' : 'flex-start', zIndex: 30,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#a1a1aa' }}>Reazioni</span>
+                <button onClick={() => setReactionDetailsFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a', padding: 0, lineHeight: 0 }}><IconX size={13} /></button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+                {reactionEntries.flatMap(([e, ids]) => ids.map(uid => {
+                  const p = profileById[uid]
+                  return (
+                    <div key={e + uid} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Av name={p?.full_name || '?'} size={22} url={p?.avatar_url} mood={p?.mood_emoji} />
+                      <span style={{ fontSize: 12, color: '#E4E4E7', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {uid === user.id ? 'Tu' : (p?.full_name || 'Utente')}
+                      </span>
+                      <span style={{ fontSize: 14 }}>{e}</span>
+                    </div>
+                  )
+                }))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
