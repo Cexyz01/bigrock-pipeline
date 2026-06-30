@@ -58,9 +58,12 @@ export default function CrewPage({ profiles, user, currentProject }) {
         <p style={{ fontSize: 14, color: '#64748B', marginBottom: 32 }}>{visibleProfiles.length} membri</p>
       </Fade>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: isMobile ? 12 : 20 }}>
+      {/* Masonry (CSS columns) so sections pack tightly and fill the screen —
+          a tall section (e.g. Modeling) no longer forces a big empty gap next
+          to a short one. Rows aren't aligned across columns, by design. */}
+      <div style={{ columnCount: isMobile ? 1 : 2, columnGap: isMobile ? 12 : 20 }}>
         {sections.map((sec, si) => (
-          <Fade key={sec.key} delay={si * 40}>
+          <Fade key={sec.key} delay={si * 40} style={{ breakInside: 'avoid', WebkitColumnBreakInside: 'avoid', marginBottom: isMobile ? 12 : 20 }}>
             <Card>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', justifyContent: 'space-between', color: '#1a1a1a' }}>
                 <span>{sec.label}</span>
