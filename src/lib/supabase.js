@@ -752,6 +752,26 @@ export async function setProjectEndDate(date) {
 // Asks the Edge Function for a presigned PUT URL, then uploads the file
 // directly to Cloudflare R2. Returns the public URL the caller should
 // persist to the DB. Retries once on transient network errors.
+// Returns a valid Bearer header for calling the miro-sync Edge Function.
+//
+// `getSession()` returns the locally cached session WITHOUT refreshing it, and
+// Supabase's auto-refresh runs on a background timer that browsers throttle in
+// inactive tabs. So after a tab has been idle the stored access_token can be
+// expired; sending it makes the Functions gateway (verify_jwt) reject the call
+// with 401 before our signer even runs — which is exactly why an upload fails
+// until the user hits F5 (a reload re-inits the client and refreshes the token).
+// Refresh proactively when the token is missing or within 60s of expiry; pass
+// force=true to refresh unconditionally (used to retry a 401).
+async function getEdgeAuthHeader(force = false) {
+  let { data: { session } } = await supabase.auth.getSession()
+  const nearExpiry = !session?.expires_at || (session.expires_at * 1000 - Date.now()) < 60_000
+  if (session && (force || nearExpiry)) {
+    const { data, error } = await supabase.auth.refreshSession()
+    if (!error && data?.session) session = data.session
+  }
+  return `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`
+}
+
 async function r2Upload(kind, file, meta) {
   if (!file || !file.size) return { url: null, error: { message: 'No file selected' } }
 
@@ -759,18 +779,24 @@ async function r2Upload(kind, file, meta) {
   const contentType = file.type || 'application/octet-stream'
 
   const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
-  const { data: { session } } = await supabase.auth.getSession()
-  const authHeader = `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`
 
+  // Request the signature with a fresh token, retrying once on 401 — covers the
+  // case where the token expired despite the proactive refresh (clock skew or a
+  // token that lapsed in the brief window before the gateway check).
   let sigRes
-  try {
-    sigRes = await fetch(sigUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY, 'Authorization': authHeader },
-      body: JSON.stringify({ action: 'r2_sign_upload', kind, ext, content_type: contentType, ...meta }),
-    })
-  } catch (e) {
-    return { url: null, error: { message: 'Network error contacting signer: ' + (e.message || String(e)) } }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const authHeader = await getEdgeAuthHeader(attempt === 2)
+    try {
+      sigRes = await fetch(sigUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY, 'Authorization': authHeader },
+        body: JSON.stringify({ action: 'r2_sign_upload', kind, ext, content_type: contentType, ...meta }),
+      })
+    } catch (e) {
+      return { url: null, error: { message: 'Network error contacting signer: ' + (e.message || String(e)) } }
+    }
+    if (sigRes.status === 401 && attempt === 1) continue
+    break
   }
 
   let sigJson
