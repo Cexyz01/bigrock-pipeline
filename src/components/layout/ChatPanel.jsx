@@ -63,9 +63,17 @@ function linkify(text) {
   return out
 }
 
-export default function ChatPanel({ user, open, onToggle, profiles, projectMembers = [], currentProject, dmUnreadCount = 0, onDmRead, isMobile = false }) {
+export default function ChatPanel({ user, open, onToggle, profiles, projectMembers = [], currentProject, dmUnreadCount = 0, onDmRead, isMobile = false, view }) {
   const staff = isStaff(user)
   const projectId = currentProject?.id || null
+
+  // The Pack page floats draggable cards / overlays at very high z-index
+  // (FloatingCard = 8500, card detail = 9000, etc.), which otherwise sit on top
+  // of the chat tab + panel and steal clicks meant for them. There, lift the
+  // chat chrome above that content so the Chat tab always wins — but only there,
+  // so on normal pages the tab still sits politely under regular dialogs.
+  // Below the pack-opening reveal (9999) so that one full-screen moment stays clean.
+  const chatChromeZ = view === 'pack' ? 9700 : undefined
 
   // Per-project department assignment from project_members.project_role.
   // Staff sees every department channel; students see only the channels for
@@ -683,7 +691,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
       <div
         onClick={() => setReactionDetailsFor(null)}
         style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
+          position: 'fixed', inset: 0, zIndex: 10000,
           background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
         }}
@@ -724,7 +732,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           <button
             className={`chat-tab-handle${dmUnreadCount > 0 && !open ? ' chat-tab-unread' : ''}`}
             onClick={onToggle}
-            style={{ right: open ? 380 : 0 }}
+            style={{ right: open ? 380 : 0, ...(chatChromeZ ? { zIndex: chatChromeZ } : null) }}
           >
             Chat
             {dmUnreadCount > 0 && !open && (
@@ -736,6 +744,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
               className="chat-nag-toast"
               onClick={onToggle}
               title="Apri chat"
+              style={chatChromeZ ? { zIndex: chatChromeZ } : undefined}
             >
               <span className="chat-nag-toast-emoji">📬</span>
               <span className="chat-nag-toast-text">
@@ -750,7 +759,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           className="mobile-chat-fab"
           onClick={onToggle}
           style={{
-            position: 'fixed', bottom: 64, right: 16, zIndex: 45,
+            position: 'fixed', bottom: 64, right: 16, zIndex: chatChromeZ || 45,
             width: 52, height: 52, borderRadius: 16,
             background: 'linear-gradient(135deg, #F28C28, #F5B862)',
             border: 'none', cursor: 'pointer',
@@ -785,7 +794,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
             : { right: 0, top: 0, bottom: 0, width: 380, animation: 'slideInRight 0.25s ease', borderLeft: '1px solid #2d2d2d' }
           ),
           background: '#1a1a1a',
-          display: 'flex', flexDirection: 'column', zIndex: isMobile ? 100 : 55,
+          display: 'flex', flexDirection: 'column', zIndex: isMobile ? 100 : (chatChromeZ || 55),
           boxShadow: isMobile ? 'none' : '-4px 0 24px rgba(0,0,0,0.3)',
         }}>
           {/* Drag-and-drop overlay */}

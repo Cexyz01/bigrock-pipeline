@@ -1425,7 +1425,7 @@ export default function App() {
         )}
       </div>
 
-      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} projectMembers={projectMembers} currentProject={currentProject} dmUnreadCount={dmUnreadCount} onDmRead={refreshDmUnread} isMobile={isMobile} />
+      <ChatPanel user={user} open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} profiles={profiles} projectMembers={projectMembers} currentProject={currentProject} dmUnreadCount={dmUnreadCount} onDmRead={refreshDmUnread} isMobile={isMobile} view={view} />
 
       {/* Mini-game overlays */}
       {pendingGameInvite && !activeGameId && createPortal(
