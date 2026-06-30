@@ -81,6 +81,38 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 )
 
+// ── Auto-update: reload the tab when a newer build is deployed ──
+// The app is a long-lived SPA, so an open tab keeps running the JS it loaded
+// at boot until it reloads. We stamp every build with a unique id (baked in as
+// __BUILD_ID__ + written to /version.json), poll that file, and reload when it
+// no longer matches what this tab booted with. Result: users pick up new
+// deploys automatically within ~1 min (or instantly when they refocus the tab),
+// without having to hit Ctrl+R.
+const BUILD_ID = (typeof __BUILD_ID__ !== 'undefined') ? __BUILD_ID__ : null
+let __reloadingForUpdate = false
+async function checkForUpdate() {
+  if (__reloadingForUpdate || !BUILD_ID) return
+  try {
+    const res = await fetch('/version.json', { cache: 'no-store' })
+    if (!res.ok) return
+    const { v } = await res.json()
+    if (!v || v === BUILD_ID) return
+    // Don't yank the page out from under someone mid-typing — wait for a later
+    // check when an input/textarea isn't focused.
+    const el = document.activeElement
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+    __reloadingForUpdate = true
+    window.location.reload()
+  } catch (_) { /* offline / transient — try again next tick */ }
+}
+if (BUILD_ID) {
+  setInterval(checkForUpdate, 60000)
+  window.addEventListener('focus', checkForUpdate)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkForUpdate()
+  })
+}
+
 // ── Disable browser zoom (keep at 100%) ──
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {

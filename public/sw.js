@@ -3,7 +3,7 @@
 // SW on a returning device drops its cached bundles instead of replaying
 // the previous app version (which kept Alessandra stuck on broken code
 // even after the fix was deployed).
-const CACHE_NAME = 'bigrock-v5-no-auto-reload'
+const CACHE_NAME = 'bigrock-v6-auto-update'
 
 // Install: take over immediately, don't wait for tabs to close
 self.addEventListener('install', () => {
@@ -31,6 +31,12 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url)
   // Never intercept Supabase / Google API calls
   if (url.hostname.includes('supabase') || url.hostname.includes('googleapis')) return
+  // version.json drives the auto-update check — always go to network, never
+  // cache it (caching would defeat the freshness check and bloat the cache).
+  if (url.pathname === '/version.json') {
+    e.respondWith(fetch(e.request).catch(() => new Response('{}', { headers: { 'Content-Type': 'application/json' } })))
+    return
+  }
   // Never cache the HTML shell — always fetch fresh so a new deploy is
   // picked up the moment the tab reloads.
   if (e.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
