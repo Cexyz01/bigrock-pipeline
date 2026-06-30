@@ -63,7 +63,6 @@ import GameInviteOverlay from './components/games/GameInviteOverlay'
 import GameSession from './components/games/GameSession'
 import TradeInviteOverlay from './components/pack/TradeInviteOverlay'
 import TradeSession from './components/pack/TradeSession'
-import { createMiroShotRow, deleteMiroShotRow, uploadReferenceToMiro, fileToBase64, uploadWipImagesToMiro, deleteTaskMiroImages } from './lib/miro'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
 import DevConsole from './components/console/DevConsole'
@@ -602,11 +601,6 @@ export default function App() {
     const { data, error } = await createShot(shotWithOrder)
     if (error) { addToast(`Errore creazione shot: ${error.message}`, 'danger'); return }
     if (data) {
-      // Legacy Miro sync — only if this project has a Miro board configured
-      if (currentProject?.miro_board_id) {
-        try { await createMiroShotRow(data.id, data.code, currentProject.miro_board_id) }
-        catch (err) { console.warn('Miro sync skipped:', err) }
-      }
       if (referenceFile) {
         handleUploadReference(data.id, referenceFile)
       }
@@ -640,10 +634,6 @@ export default function App() {
       return
     }
     setShots(await getShots(currentProject?.id))
-    // Legacy Miro cleanup (background, silent) — only if project has a Miro board
-    if (currentProject?.miro_board_id) {
-      deleteMiroShotRow(id, currentProject.miro_board_id).catch(err => console.warn('Miro cleanup skipped:', err))
-    }
   }
 
   const handleUploadReference = async (shotId, file) => {
@@ -661,15 +651,6 @@ export default function App() {
       ref_img_width: dims.w,
       ref_img_height: dims.h,
     })
-    // Legacy Miro reference upload — only if project has a Miro board
-    if (currentProject?.miro_board_id) {
-      try {
-        const base64 = await fileToBase64(file)
-        await uploadReferenceToMiro(shotId, base64, currentProject.miro_board_id)
-      } catch (err) {
-        console.warn('Miro reference upload skipped:', err)
-      }
-    }
     setShots(await getShots(currentProject?.id))
   }
 
@@ -817,10 +798,6 @@ export default function App() {
 
   const handleRejectTask = async (id, comment = '') => {
     const task = tasks.find(t => t.id === id)
-    // Legacy Miro cleanup — only if project has a Miro board
-    if (currentProject?.miro_board_id) {
-      try { await deleteTaskMiroImages(id, currentProject.miro_board_id) } catch (err) { console.warn('Miro reject cleanup skipped:', err) }
-    }
     // 2. Set status back to WIP and pin the revision comment on the task itself
     // (also surfaced as a banner above the WIPs in TaskDetailModal).
     const trimmed = comment.trim()
@@ -851,10 +828,6 @@ export default function App() {
   }
 
   const handleDeleteTask = async (id) => {
-    // Legacy Miro cleanup before DB delete — only if project has a Miro board
-    if (currentProject?.miro_board_id) {
-      try { await deleteTaskMiroImages(id, currentProject.miro_board_id) } catch (err) { console.warn('Miro task cleanup skipped:', err) }
-    }
     const { error } = await deleteTask(id)
     if (error) { addToast(`Impossibile eliminare il task: ${error.message}`, 'danger'); return }
     setTasks(await getTasks({ project_id: currentProject?.id }))
@@ -949,48 +922,25 @@ export default function App() {
     // 3. Upload each user's latest WIP to storyboard.
     //    Each user's row set is replaced independently — other students' rows untouched.
     if (latestPerUser.size > 0 && (task.shot_id || task.asset_id)) {
-      const isAssetTask = !task.shot_id && task.asset_id
-
       for (const [uploaderId, wip] of latestPerUser) {
-        // Per-user dedup for asset tasks (edge fn handles dedup for shot tasks)
-        if (isAssetTask) {
-          try { await supabase.from('miro_wip_images').delete().eq('task_id', taskId).eq('uploaded_by', uploaderId) } catch (err) { console.warn('Per-user clean failed:', err) }
-        }
+        // Replace this user's previous storyboard rows for the task (dedup),
+        // then insert the current ones. Images are already on R2, so we just
+        // record their URLs — same handling for shot and asset tasks now that
+        // the storyboard no longer routes through Miro.
+        try { await supabase.from('miro_wip_images').delete().eq('task_id', taskId).eq('uploaded_by', uploaderId) } catch (err) { console.warn('Per-user clean failed:', err) }
         const imageUrls = wip.images.filter(url => !isAudioUrl(url) && !isVideoUrl(url))
         const audioUrls = wip.images.filter(url => isAudioUrl(url))
 
-        // Shot tasks: send to Miro edge function (also writes miro_wip_images rows)
-        if (imageUrls.length > 0 && !isAssetTask) {
+        if (imageUrls.length > 0) {
           try {
-            const base64Array = await Promise.all(imageUrls.map(async (url) => {
-              const res = await fetch(url)
-              const blob = await res.blob()
-              return new Promise((resolve, reject) => {
-                const reader = new FileReader()
-                reader.onload = () => resolve(reader.result)
-                reader.onerror = reject
-                reader.readAsDataURL(blob)
-              })
-            }))
-            await uploadWipImagesToMiro(task.shot_id, task.department, task.id, base64Array, uploaderId, currentProject?.miro_board_id)
-          } catch (err) {
-            console.warn('Storyboard upload failed for user', uploaderId, err)
-          }
-        }
-
-        // Asset tasks: insert directly into miro_wip_images
-        if (imageUrls.length > 0 && isAssetTask) {
-          try {
-            const existingImages = await supabase.from('miro_wip_images')
-              .select('image_order').eq('task_id', taskId).order('image_order', { ascending: false }).limit(1)
-            let nextOrder = (existingImages.data?.[0]?.image_order ?? -1) + 1
+            let nextOrder = 0
             for (const imgUrl of imageUrls) {
               await supabase.from('miro_wip_images').insert({
-                shot_id: null,
-                asset_id: task.asset_id,
+                shot_id: task.shot_id || null,
+                asset_id: task.asset_id || null,
                 task_id: taskId,
                 department: task.department,
-                miro_item_id: 'asset',
+                miro_item_id: task.shot_id ? 'shot' : 'asset',
                 uploaded_by: uploaderId,
                 image_url: imgUrl,
                 image_order: nextOrder++,
@@ -999,7 +949,7 @@ export default function App() {
               })
             }
           } catch (err) {
-            console.warn('Asset image insert to storyboard failed for user', uploaderId, err)
+            console.warn('Image insert to storyboard failed for user', uploaderId, err)
           }
         }
 

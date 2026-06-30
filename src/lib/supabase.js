@@ -863,6 +863,16 @@ export async function uploadWipFile(taskId, file) {
   return r2Upload('wip', file, { task_id: taskId })
 }
 
+// Get R2 bucket usage stats for the Manager page (scans the bucket and
+// aggregates total bytes / object count / per-prefix breakdown server-side).
+export async function getR2Usage() {
+  const { data, error } = await supabase.functions.invoke('miro-sync', {
+    body: { action: 'r2_usage' },
+  })
+  if (error) return { data: null, error: error.message || 'R2 usage failed' }
+  return { data, error: null }
+}
+
 // ── Realtime subscriptions ──
 
 export function subscribeToTable(table, callback, filter) {

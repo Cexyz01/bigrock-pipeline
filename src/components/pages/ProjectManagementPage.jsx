@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { isAdmin, isStaff, hasPermission, ACCENT, DEPTS, PERMISSION_CATALOG, ALL_PERMISSION_IDS, displayRole, SUPER_ADMIN_EMAILS } from '../../lib/constants'
-import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole, preregStudent, getMaintenanceMode, setMaintenanceMode } from '../../lib/supabase'
-import { getR2Usage } from '../../lib/miro'
+import { createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, updateProjectMember, updateProfileRole, updateProfileFlag, subscribeToTable, sendSuperNotification, getRoles, createRole, updateRole, deleteRole, assignRole, preregStudent, getMaintenanceMode, setMaintenanceMode, getR2Usage } from '../../lib/supabase'
 import Btn from '../ui/Btn'
 import Modal from '../ui/Modal'
 import Input from '../ui/Input'
