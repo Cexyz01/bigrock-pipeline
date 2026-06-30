@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Fragment } from 'react'
 import { DEPTS, hasPermission } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
 import { getAllWipUpdates, updateProject, getProjectMembers } from '../../lib/supabase'
@@ -13,6 +13,22 @@ import DateInput from '../ui/DateInput'
 import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
 import AnnotatedImage from '../ui/AnnotatedImage'
+
+// Higher-level grouping of students by department.
+// CG = everything that isn't Concept or Sound. "Altro" = no department set.
+const ACT_CATEGORIES = [
+  { id: 'concept', label: 'Concept', color: '#E879F9' },
+  { id: 'cg',      label: 'CG',      color: '#A78BFA' },
+  { id: 'sound',   label: 'Sound',   color: '#14B8A6' },
+  { id: 'other',   label: 'Altro',   color: '#94A3B8' },
+]
+const studentCategory = (s) => {
+  const d = s?.department
+  if (d === 'concept') return 'concept'
+  if (d === 'sound') return 'sound'
+  if (!d) return 'other'
+  return 'cg'
+}
 
 export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate, currentProject, pauses = [] }) {
   const isMobile = useIsMobile()
@@ -76,6 +92,38 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
   const students = profiles.filter(p =>
     p.role_slug === 'studente' && (projectMemberIds ? projectMemberIds.has(p.id) : true)
   )
+
+  // ── Category filter + search ──────────────────────────────────────────────
+  const [category, setCategory] = useState('all')
+  const [search, setSearch] = useState('')
+  const searchLc = search.trim().toLowerCase()
+
+  const searchFiltered = useMemo(
+    () => students.filter(s => !searchLc || (s.full_name || '').toLowerCase().includes(searchLc)),
+    [students, searchLc]
+  )
+
+  // Counts per category (respect the search box, ignore the active category tab)
+  const catCounts = useMemo(() => {
+    const c = { all: searchFiltered.length }
+    for (const cat of ACT_CATEGORIES) c[cat.id] = 0
+    for (const s of searchFiltered) c[studentCategory(s)]++
+    return c
+  }, [searchFiltered])
+
+  const visibleStudents = useMemo(
+    () => category === 'all' ? searchFiltered : searchFiltered.filter(s => studentCategory(s) === category),
+    [searchFiltered, category]
+  )
+
+  // Group visible students by category, dropping empty groups
+  const groups = useMemo(
+    () => ACT_CATEGORIES
+      .map(cat => ({ ...cat, students: visibleStudents.filter(s => studentCategory(s) === cat.id) }))
+      .filter(g => g.students.length > 0),
+    [visibleStudents]
+  )
+  const showGroupHeaders = groups.length > 1
 
   // Build a Set of paused dates (YYYY-MM-DD) from project pauses ranges.
   const pausedDates = useMemo(() => {
@@ -236,14 +284,61 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
         </div>
       </Fade>
 
+      {/* Category filter + search */}
+      <Fade delay={75}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[{ id: 'all', label: 'Tutti', color: '#64748B' }, ...ACT_CATEGORIES.filter(c => catCounts[c.id] > 0)].map(c => {
+              const active = category === c.id
+              return (
+                <button key={c.id} onClick={() => setCategory(c.id)} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
+                  fontSize: 12, fontWeight: active ? 600 : 500, cursor: 'pointer',
+                  background: active ? c.color + '1A' : '#F1F5F9',
+                  color: active ? c.color : '#64748B',
+                  border: `1px solid ${active ? c.color + '40' : '#E2E8F0'}`,
+                  transition: 'all 0.12s ease',
+                }}>
+                  {c.id !== 'all' && <span style={{ width: 8, height: 8, borderRadius: 2, background: c.color }} />}
+                  {c.label}
+                  <span style={{ fontSize: 11, opacity: 0.7 }}>{catCounts[c.id] ?? 0}</span>
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ flex: 1 }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Cerca studente…"
+            style={{
+              padding: '7px 12px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12,
+              width: isMobile ? '100%' : 200, outline: 'none', color: '#1a1a1a', background: '#fff',
+            }}
+          />
+        </div>
+      </Fade>
+
       {/* Table — only render after project dates are loaded to avoid flash */}
       {!datesLoaded ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 13 }}>Loading...</div>
       ) : isMobile ? (
         /* ─── MOBILE: card layout, squares below name, horizontally scrollable ─── */
         <Fade delay={100}>
+          {groups.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 13 }}>Nessuno studente</div>
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {students.map((student) => {
+            {groups.map(group => (
+            <Fragment key={group.id}>
+              {showGroupHeaders && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: group.color }} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>{group.label}</span>
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{group.students.length}</span>
+                </div>
+              )}
+              {group.students.map((student) => {
               const hasTasks = studentHasAnyTasks(student.id)
               const dept = DEPTS.find(d => d.id === student.department)
               return (
@@ -305,7 +400,10 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
                 </div>
               )
             })}
+            </Fragment>
+            ))}
           </div>
+          )}
         </Fade>
       ) : (
         /* ─── DESKTOP: original table layout ─── */
@@ -335,13 +433,33 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
               </tr>
             </thead>
             <tbody>
-              {students.map((student) => {
+              {groups.length === 0 && (
+                <tr>
+                  <td colSpan={dates.length + 1} style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                    Nessuno studente
+                  </td>
+                </tr>
+              )}
+              {groups.map(group => (
+              <Fragment key={group.id}>
+                {showGroupHeaders && (
+                  <tr style={{ borderTop: '1px solid #E8ECF1' }}>
+                    <td colSpan={dates.length + 1} style={{ padding: 0, background: group.color + '12' }}>
+                      <div style={{ position: 'sticky', left: 0, width: 'fit-content', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: group.color }} />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>{group.label}</span>
+                        <span style={{ fontSize: 11, color: '#94A3B8' }}>{group.students.length}</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {group.students.map((student) => {
                 const hasTasks = studentHasAnyTasks(student.id)
                 const dept = DEPTS.find(d => d.id === student.department)
                 return (
                   <tr key={student.id} style={{ borderTop: '1px solid #E8ECF1' }}>
                     <td style={{
-                      padding: '10px 16px', position: 'sticky', left: 0,
+                      padding: '8px 16px', position: 'sticky', left: 0,
                       background: '#fff', zIndex: 1,
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -385,6 +503,8 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
                   </tr>
                 )
               })}
+              </Fragment>
+              ))}
             </tbody>
           </table>
         </div>
