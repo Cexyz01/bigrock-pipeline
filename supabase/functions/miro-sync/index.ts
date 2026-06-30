@@ -125,6 +125,40 @@ async function handleR2SignUpload(params: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// R2 THUMBNAIL UPLOAD — presigns a PUT to `<key>_t512.webp` so the client
+// can store a small WebP sibling next to a raster original. Keep the suffix
+// and prefix allowlist in sync with src/lib/thumbs.js + scripts/backfill-thumbs.mjs.
+// ══════════════════════════════════════════════════════════════
+
+const THUMB_SUFFIX = "_t512.webp"
+const THUMB_KEY_RE = /^(concepts|outputs|timeline|wip|stickers|cards|chat|avatars)\/[^?#]+\.(jpe?g|png|webp|bmp|avif|tiff?)$/i
+
+async function handleR2SignThumb(params: any) {
+  if (!r2 || !R2_BUCKET || !R2_ENDPOINT || !R2_PUBLIC_URL) return err("R2 not configured", 500)
+  const key = typeof params.key === "string" ? params.key : ""
+  if (!key || key.includes("..") || key.startsWith("/")) return err("Invalid key")
+  if (key.includes(THUMB_SUFFIX)) return err("Key is already a thumb")
+  if (!THUMB_KEY_RE.test(key)) return err("Key is not an allowed raster object")
+
+  const thumbKey = `${key}${THUMB_SUFFIX}`
+  const CACHE_CONTROL = "public, max-age=31536000, immutable"
+  const putHeaders: Record<string, string> = { "Cache-Control": CACHE_CONTROL, "Content-Type": "image/webp" }
+  const url = new URL(`${R2_ENDPOINT}/${R2_BUCKET}/${thumbKey}`)
+  url.searchParams.set("X-Amz-Expires", "300")
+  const signed = await r2.sign(
+    new Request(url.toString(), { method: "PUT", headers: putHeaders }),
+    { aws: { signQuery: true } },
+  )
+  return ok({
+    upload_url: signed.url,
+    public_url: `${R2_PUBLIC_URL}/${thumbKey}`,
+    key: thumbKey,
+    method: "PUT",
+    headers: putHeaders,
+  })
+}
+
+// ══════════════════════════════════════════════════════════════
 // R2 USAGE — scan the bucket via ListObjectsV2 and aggregate stats
 // for the Manager page. No Cloudflare Analytics call yet (would need
 // a separate API token); operations counts (Class A/B) are not
@@ -469,6 +503,7 @@ serve(async (req) => {
 
     switch (action) {
       case "r2_sign_upload":    return await handleR2SignUpload(params)
+      case "r2_sign_thumb":     return await handleR2SignThumb(params)
       case "r2_usage":          return await handleR2Usage()
       case "r2_backfill_cache": return await handleR2BackfillCache(params)
       case "get_card_upload_sig":

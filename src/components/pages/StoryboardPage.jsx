@@ -6,6 +6,7 @@ import useIsMobile from '../../hooks/useIsMobile'
 import { IconX, IconSearch, IconLayout, IconTarget } from '../ui/Icons'
 import { cld } from '../../lib/cld'
 import Img from '../ui/Img'
+import { thumbUrlFor, THUMB_MAX_EDGE } from '../../lib/thumbs'
 
 // ── Constants ──
 const STATUS_KEY = dept => `status_${dept === 'compositing' ? 'compositing' : dept}`
@@ -428,7 +429,54 @@ function estimateSingleH() {
   return Math.round((B_CELL_W - 2 * MASONRY_PAD) * 0.7) + 2 * MASONRY_PAD
 }
 
-const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH, disabled, measureRef }) {
+// Board image that loads progressively: it paints the tiny R2 thumb sibling
+// immediately (instant board, even with hundreds of images) and only fetches
+// the full-res original once `highRes` is true — i.e. the cell is both visible
+// AND zoomed in past the thumb's resolution. The swap is flicker-free (the thumb
+// stays until the original has decoded). If a thumb is missing (older image not
+// yet backfilled), it transparently falls back to the original. The thumb keeps
+// the original's aspect ratio, so row-height measurement is correct before any
+// upgrade.
+const ProgressiveImg = memo(function ProgressiveImg({ original, highRes, onClick, style }) {
+  const thumb = useMemo(() => thumbUrlFor(original), [original])
+  const hasThumb = thumb !== original
+
+  // { src: rendered url, full: showing original?, bust: retry count, failed }
+  const [st, setSt] = useState(() => ({ src: hasThumb ? thumb : original, full: !hasThumb, bust: 0, failed: false }))
+
+  // Reset when the underlying image changes (e.g. a cell swaps its image).
+  useEffect(() => {
+    setSt({ src: hasThumb ? thumb : original, full: !hasThumb, bust: 0, failed: false })
+  }, [original, thumb, hasThumb])
+
+  // Upgrade to full-res when zoomed in. Preload first so the thumb stays on
+  // screen until the original is decoded — no flash of blank/low-res swap.
+  useEffect(() => {
+    if (!highRes || st.full) return
+    let cancelled = false
+    const pre = new Image()
+    pre.onload = () => { if (!cancelled) setSt(s => (s.full ? s : { ...s, src: original, full: true })) }
+    pre.src = original
+    return () => { cancelled = true }
+  }, [highRes, st.full, original])
+
+  const onError = useCallback(() => {
+    setSt(s => {
+      if (!s.full) return { src: original, full: true, bust: 0, failed: false } // thumb missing → original
+      if (s.bust < 2) { const b = s.bust + 1; return { ...s, src: `${original}${original.includes('?') ? '&' : '?'}_r=${b}`, bust: b } }
+      return { ...s, failed: true }
+    })
+  }, [original])
+
+  if (st.failed) return <div role="img" aria-label="" style={{ background: '#E2E8F0', ...style }} />
+  return (
+    <img src={st.src} alt="" onClick={onClick} onError={onError}
+      draggable={false} onDragStart={(e) => e.preventDefault()}
+      decoding="async" loading="lazy" style={style} />
+  )
+})
+
+const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH, disabled, measureRef, highRes }) {
   const count = images?.length || 0
 
   if (disabled) return <div style={{ height: cellH }} />
@@ -448,8 +496,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     return (
       <div style={{ padding: MASONRY_PAD, boxSizing: 'border-box' }}>
         <div ref={measureRef} style={{ lineHeight: 0 }}>
-          <Img src={thumbUrl(images[0].image_url, 1600, 900)} alt="" onClick={() => onClickImage(0)}
-            draggable={false} onDragStart={(e) => e.preventDefault()}
+          <ProgressiveImg original={images[0].image_url} highRes={highRes} onClick={() => onClickImage(0)}
             style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 6, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
         </div>
       </div>
@@ -469,8 +516,7 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
             {isAudioUrl(img.image_url) ? (
               <AudioMiniPlayer url={img.image_url} />
             ) : (
-              <Img src={thumbUrl(img.image_url, 800, 800)} alt="" onClick={() => onClickImage(i)}
-                draggable={false} onDragStart={(e) => e.preventDefault()}
+              <ProgressiveImg original={img.image_url} highRes={highRes} onClick={() => onClickImage(i)}
                 style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
             )}
           </div>
@@ -485,14 +531,13 @@ function refThumbUrl(url) {
   return url || null
 }
 
-const RefCell = memo(function RefCell({ url, onClick, cellH }) {
+const RefCell = memo(function RefCell({ url, onClick, cellH, highRes }) {
   const [hov, setHov] = useState(false)
   if (!url) return <div style={{ height: cellH }} />
   return (
     <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ height: cellH, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '1px solid #E8ECF1', background: '#fff', transition: 'all 0.15s ease', transform: hov ? 'translateY(-1px)' : 'none', boxShadow: hov ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Img src={refThumbUrl(url, 1600, 900)} alt=""
-        draggable={false} onDragStart={(e) => e.preventDefault()}
+      <ProgressiveImg original={url} highRes={highRes}
         style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', userSelect: 'none', WebkitUserDrag: 'none' }} />
     </div>
   )
@@ -1557,6 +1602,24 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 
   const activePan = pan || { x: 40, y: 20 }
 
+  // Progressive image resolution. By default every cell paints the small R2
+  // thumb (instant board, even with hundreds of images). A row only upgrades to
+  // full-res originals when it is BOTH visible AND zoomed in past the thumb's
+  // resolution — i.e. exactly the cells the user is looking at closely. This is
+  // what turns the old ~30s full-res load into a near-instant one.
+  const _dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1
+  // On-screen device px of a full-width cell image at the current zoom.
+  const _cellImgDevicePx = (B_CELL_W - 2 * MASONRY_PAD) * scale * _dpr
+  const zoomNeedsHighRes = _cellImgDevicePx > THUMB_MAX_EDGE
+  const _contH = containerRef.current?.clientHeight || 0
+  // Visible board-Y window (inner board coords) + ~1 screen of preload margin.
+  const _viewTopB = (-activePan.y) / scale
+  const _viewBotB = (_contH - activePan.y) / scale
+  const _marginB = _contH > 0 ? _contH / scale : 0
+  const rowWantsHighRes = (rowTop, rowH) =>
+    zoomNeedsHighRes && _contH > 0 &&
+    rowTop < _viewBotB + _marginB && (rowTop + rowH) > _viewTopB - _marginB
+
   const resetView = useCallback(() => {
     setScale(0.55)
     // Delay reset pan to after scale updates
@@ -1812,6 +1875,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
           const { shot: item, cellH } = row
           const code = getCode(item)
           const description = getDescription(item)
+          const highRes = rowWantsHighRes(y, cellH)
           return (
             <div key={item.id} style={{ position: 'absolute', left: 0, top: y, width: boardW, height: cellH, overflow: 'hidden' }}>
               {/* Item code */}
@@ -1866,7 +1930,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
 
               {/* Reference */}
               <div style={{ position: 'absolute', left: colX(1), top: 0, width: B_REF_W, height: cellH, overflow: 'hidden' }}>
-                <RefCell url={getRefUrl(item)} onClick={() => openRef(item)} cellH={cellH} />
+                <RefCell url={getRefUrl(item)} onClick={() => openRef(item)} cellH={cellH} highRes={highRes} />
               </div>
 
               {/* Description — inner div has no height constraint so its natural height
@@ -1899,7 +1963,7 @@ function CanvasBoard({ sequences, imageMap, depts, getCode, getRefUrl, getDescri
                 return (
                   <div key={d.id} style={{ position: 'absolute', left: colX(3 + di), top: 0, width: B_CELL_W, height: cellH }}>
                     <BoardCell images={imgs} status={status} cellH={cellH} disabled={deptDisabled}
-                      measureRef={cellRef(item.id, d.id)}
+                      measureRef={cellRef(item.id, d.id)} highRes={highRes}
                       onClickImage={(idx) => openCellImage(item.id, code, d.id, d.label, status, idx)} />
                   </div>
                 )

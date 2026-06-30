@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import TRIVIA_QUESTIONS from './triviaQuestions'
+import { generateThumbBlob } from './thumbs'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -826,7 +827,17 @@ async function r2Upload(kind, file, meta) {
         headers: putHeaders,
         body: file,
       })
-      if (putRes.ok) return { url: sigJson.public_url, error: null }
+      if (putRes.ok) {
+        // Best-effort thumbnail sibling (`<key>_t512.webp`). Lets the storyboard
+        // paint a tiny low-res version instantly and only fetch the full-res
+        // original when the user zooms in. Never blocks or fails the upload —
+        // if anything goes wrong the board just falls back to the original.
+        try {
+          const thumb = await generateThumbBlob(file)
+          if (thumb && sigJson.key) await uploadThumbForKey(sigJson.key, thumb)
+        } catch { /* ignore — thumb is an optimization, not a requirement */ }
+        return { url: sigJson.public_url, error: null }
+      }
       lastErr = { message: `R2 PUT failed with status ${putRes.status}` }
     } catch (e) {
       lastErr = { message: 'R2 PUT network error: ' + (e.message || String(e)) }
@@ -834,6 +845,28 @@ async function r2Upload(kind, file, meta) {
     if (attempt === 1) await new Promise(r => setTimeout(r, 500))
   }
   return { url: null, error: lastErr || { message: 'R2 upload failed' } }
+}
+
+// Upload a generated thumbnail to `<key>_t512.webp`. Best-effort: every failure
+// path is swallowed because the board falls back to the original if the thumb
+// is missing. The signer (`r2_sign_thumb`) validates the key + suffix server-side.
+async function uploadThumbForKey(key, blob) {
+  try {
+    const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
+    const authHeader = await getEdgeAuthHeader(false)
+    const sigRes = await fetch(sigUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY, 'Authorization': authHeader },
+      body: JSON.stringify({ action: 'r2_sign_thumb', key }),
+    })
+    const j = await sigRes.json().catch(() => null)
+    if (!sigRes.ok || !j?.upload_url) return
+    await fetch(j.upload_url, {
+      method: 'PUT',
+      headers: j.headers || { 'Content-Type': 'image/webp' },
+      body: blob,
+    })
+  } catch { /* ignore — thumb is an optimization, not a requirement */ }
 }
 
 export async function uploadConceptImage(shotId, file) {
