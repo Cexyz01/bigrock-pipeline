@@ -851,8 +851,13 @@ export default function App() {
         addToast(`File ${i + 1} upload failed: ${error.message}`, 'danger')
       }
     }
+    // If the student attached images but NONE made it to R2 (e.g. the network
+    // dropped through every retry), abort instead of creating an empty WIP.
+    // Returning null leaves the composer intact (files + note preserved) so they
+    // can just hit publish again once the connection is back — nothing is lost.
     if (files.length > 0 && imageUrls.length === 0) {
-      addToast('No images uploaded — check the console for details', 'danger')
+      addToast('Caricamento non riuscito (rete) — i file sono ancora qui, riprova tra poco', 'danger')
+      return null
     }
 
     // 2. Create the WIP update record

@@ -781,12 +781,19 @@ async function r2Upload(kind, file, meta) {
 
   const sigUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/miro-sync`
 
-  // Request the signature with a fresh token, retrying once on 401 — covers the
-  // case where the token expired despite the proactive refresh (clock skew or a
-  // token that lapsed in the brief window before the gateway check).
-  let sigRes
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const authHeader = await getEdgeAuthHeader(attempt === 2)
+  // ── 1. Get a presigned PUT URL from the signer ──
+  // Uploads are workflow-critical (feedback_uploads_must_succeed), so we ride
+  // out TRANSIENT failures instead of surfacing them: a flaky network (fetch
+  // throws), an edge cold-start 5xx, or an expired token (401 → force-refresh
+  // and retry). Only a genuine client error (4xx other than 401) fails fast,
+  // since retrying that would never succeed. Backoff is bounded well under the
+  // presigned URL's 5-min TTL.
+  const SIG_DELAYS = [400, 1200, 3000]
+  let sigJson = null
+  let sigErr = { message: 'Signer unavailable' }
+  for (let attempt = 0; attempt <= SIG_DELAYS.length; attempt++) {
+    const authHeader = await getEdgeAuthHeader(attempt > 0) // force token refresh on any retry
+    let sigRes
     try {
       sigRes = await fetch(sigUrl, {
         method: 'POST',
@@ -794,33 +801,39 @@ async function r2Upload(kind, file, meta) {
         body: JSON.stringify({ action: 'r2_sign_upload', kind, ext, content_type: contentType, ...meta }),
       })
     } catch (e) {
-      return { url: null, error: { message: 'Network error contacting signer: ' + (e.message || String(e)) } }
+      sigErr = { message: 'Network error contacting signer: ' + (e.message || String(e)) }
+      if (attempt < SIG_DELAYS.length) { await sleep(SIG_DELAYS[attempt]); continue }
+      return { url: null, error: sigErr }
     }
-    if (sigRes.status === 401 && attempt === 1) continue
-    break
+    // 401 (stale token) and 5xx (edge hiccup) are transient → back off + retry.
+    if ((sigRes.status === 401 || sigRes.status >= 500) && attempt < SIG_DELAYS.length) {
+      sigErr = { message: `Signer error (${sigRes.status})` }
+      await sleep(SIG_DELAYS[attempt]); continue
+    }
+    try { sigJson = await sigRes.json() } catch (_) {
+      sigErr = { message: `Signer responded with status ${sigRes.status} but invalid JSON` }
+      if (attempt < SIG_DELAYS.length) { await sleep(SIG_DELAYS[attempt]); continue }
+      return { url: null, error: sigErr }
+    }
+    if (!sigRes.ok || !sigJson?.upload_url || !sigJson?.public_url) {
+      return { url: null, error: { message: sigJson?.error || `Signer error (${sigRes.status})` } }
+    }
+    break // got a valid signature
   }
+  if (!sigJson?.upload_url) return { url: null, error: sigErr }
 
-  let sigJson
-  try { sigJson = await sigRes.json() } catch (_) {
-    return { url: null, error: { message: `Signer responded with status ${sigRes.status} but invalid JSON` } }
-  }
-  if (!sigRes.ok || !sigJson?.upload_url || !sigJson?.public_url) {
-    return { url: null, error: { message: sigJson?.error || `Signer error (${sigRes.status})` } }
-  }
-
-  // PUT to R2 with one retry — the network blip case (per
-  // feedback_uploads_must_succeed: uploads are workflow-critical, so we
-  // retry rather than surface a transient failure to the user).
-  //
-  // The PUT headers MUST match exactly what the signer signed (it now signs
-  // Cache-Control too, so objects are cached long-term by the browser). Echo
-  // the signer's `headers` verbatim; fall back to Content-Type for older
+  // ── 2. PUT the bytes to R2 ──
+  // Same resilience: retry network blips + transient server statuses with
+  // backoff; bail out on a non-retryable 4xx. The PUT headers MUST match
+  // exactly what the signer signed (it signs Cache-Control too) — echo the
+  // signer's `headers` verbatim, falling back to Content-Type for older
   // signer responses that didn't return a headers map.
   const putHeaders = sigJson.headers && Object.keys(sigJson.headers).length
     ? sigJson.headers
     : { 'Content-Type': contentType }
+  const PUT_DELAYS = [500, 1500, 4000]
   let lastErr = null
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 0; attempt <= PUT_DELAYS.length; attempt++) {
     try {
       const putRes = await fetch(sigJson.upload_url, {
         method: 'PUT',
@@ -839,13 +852,18 @@ async function r2Upload(kind, file, meta) {
         return { url: sigJson.public_url, error: null }
       }
       lastErr = { message: `R2 PUT failed with status ${putRes.status}` }
+      // 4xx (except 408 timeout / 429 rate-limit) won't fix itself on retry.
+      if (putRes.status < 500 && putRes.status !== 408 && putRes.status !== 429) break
     } catch (e) {
       lastErr = { message: 'R2 PUT network error: ' + (e.message || String(e)) }
     }
-    if (attempt === 1) await new Promise(r => setTimeout(r, 500))
+    if (attempt < PUT_DELAYS.length) await sleep(PUT_DELAYS[attempt])
   }
   return { url: null, error: lastErr || { message: 'R2 upload failed' } }
 }
+
+// Small backoff helper for the upload retry loops.
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 // Upload a generated thumbnail to `<key>_t512.webp`. Best-effort: every failure
 // path is swallowed because the board falls back to the original if the thumb
