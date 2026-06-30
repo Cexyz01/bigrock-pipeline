@@ -1118,6 +1118,97 @@ async function handleR2Usage() {
   })
 }
 
+// ══════════════════════════════════════════════════════════════
+// R2 BACKFILL CACHE — one-off: stamp a long immutable Cache-Control on
+// every existing object so the browser stops re-fetching media on each
+// page visit. Objects uploaded before the signer started signing
+// Cache-Control have no cache header at all. We rewrite metadata in place
+// via CopyObject (MetadataDirective=REPLACE) — bytes are untouched, the
+// public URL is unchanged, only the response headers change.
+//
+// Processes one ListObjectsV2 page (≤1000 keys) per call with bounded
+// concurrency, returning a continuation token so the caller can loop until
+// done without hitting the function wall-clock limit.
+// ══════════════════════════════════════════════════════════════
+
+const R2_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+const EXT_MIME: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  gif: "image/gif", svg: "image/svg+xml", avif: "image/avif", bmp: "image/bmp",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
+  aac: "audio/aac", flac: "audio/flac",
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+  pdf: "application/pdf",
+}
+function mimeForKey(key: string): string {
+  const ext = (key.split(".").pop() || "").toLowerCase()
+  return EXT_MIME[ext] || "application/octet-stream"
+}
+
+async function handleR2BackfillCache(params: any) {
+  if (!r2 || !R2_BUCKET || !R2_ENDPOINT) return err("R2 not configured", 500)
+  // Light guard so this destructive-ish rewrite isn't triggered by accident.
+  if (params.confirm !== "BACKFILL_CACHE_2026") return err("Missing confirm token", 403)
+
+  const listUrl = new URL(`${R2_ENDPOINT}/${R2_BUCKET}`)
+  listUrl.searchParams.set("list-type", "2")
+  listUrl.searchParams.set("max-keys", "1000")
+  if (params.start_token) listUrl.searchParams.set("continuation-token", params.start_token)
+  if (params.prefix) listUrl.searchParams.set("prefix", params.prefix)
+
+  const listSigned = await r2.sign(new Request(listUrl.toString(), { method: "GET" }))
+  const listRes = await fetch(listSigned.url, { method: "GET", headers: listSigned.headers })
+  if (!listRes.ok) {
+    const body = await listRes.text()
+    return err(`R2 list failed (${listRes.status}): ${body.slice(0, 300)}`, 500)
+  }
+  const xml = await listRes.text()
+  const keys = xmlMatchAll(xml, "Contents")
+    .map(block => xmlFirst(block, "Key") || "")
+    .filter(Boolean)
+
+  let updated = 0
+  const errors: string[] = []
+
+  // Rewrite one object's metadata in place via self-CopyObject.
+  const rewrite = async (key: string) => {
+    const dstUrl = `${R2_ENDPOINT}/${R2_BUCKET}/${key.split("/").map(encodeURIComponent).join("/")}`
+    const copySource = `/${R2_BUCKET}/${key.split("/").map(encodeURIComponent).join("/")}`
+    const signed = await r2.sign(new Request(dstUrl, {
+      method: "PUT",
+      headers: {
+        "x-amz-copy-source": copySource,
+        "x-amz-metadata-directive": "REPLACE",
+        "Cache-Control": R2_CACHE_CONTROL,
+        "Content-Type": mimeForKey(key),
+      },
+    }))
+    const res = await fetch(signed.url, { method: "PUT", headers: signed.headers })
+    if (res.ok) { updated++; return }
+    const body = await res.text()
+    errors.push(`${key}: ${res.status} ${body.slice(0, 120)}`)
+  }
+
+  // Bounded concurrency so a big page doesn't blow the wall-clock budget.
+  const CONCURRENCY = 12
+  for (let i = 0; i < keys.length; i += CONCURRENCY) {
+    await Promise.all(keys.slice(i, i + CONCURRENCY).map(rewrite))
+  }
+
+  const truncated = (xmlFirst(xml, "IsTruncated") || "false").toLowerCase() === "true"
+  const next_token = truncated ? (xmlFirst(xml, "NextContinuationToken") || null) : null
+
+  return ok({
+    page_keys: keys.length,
+    updated,
+    error_count: errors.length,
+    errors: errors.slice(0, 20),
+    done: !next_token,
+    next_token,
+  })
+}
+
 // Legacy Cloudinary signed-upload endpoint. All upload paths moved to R2 via
 // handleR2SignUpload on 2026-05-27. This stub stays so any browser still
 // running a stale Vercel bundle fails LOUDLY instead of silently writing to
@@ -1358,6 +1449,7 @@ serve(async (req) => {
     switch (action) {
       case "r2_sign_upload":    return await handleR2SignUpload(params)
       case "r2_usage":          return await handleR2Usage()
+      case "r2_backfill_cache": return await handleR2BackfillCache(params)
       case "create_board":      return await handleCreateBoard(supabase, params)
       case "full_sync":         return await handleFullSync(supabase)
       case "fix_sync":          return await handleFixSync(supabase)
