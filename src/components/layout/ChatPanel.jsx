@@ -567,16 +567,16 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
       }}>
         <Av name={author?.full_name} size={26} url={author?.avatar_url} mood={author?.mood_emoji} />
 
-        {/* Click-away backdrop while this message's picker/details is open */}
-        {(pickerOpen || detailsOpen) && (
-          <div onClick={() => { setReactionPickerFor(null); setReactionDetailsFor(null) }}
+        {/* Click-away backdrop while this message's quick-emoji picker is open */}
+        {pickerOpen && (
+          <div onClick={() => setReactionPickerFor(null)}
             style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
         )}
 
         <div style={{
           display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: '78%',
           alignItems: isMine ? 'flex-end' : 'flex-start',
-          position: 'relative', zIndex: (pickerOpen || detailsOpen) ? 25 : undefined,
+          position: 'relative', zIndex: pickerOpen ? 25 : undefined,
         }}>
           {/* Bubble + reaction trigger + quick-emoji popover */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: '100%', flexDirection: isMine ? 'row-reverse' : 'row', position: 'relative' }}>
@@ -661,32 +661,56 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
             </div>
           )}
 
-          {/* "Who reacted" list */}
-          {detailsOpen && (
-            <div style={{
-              marginTop: 6, width: '100%', maxWidth: 240, background: '#1b1b1b', border: '1px solid #333',
-              borderRadius: 12, padding: '8px 10px', alignSelf: isMine ? 'flex-end' : 'flex-start', zIndex: 30,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#a1a1aa' }}>Reazioni</span>
-                <button onClick={() => setReactionDetailsFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a', padding: 0, lineHeight: 0 }}><IconX size={13} /></button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
-                {reactionEntries.flatMap(([e, ids]) => ids.map(uid => {
-                  const p = profileById[uid]
-                  return (
-                    <div key={e + uid} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Av name={p?.full_name || '?'} size={22} url={p?.avatar_url} mood={p?.mood_emoji} />
-                      <span style={{ fontSize: 12, color: '#E4E4E7', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {uid === user.id ? 'Tu' : (p?.full_name || 'Utente')}
-                      </span>
-                      <span style={{ fontSize: 14 }}>{e}</span>
-                    </div>
-                  )
-                }))}
-              </div>
-            </div>
-          )}
+        </div>
+      </div>
+    )
+  }
+
+  // The message whose "who reacted" modal is open (looked up across both lists).
+  const reactionDetailsMsg = reactionDetailsFor
+    ? (messages.find(m => m.id === reactionDetailsFor) || dmMessages.find(m => m.id === reactionDetailsFor) || null)
+    : null
+  const reactionDetailsEntries = reactionDetailsMsg && reactionDetailsMsg.reactions && typeof reactionDetailsMsg.reactions === 'object' && !Array.isArray(reactionDetailsMsg.reactions)
+    ? Object.entries(reactionDetailsMsg.reactions).filter(([, ids]) => Array.isArray(ids) && ids.length > 0)
+    : []
+
+  // Centered dark modal listing who reacted with what — darkens the whole site
+  // until dismissed (backdrop click or the × button).
+  const renderReactionDetailsModal = () => {
+    if (!reactionDetailsMsg || reactionDetailsEntries.length === 0) return null
+    const total = reactionDetailsEntries.reduce((s, [, ids]) => s + ids.length, 0)
+    return (
+      <div
+        onClick={() => setReactionDetailsFor(null)}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}
+      >
+        <div onClick={e => e.stopPropagation()} style={{
+          background: '#1b1b1b', border: '1px solid #333', borderRadius: 16,
+          width: '100%', maxWidth: 340, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.6)', animation: 'scaleIn 0.2s ease', overflow: 'hidden',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid #2d2d2d' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#E4E4E7' }}>Reazioni <span style={{ color: '#71717a', fontWeight: 600 }}>{total}</span></span>
+            <button onClick={() => setReactionDetailsFor(null)} style={{ background: '#2a2a2a', border: 'none', cursor: 'pointer', color: '#a1a1aa', borderRadius: 8, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><IconX size={15} /></button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 8px 12px', overflowY: 'auto' }}>
+            {reactionDetailsEntries.flatMap(([e, ids]) => ids.map(uid => {
+              const p = profileById[uid]
+              return (
+                <div key={e + uid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 10 }}>
+                  <Av name={p?.full_name || '?'} size={32} url={p?.avatar_url} mood={p?.mood_emoji} />
+                  <span style={{ fontSize: 13, color: '#E4E4E7', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {uid === user.id ? 'Tu' : (p?.full_name || 'Utente')}
+                  </span>
+                  <span style={{ fontSize: 20 }}>{e}</span>
+                </div>
+              )
+            }))}
+          </div>
         </div>
       </div>
     )
@@ -1025,6 +1049,8 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
           )}
         </div>
       )}
+
+      {renderReactionDetailsModal()}
     </>
   )
 }
