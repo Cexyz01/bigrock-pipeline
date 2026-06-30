@@ -80,18 +80,27 @@ export default function ActivityTrackerPage({ tasks, profiles, user, onNavigate,
     setSavingEnd(false)
   }
 
-  const [projectMemberIds, setProjectMemberIds] = useState(null)
+  const [projectMembers, setProjectMembers] = useState(null)
 
   useEffect(() => {
     if (!currentProject) return
     getProjectMembers(currentProject.id).then(members => {
-      setProjectMemberIds(new Set(members.map(m => m.user_id)))
+      setProjectMembers(members || [])
     })
   }, [currentProject?.id])
 
-  const students = profiles.filter(p =>
-    p.role_slug === 'studente' && (projectMemberIds ? projectMemberIds.has(p.id) : true)
-  )
+  // Only show students who are members of the current project, and override their
+  // global department with the per-project `project_role` so they group / label by
+  // what they were actually assigned to do here (matches TasksPage / GanttPage).
+  const students = useMemo(() => {
+    const memberByUser = new Map((projectMembers || []).map(m => [m.user_id, m]))
+    return profiles
+      .filter(p => p.role_slug === 'studente' && (projectMembers ? memberByUser.has(p.id) : true))
+      .map(p => {
+        const m = memberByUser.get(p.id)
+        return m ? { ...p, department: m.project_role || p.department || null } : p
+      })
+  }, [profiles, projectMembers])
 
   // ── Category filter + search ──────────────────────────────────────────────
   const [category, setCategory] = useState('all')
