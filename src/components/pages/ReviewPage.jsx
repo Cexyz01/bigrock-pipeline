@@ -719,9 +719,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
 // of older WIPs obvious.
 function WipCarousel({ wips, user, addToast }) {
   const scrollerRef = useRef(null)
-  const slideRefs = useRef([])
   const [activeIdx, setActiveIdx] = useState(0)
-  const [activeHeight, setActiveHeight] = useState(null)
   // Carousel = one WIP at a time (with notes/audio/video); grid = every image
   // across every WIP at once, small and clickable — for tasks with many
   // images where swiping one WIP at a time gets tedious.
@@ -759,34 +757,24 @@ function WipCarousel({ wips, user, addToast }) {
   }, [flatImages, activeIdx, scrollTo])
 
   // Track which slide is currently snapped into view via scroll position.
+  // Re-runs whenever the scroller (re)mounts — e.g. toggling grid → carousel
+  // recreates this DOM node, so the listener from a previous mount (attached
+  // to the now-detached old node) would otherwise go quiet and activeIdx
+  // would get stuck, breaking the prev/next arrows.
   useEffect(() => {
     const el = scrollerRef.current
     if (!el) return
-    let raf = 0
-    const onScroll = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const w = el.clientWidth
-        if (!w) return
-        const idx = Math.round(el.scrollLeft / w)
-        setActiveIdx(idx)
-      })
+    const sync = () => {
+      const w = el.clientWidth
+      if (!w) return
+      setActiveIdx(Math.round(el.scrollLeft / w))
     }
+    sync() // resync immediately in case the remount landed on a different slide
+    let raf = 0
+    const onScroll = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(sync) }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => { el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
-  }, [])
-
-  // Match scroller height to the active slide so a tall WIP (e.g. many videos)
-  // doesn't leave whitespace below the shorter WIPs.
-  useEffect(() => {
-    const slide = slideRefs.current[activeIdx]
-    if (!slide) return
-    const update = () => setActiveHeight(slide.offsetHeight)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(slide)
-    return () => ro.disconnect()
-  }, [activeIdx, wips.length])
+  }, [viewMode])
 
   const single = wips.length === 1
   const showViewToggle = flatImages.length > 1
@@ -830,19 +818,21 @@ function WipCarousel({ wips, user, addToast }) {
           <div
             ref={scrollerRef}
             style={{
+              // No JS-driven height here on purpose: a non-wrapping flex row's
+              // height is naturally the tallest child, and every slide is
+              // always mounted (just scrolled out of view), so the container
+              // stays a constant height as you swipe — no more vertical page
+              // jump when a shorter WIP comes into view.
               display: 'flex', gap: 16, overflowX: 'auto', overflowY: 'hidden',
               scrollSnapType: 'x mandatory',
               scrollbarWidth: 'none', msOverflowStyle: 'none',
               paddingBottom: single ? 0 : 4,
               alignItems: 'flex-start',
-              height: activeHeight ? activeHeight + (single ? 0 : 4) : undefined,
-              transition: 'height 0.2s ease',
             }}
           >
-            {wips.map((w, i) => (
+            {wips.map((w) => (
               <div
                 key={w.id}
-                ref={el => { slideRefs.current[i] = el }}
                 style={{
                   flex: '0 0 100%', minWidth: 0,
                   scrollSnapAlign: 'start',
