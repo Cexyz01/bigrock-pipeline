@@ -1202,6 +1202,13 @@ export async function setMaintenanceMode(on) {
   return { data, error }
 }
 
+// ── Force-reload flag (see main.jsx auto-update poll + scripts/force-reload.mjs) ──
+
+export async function getForceReloadAt() {
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'force_reload_at').maybeSingle()
+  return data?.value || null
+}
+
 // ── TCG Game State ──
 
 export async function getTcgGameActive() {

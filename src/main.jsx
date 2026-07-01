@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { getForceReloadAt } from './lib/supabase'
 import './index.css'
 
 // Clock-skew gate — supabase-js parses JWT exp client-side using Date.now(),
@@ -81,22 +82,22 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 )
 
-// ── Auto-update: reload the tab when a newer build is deployed ──
-// The app is a long-lived SPA, so an open tab keeps running the JS it loaded
-// at boot until it reloads. We stamp every build with a unique id (baked in as
-// __BUILD_ID__ + written to /version.json), poll that file, and reload when it
-// no longer matches what this tab booted with. Result: users pick up new
-// deploys automatically within ~1 min (or instantly when they refocus the tab),
-// without having to hit Ctrl+R.
-const BUILD_ID = (typeof __BUILD_ID__ !== 'undefined') ? __BUILD_ID__ : null
+// ── Auto-update: reload the tab only when explicitly pushed ──
+// Used to force-reload every open tab on every deploy, which is disruptive
+// with dozens of students potentially online — even for backend-only changes
+// nobody else can see. Now a normal deploy is silent; tabs only reload when
+// someone explicitly pushes it via scripts/force-reload.mjs, which bumps the
+// `force_reload_at` key in app_settings. We poll that key, remember the value
+// this tab booted with, and reload only once the server value moves past it.
+let bootForceReloadAt = null
 let __reloadingForUpdate = false
 async function checkForUpdate() {
-  if (__reloadingForUpdate || !BUILD_ID) return
+  if (__reloadingForUpdate) return
   try {
-    const res = await fetch('/version.json', { cache: 'no-store' })
-    if (!res.ok) return
-    const { v } = await res.json()
-    if (!v || v === BUILD_ID) return
+    const serverValue = await getForceReloadAt()
+    if (!serverValue) return
+    if (bootForceReloadAt === null) { bootForceReloadAt = serverValue; return } // establish baseline
+    if (serverValue === bootForceReloadAt) return
     // Don't yank the page out from under someone mid-typing — wait for a later
     // check when an input/textarea isn't focused.
     const el = document.activeElement
@@ -105,13 +106,12 @@ async function checkForUpdate() {
     window.location.reload()
   } catch (_) { /* offline / transient — try again next tick */ }
 }
-if (BUILD_ID) {
-  setInterval(checkForUpdate, 60000)
-  window.addEventListener('focus', checkForUpdate)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkForUpdate()
-  })
-}
+checkForUpdate()
+setInterval(checkForUpdate, 60000)
+window.addEventListener('focus', checkForUpdate)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkForUpdate()
+})
 
 // ── Disable browser zoom (keep at 100%) ──
 document.addEventListener('keydown', (e) => {
