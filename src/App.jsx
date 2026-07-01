@@ -27,7 +27,6 @@ import {
   getTcgGameActive,
   getMaintenanceMode,
   subscribeToGameInvites, getGameById,
-  subscribeToTradeInvites, getTradeById,
   updateLastSeen,
   getWipUpdates, createWipUpdate, deleteWipUpdate, uploadWipImage, addWipComment,
   getWipViews, markWipViewed, uploadWipFile,
@@ -61,8 +60,6 @@ import ReviewPage from './components/pages/ReviewPage'
 import GanttPage from './components/pages/GanttPage'
 import GameInviteOverlay from './components/games/GameInviteOverlay'
 import GameSession from './components/games/GameSession'
-import TradeInviteOverlay from './components/pack/TradeInviteOverlay'
-import TradeSession from './components/pack/TradeSession'
 import { IconPalette, IconClipboard, IconEye, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconBell } from './components/ui/Icons'
 
 import DevConsole from './components/console/DevConsole'
@@ -124,8 +121,6 @@ export default function App() {
   const [alvise, setAlvise] = useState(false)
   const [pendingGameInvite, setPendingGameInvite] = useState(null) // { gameId, game, role }
   const [activeGameId, setActiveGameId] = useState(null)
-  const [pendingTradeInvite, setPendingTradeInvite] = useState(null) // { tradeId, trade, role }
-  const [activeTradeId, setActiveTradeId] = useState(null)
   const [projects, setProjects] = useState([])
   const [currentProject, setCurrentProject] = useState(null)
   const [projectMembers, setProjectMembers] = useState([])
@@ -561,24 +556,6 @@ export default function App() {
     })
     return () => { if (sub) supabase.removeChannel(sub) }
   }, [user])
-
-  // Trade invite subscription (global — works from any page)
-  useEffect(() => {
-    if (!user) return
-    const sub = subscribeToTradeInvites(user.id, async (payload) => {
-      const inv = payload.new
-      if (inv && inv.status === 'pending_invite' && inv.target_id === user.id) {
-        const { data: full } = await getTradeById(inv.id)
-        if (full) setPendingTradeInvite({ tradeId: inv.id, trade: full, role: 'target' })
-      }
-    })
-    return () => { if (sub) supabase.removeChannel(sub) }
-  }, [user])
-
-  // Trade invite sent handler (from PackTrading)
-  const handleTradeInviteSent = useCallback((tradeId, trade) => {
-    setPendingTradeInvite({ tradeId, trade, role: 'proposer' })
-  }, [])
 
   // Game challenge handler (from AdminConsole)
   const handleGameChallenge = useCallback((invite) => {
@@ -1333,7 +1310,7 @@ export default function App() {
             {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
             {view === 'timeline' && timelineAccess !== 'none' && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} accessMode={timelineAccess} currentProject={currentProject} onUpdateTimelineViewers={handleUpdateTimelineViewers} />}
             {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
-              <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} onTradeInviteSent={handleTradeInviteSent} />
+              <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
             )}
             {view === 'gantt' && (
               <GanttPage tasks={tasks} shots={shots} assets={assets} currentProject={currentProject} user={user}
@@ -1405,27 +1382,6 @@ export default function App() {
         document.body
       )}
 
-      {/* Trade overlays */}
-      {pendingTradeInvite && !activeTradeId && createPortal(
-        <TradeInviteOverlay
-          tradeId={pendingTradeInvite.tradeId}
-          trade={pendingTradeInvite.trade}
-          role={pendingTradeInvite.role}
-          onAccepted={(id) => { setPendingTradeInvite(null); setActiveTradeId(id) }}
-          onClose={() => setPendingTradeInvite(null)}
-          addToast={addToast}
-        />,
-        document.body
-      )}
-      {activeTradeId && createPortal(
-        <TradeSession
-          tradeId={activeTradeId}
-          user={user}
-          addToast={addToast}
-          onClose={() => setActiveTradeId(null)}
-        />,
-        document.body
-      )}
 
       {/* Admin DevConsole */}
       {user?.role === 'admin' && consoleOpen && (

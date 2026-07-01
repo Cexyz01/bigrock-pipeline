@@ -10,7 +10,6 @@ import { ScaledCard } from '../pack/CardRenderer'
 import PackShop from '../pack/PackShop'
 import PackAdminPanel from '../pack/PackAdminPanel'
 import PackOpening from '../pack/PackOpening'
-import PackTrading from '../pack/PackTrading'
 import CollectionHeader from '../pack/CollectionHeader'
 import CollectionFilters from '../pack/CollectionFilters'
 import CollectionGrid from '../pack/CollectionGrid'
@@ -26,10 +25,9 @@ const TABS = [
   { id: 'admin', label: 'Admin', adminOnly: true },
 ]
 
-export default function PackPage({ user, profiles, addToast, requestConfirm, tcgGameActive, onGameStateChange, onTradeInviteSent }) {
+export default function PackPage({ user, addToast, requestConfirm, tcgGameActive, onGameStateChange }) {
   const isMobile = useIsMobile()
   const [tab, setTab] = useState('collection')
-  const [shopTab, setShopTab] = useState('shop')
   const [cards, setCards] = useState([])
   const [userCards, setUserCards] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +37,9 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
   const [poolFilter, setPoolFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
+
+  // Admin-only: preview the full collection as if every card were owned
+  const [showFullCollection, setShowFullCollection] = useState(false)
 
   // Detail modal
   const [selected, setSelected] = useState(null)
@@ -174,7 +175,15 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     })
   }
 
+  const admin = hasPermission(user, 'manage_tcg')
+
   const ownedSet = useMemo(() => new Set(userCards.map(uc => uc.card_number)), [userCards])
+
+  // Admin-only preview: show every card as owned without touching real ownership data.
+  const effectiveOwnedSet = useMemo(() => {
+    if (!admin || !showFullCollection) return ownedSet
+    return new Set(cards.map(c => c.number))
+  }, [admin, showFullCollection, cards, ownedSet])
 
   const copiesMap = useMemo(() => {
     const m = {}
@@ -226,22 +235,12 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
 
   const rarityCounts = useMemo(() => {
     return PACK_RARITIES.map(r => {
-      const owned = userCards.reduce((acc, uc) => {
-        const card = cards.find(c => c.number === uc.card_number)
-        return card?.rarity === r.id ? acc + 1 : acc
-      }, 0)
-      // Distinct cards owned per rarity (not copies)
-      const ownedDistinct = new Set(
-        userCards
-          .map(uc => cards.find(c => c.number === uc.card_number))
-          .filter(c => c?.rarity === r.id)
-          .map(c => c.number)
-      ).size
+      const ownedDistinct = cards.filter(c => c.rarity === r.id && effectiveOwnedSet.has(c.number)).length
       return { id: r.id, label: r.label, color: r.color, owned: ownedDistinct, total: r.total }
     })
-  }, [cards, userCards])
+  }, [cards, effectiveOwnedSet])
 
-  const ownedCount = ownedSet.size
+  const ownedCount = effectiveOwnedSet.size
   const totalCount = cards.length
 
   const handleCardClick = (card, owned) => {
@@ -259,7 +258,6 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
     const m = now.getHours() * 60 + now.getMinutes()
     return m >= PACK_WINDOW_START_MIN && m < PACK_WINDOW_END_MIN
   }
-  const admin = hasPermission(user, 'manage_tcg')
   const canOpenPacks = tcgGameActive ? (!admin && isInPackTimeWindow()) : admin
 
   const handleOpenPack = async (packType, rect) => {
@@ -347,7 +345,24 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
             rarityCounts={rarityCounts}
           />
 
-          {visibleTabs.length > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {admin && (
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                padding: '6px 12px', borderRadius: 8, background: D.card, border: `1px solid ${D.border}`,
+                fontSize: 12, fontWeight: 600, color: showFullCollection ? '#F5B862' : D.muted, userSelect: 'none',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={showFullCollection}
+                  onChange={(e) => setShowFullCollection(e.target.checked)}
+                  style={{ accentColor: '#F28C28', width: 14, height: 14, cursor: 'pointer' }}
+                />
+                Mostra collezione completa
+              </label>
+            )}
+
+            {visibleTabs.length > 1 && (
             <div
               role="tablist"
               aria-label="Sezione TCG"
@@ -377,12 +392,13 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
               })}
             </div>
           )}
+          </div>
         </div>
 
         {/* Main content */}
         {tab === 'collection' && (
           <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, minHeight: 0, ...(isMobile ? { overflowY: 'auto', WebkitOverflowScrolling: 'touch' } : {}) }}>
-            {/* LEFT/TOP: Shop + Trading */}
+            {/* LEFT/TOP: Shop */}
             <div style={{
               ...(isMobile ? {
                 padding: '12px 16px 8px',
@@ -400,57 +416,15 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
                 flexShrink: 0,
               }),
             }}>
-              <div
-                role="tablist"
-                aria-label="Shop o Trading"
-                style={{
-                  display: 'flex', gap: 3, background: D.card, borderRadius: 10, padding: 2,
-                  border: `1px solid ${D.border}`, marginBottom: isMobile ? 12 : 20, alignSelf: 'center',
-                }}
-              >
-                {[{ id: 'shop', label: 'Shop' }, { id: 'trading', label: 'Trading' }].map(t => {
-                  const active = shopTab === t.id
-                  return (
-                    <button
-                      key={t.id}
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setShopTab(t.id)}
-                      style={{
-                        padding: '6px 20px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600,
-                        cursor: 'pointer', transition: 'all 0.2s',
-                        background: active ? '#F28C28' : 'transparent',
-                        color: active ? '#fff' : D.muted,
-                        outline: 'none',
-                      }}
-                      onFocus={(e) => { if (!active) e.currentTarget.style.boxShadow = '0 0 0 3px rgba(242,140,40,0.25)' }}
-                      onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
-                    >
-                      {t.label}
-                    </button>
-                  )
-                })}
-              </div>
-
-              {shopTab === 'shop' && (
-                <PackShop
-                  remaining={remaining}
-                  timer={timer}
-                  onOpenPack={handleOpenPack}
-                  isAdmin={admin}
-                  onResetPacks={handleResetPacks}
-                  canOpenPacks={canOpenPacks}
-                  requestConfirm={requestConfirm}
-                />
-              )}
-              {shopTab === 'trading' && (
-                <PackTrading
-                  user={user}
-                  profiles={profiles}
-                  addToast={addToast}
-                  onInviteSent={onTradeInviteSent}
-                />
-              )}
+              <PackShop
+                remaining={remaining}
+                timer={timer}
+                onOpenPack={handleOpenPack}
+                isAdmin={admin}
+                onResetPacks={handleResetPacks}
+                canOpenPacks={canOpenPacks}
+                requestConfirm={requestConfirm}
+              />
             </div>
 
             {/* RIGHT/BOTTOM: Collection */}
@@ -480,8 +454,8 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
               }}>
                 <CollectionGrid
                   cards={cardsAfterRarity}
-                  ownedSet={ownedSet}
-                  seenCards={seenCards}
+                  ownedSet={effectiveOwnedSet}
+                  seenCards={showFullCollection ? effectiveOwnedSet : seenCards}
                   onCardClick={handleCardClick}
                   onCardSeen={markCardSeen}
                   copyInfoMap={copyInfoMap}
@@ -524,7 +498,7 @@ export default function PackPage({ user, profiles, addToast, requestConfirm, tcg
       <DetailModal
         card={selected}
         owned={selectedOwned}
-        copies={copiesMap[selected.number] || []}
+        copies={copiesMap[selected.number]?.length ? copiesMap[selected.number] : (showFullCollection ? [{ copy_number: null, obtained_at: null, id: 'preview' }] : [])}
         cards={cards}
         copiesPerRarity={copiesPerRarity}
         isMobile={isMobile}
