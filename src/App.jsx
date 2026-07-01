@@ -543,6 +543,18 @@ export default function App() {
     return () => channels.forEach(ch => supabase.removeChannel(ch))
   }, [user, currentProject, profiles, refreshDmUnread])
 
+  // Realtime: TCG game on/off toggle. tcgGameActive is only fetched once at initial
+  // load — without this, a tab already open when an admin hits "Start Game" never
+  // learns the game turned on, and canOpenPacks stays false for students until they
+  // manually refresh.
+  useEffect(() => {
+    if (!user) return
+    const ch = subscribeToTable('app_settings', (payload) => {
+      if (payload.new?.key === 'tcg_game_active') setTcgGameActive(payload.new.value === 'true')
+    }, 'key=eq.tcg_game_active')
+    return () => supabase.removeChannel(ch)
+  }, [user])
+
   // Game invite subscription (mini-games)
   useEffect(() => {
     if (!user) return
