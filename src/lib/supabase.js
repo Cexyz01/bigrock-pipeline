@@ -1142,53 +1142,22 @@ export async function getPackTimerStatus() {
 }
 
 // ── Pack Opening ──
-
+// Runs entirely server-side via pack_claim_open (SECURITY DEFINER): students only have
+// RLS visibility into packs already assigned_to them, so an unassigned pack is invisible
+// to a plain client-side SELECT/UPDATE. The RPC bypasses that and atomically consumes a
+// slot, claims a pack, and grants the cards in one transaction.
 export async function claimAndOpenPack(userId, packType) {
-  // 1. Atomically refill-if-needed (server-side schedule) and consume one available slot
-  const { data: consumeData, error: consumeErr } = await supabase.rpc('pack_try_consume')
-  if (consumeErr) return { error: consumeErr }
-  const consume = Array.isArray(consumeData) ? consumeData[0] : consumeData
-  if (!consume?.ok) {
-    return { error: { message: 'No packs available', next_reset_at: consume?.next_reset_at } }
+  const { data, error } = await supabase.rpc('pack_claim_open', { p_pack_type: packType })
+  if (error) return { error }
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row?.ok) {
+    if (row?.reason === 'sold_out') return { error: { message: 'Nessun pacchetto di questo tipo rimasto' } }
+    return { error: { message: 'No packs available', next_reset_at: row?.next_reset_at } }
   }
-
-  // 2. Find an unassigned pack
-  const { data: pack, error: findErr } = await supabase
-    .from('pack_generated_packs')
-    .select('*')
-    .eq('pack_type', packType)
-    .is('assigned_to', null)
-    .limit(1)
-    .single()
-  if (findErr || !pack) {
-    await supabase.rpc('pack_refund_consume')
-    return { error: findErr || { message: 'No packs available' } }
+  return {
+    data: { id: row.id, pack_number: row.pack_number, pack_type: row.pack_type, cards: row.cards, opened_at: row.opened_at },
+    error: null,
   }
-
-  // 3. Claim it (race-safe: check assigned_to is still null)
-  const { data: claimed, error: claimErr } = await supabase
-    .from('pack_generated_packs')
-    .update({ assigned_to: userId, opened: true, opened_at: new Date().toISOString() })
-    .eq('id', pack.id)
-    .is('assigned_to', null)
-    .select()
-    .single()
-  if (claimErr || !claimed) {
-    await supabase.rpc('pack_refund_consume')
-    return { error: claimErr || { message: 'Pack already taken, try again' } }
-  }
-
-  // 4. Insert cards into user collection (ignore duplicates)
-  const cards = claimed.cards || []
-  for (const entry of cards) {
-    await supabase.from('pack_user_cards')
-      .upsert(
-        { user_id: userId, card_number: entry.card, copy_number: entry.copy, obtained_via: 'pack' },
-        { onConflict: 'user_id,card_number,copy_number', ignoreDuplicates: true }
-      )
-  }
-
-  return { data: claimed, error: null }
 }
 
 // ── Maintenance Mode ──
