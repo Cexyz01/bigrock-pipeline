@@ -836,7 +836,7 @@ export default function App() {
   // ── WIP Updates ──
 
   const handleCreateWipUpdate = async (taskId, note, files) => {
-    // 1. Upload files to R2 — images go through uploadWipImage (4MB cap),
+    // 1. Upload files to R2 — images go through uploadWipImage (10MB cap),
     //    audio + video go through uploadWipFile (10/100MB caps).
     const imageUrls = []
     for (let i = 0; i < files.length; i++) {

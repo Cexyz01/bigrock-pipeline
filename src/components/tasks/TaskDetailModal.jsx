@@ -17,7 +17,7 @@ import Img from '../ui/Img'
 import AnnotatedImage from '../ui/AnnotatedImage'
 
 const MAX_IMAGES = 4
-const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB for audio
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for video
 
@@ -1001,7 +1001,7 @@ export default function TaskDetailModal({
             </div>
             <Btn variant="primary" loading={publishing} onClick={handlePublishWip} disabled={wipFiles.length === 0 && !wipNote.trim()} style={{ flexShrink: 0, padding: '10px 16px' }}>Publish</Btn>
           </div>
-          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files · 4MB immagini · 10MB audio · 100MB video' : 'files · 4MB immagini · 100MB video'} · trascina o incolla (Ctrl+V)</div>
+          <div style={{ fontSize: 11, color: '#B0B8C4', marginTop: 6 }}>Up to {MAX_IMAGES} {task.department === 'sound' ? 'files · 10MB immagini · 10MB audio · 100MB video' : 'files · 10MB immagini · 100MB video'} · trascina o incolla (Ctrl+V)</div>
         </div>
       )}
       {staff && task.status === 'wip' && hasWipUpdates && (
