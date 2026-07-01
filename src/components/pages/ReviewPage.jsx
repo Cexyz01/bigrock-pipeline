@@ -588,13 +588,7 @@ function TaskReviewCard({ index, total, task, wips, onUpdateTask, onRejectTask, 
               <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.06em' }}>
                 {String(index).padStart(2, '0')} / {String(total).padStart(2, '0')}
               </span>
-              {dept && (
-                <span style={{
-                  fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999,
-                  background: `${dept.color}18`, color: dept.color, border: `1px solid ${dept.color}40`,
-                  textTransform: 'uppercase', letterSpacing: '0.04em',
-                }}>{dept.label}</span>
-              )}
+              {/* Department is already shown once in the section header above — no need to repeat it per card. */}
               {task.shot && (
                 <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F1F5F9', color: '#64748B', border: '1px solid #E2E8F0' }}>{task.shot.code}</span>
               )}
