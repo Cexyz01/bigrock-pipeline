@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { DEPTS, SHOT_DEPT_IDS, ASSET_DEPT_IDS, SHOT_STATUSES, isAudioUrl, isVideoUrl, isDeptEnabled, ACCENT } from '../../lib/constants'
-import { getWipUpdates } from '../../lib/supabase'
+import { getWipUpdates, getReviewSectionOrder, setReviewSectionOrder, subscribeToTable, supabase } from '../../lib/supabase'
 import Av from '../ui/Av'
 import EmptyState from '../ui/EmptyState'
-import { IconEye } from '../ui/Icons'
+import { IconEye, IconImage, IconLayout, IconChevronDown } from '../ui/Icons'
 import Img from '../ui/Img'
 import AnnotatedImage from '../ui/AnnotatedImage'
 import ImageLightbox from '../ui/ImageLightbox'
@@ -102,34 +102,100 @@ export default function ReviewPage({
     return { total, done, pct, statusCounts }
   }, [tasks])
 
+  // ── Section layout: which department sections are actively shown on the
+  // review queue, and in what order. Shared live across every reviewer via
+  // app_settings (key='review_section_order') + its realtime publication —
+  // dragging a tile updates everyone's page without a refresh.
+  const [sectionOrder, setSectionOrderLocal] = useState(() => DEPTS.map(d => d.id))
+  useEffect(() => {
+    let active = true
+    getReviewSectionOrder().then(order => { if (active && order) setSectionOrderLocal(order) })
+    const sub = subscribeToTable('app_settings', (payload) => {
+      if (payload.new?.key !== 'review_section_order') return
+      try {
+        const parsed = JSON.parse(payload.new.value)
+        if (Array.isArray(parsed)) setSectionOrderLocal(parsed)
+      } catch {}
+    }, 'key=eq.review_section_order')
+    return () => { active = false; supabase.removeChannel(sub) }
+  }, [])
+
+  const persistSectionOrder = useCallback((next) => {
+    setSectionOrderLocal(next) // optimistic — realtime echo will just confirm it
+    setReviewSectionOrder(next).catch(() => {})
+  }, [])
+
+  const visibleDepts = useMemo(
+    () => sectionOrder.map(id => DEPTS.find(d => d.id === id)).filter(Boolean),
+    [sectionOrder],
+  )
+  const hiddenDepts = useMemo(
+    () => DEPTS.filter(d => !sectionOrder.includes(d.id)),
+    [sectionOrder],
+  )
+
+  // Counts reflect the TRUE review queue per department (regardless of
+  // visibility) so a tile can show "Concept (2)" even while hidden.
+  const countsByDept = useMemo(() => {
+    const m = {}
+    for (const t of reviewTasks) m[t.department] = (m[t.department] || 0) + 1
+    return m
+  }, [reviewTasks])
+
+  // Actual rendered queue: only visible departments, grouped + ordered per
+  // sectionOrder, skipping any group that's currently empty.
+  const groupedTasks = useMemo(() => {
+    return visibleDepts
+      .map(dept => ({ dept, tasks: reviewTasks.filter(t => t.department === dept.id) }))
+      .filter(g => g.tasks.length > 0)
+  }, [visibleDepts, reviewTasks])
+
+  const visibleReviewCount = useMemo(
+    () => groupedTasks.reduce((n, g) => n + g.tasks.length, 0),
+    [groupedTasks],
+  )
+
   return (
     <div style={{ background: '#1a1a1a', height: '100%', overflowY: 'auto' }}>
-      <Hero project={currentProject} progress={progress} reviewCount={reviewTasks.length} />
+      <Hero project={currentProject} progress={progress} reviewCount={visibleReviewCount} />
 
       {/* Tasks */}
       <div style={{ background: '#F0F2F5', paddingTop: 40 }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px 40px' }}>
-        {reviewTasks.length === 0 ? (
+
+        <SectionManager
+          visibleDepts={visibleDepts}
+          hiddenDepts={hiddenDepts}
+          countsByDept={countsByDept}
+          onChange={persistSectionOrder}
+        />
+
+        {groupedTasks.length === 0 ? (
           <div style={{ background: '#fff', borderRadius: 24, padding: 60, border: '1px solid #E8ECF1' }}>
-            <EmptyState icon={<IconEye size={56} color="#94A3B8" />} title="Nessun task in review" sub="Quando uno staff invia un task per review apparirà qui." />
+            <EmptyState icon={<IconEye size={56} color="#94A3B8" />} title="Nessun task in review" sub="Quando uno staff invia un task per review apparirà qui, nelle sezioni che hai reso visibili qui sopra." />
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {reviewTasks.map((task, idx) => (
-              <TaskReviewCard
-                key={task.id}
-                index={idx + 1}
-                total={reviewTasks.length}
-                task={task}
-                wips={wipsByTask[task.id] || []}
-                onUpdateTask={onUpdateTask}
-                onRejectTask={onRejectTask}
-                onDismiss={dismissTask}
-                onApprove={fireConfetti}
-                user={user}
-                addToast={addToast}
-                requestConfirm={requestConfirm}
-              />
+            {groupedTasks.map(({ dept, tasks: deptTasks }, gi) => (
+              <div key={dept.id}>
+                <DeptSectionHeader dept={dept} count={deptTasks.length} isFirst={gi === 0} />
+                {deptTasks.map((task, idx) => (
+                  <TaskReviewCard
+                    key={task.id}
+                    index={idx + 1}
+                    total={deptTasks.length}
+                    task={task}
+                    wips={wipsByTask[task.id] || []}
+                    onUpdateTask={onUpdateTask}
+                    onRejectTask={onRejectTask}
+                    onDismiss={dismissTask}
+                    onApprove={fireConfetti}
+                    user={user}
+                    addToast={addToast}
+                    requestConfirm={requestConfirm}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}
@@ -236,6 +302,212 @@ function Stat({ label, value, accent }) {
     }}>
       <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 32, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{value}</div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// SECTION MANAGER — drag departments between "not in review" and "in
+// review" (ordered) to control what shows up in the queue below. Persisted
+// in app_settings + realtime (see sectionOrder state/effect above), so
+// every reviewer's page updates live as tiles move.
+// ────────────────────────────────────────────────────────────
+function SectionManager({ visibleDepts, hiddenDepts, countsByDept, onChange }) {
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('bigrock_review_sections_collapsed') === '1' } catch { return false }
+  })
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('bigrock_review_sections_collapsed', next ? '1' : '0') } catch {}
+      return next
+    })
+  }
+
+  const [dragId, setDragId] = useState(null)
+  const [overKey, setOverKey] = useState(null) // 'hidden' | `visible:${deptId}` | 'visible-end'
+
+  const order = visibleDepts.map(d => d.id)
+
+  const handleDragStart = (id) => (e) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+    setDragId(id)
+  }
+  const endDrag = () => { setDragId(null); setOverKey(null) }
+
+  const moveToHidden = (id) => {
+    if (!order.includes(id)) return
+    onChange(order.filter(x => x !== id))
+  }
+  const moveToVisible = (id, beforeId) => {
+    const next = order.filter(x => x !== id)
+    if (beforeId) {
+      const idx = next.indexOf(beforeId)
+      next.splice(idx === -1 ? next.length : idx, 0, id)
+    } else {
+      next.push(id)
+    }
+    onChange(next)
+  }
+
+  const dropOnHidden = (e) => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id) moveToHidden(id)
+    endDrag()
+  }
+  const dropOnVisibleEnd = (e) => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id) moveToVisible(id, null)
+    endDrag()
+  }
+  const dropOnVisibleTile = (targetId) => (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id && id !== targetId) moveToVisible(id, targetId)
+    endDrag()
+  }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #E8ECF1', marginBottom: 28, overflow: 'hidden' }}>
+      <button
+        onClick={toggleCollapsed}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 22px', background: 'transparent', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 800, color: '#1a1a1a' }}>Sezioni in review</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94A3B8' }}>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>{collapsed ? 'Mostra' : 'Nascondi'}</span>
+          <span style={{ display: 'flex', transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}>
+            <IconChevronDown size={16} />
+          </span>
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div style={{ padding: '0 22px 22px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          {/* Hidden pool — these departments' tasks are excluded from the queue below */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setOverKey('hidden') }}
+            onDragLeave={() => setOverKey(prev => prev === 'hidden' ? null : prev)}
+            onDrop={dropOnHidden}
+            style={{
+              flex: '1 1 260px', minWidth: 240, padding: 14, borderRadius: 14,
+              background: overKey === 'hidden' ? '#FEF2F2' : '#F8FAFC',
+              border: `1.5px dashed ${overKey === 'hidden' ? '#F87171' : '#CBD5E1'}`,
+              transition: 'background 0.12s ease, border-color 0.12s ease',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+              Non in review
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minHeight: 40 }}>
+              {hiddenDepts.length === 0 && (
+                <div style={{ fontSize: 12, color: '#CBD5E1', padding: '8px 0' }}>Tutte le sezioni sono visibili</div>
+              )}
+              {hiddenDepts.map(dept => (
+                <DeptTile
+                  key={dept.id}
+                  dept={dept}
+                  count={countsByDept[dept.id] || 0}
+                  onDragStart={handleDragStart(dept.id)}
+                  onDragEnd={endDrag}
+                  faded
+                  isDragging={dragId === dept.id}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Visible ordered zone — top to bottom here = top to bottom on the queue */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setOverKey('visible-end') }}
+            onDragLeave={() => setOverKey(prev => prev === 'visible-end' ? null : prev)}
+            onDrop={dropOnVisibleEnd}
+            style={{
+              flex: '2 1 360px', minWidth: 280, padding: 14, borderRadius: 14,
+              background: overKey === 'visible-end' ? '#F0FDF4' : '#F8FAFC',
+              border: `1.5px dashed ${overKey === 'visible-end' ? '#22C55E' : '#CBD5E1'}`,
+              transition: 'background 0.12s ease, border-color 0.12s ease',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+              In review (ordine dall'alto in basso)
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minHeight: 40 }}>
+              {visibleDepts.length === 0 && (
+                <div style={{ fontSize: 12, color: '#CBD5E1', padding: '8px 0' }}>Trascina qui una sezione</div>
+              )}
+              {visibleDepts.map(dept => (
+                <DeptTile
+                  key={dept.id}
+                  dept={dept}
+                  count={countsByDept[dept.id] || 0}
+                  onDragStart={handleDragStart(dept.id)}
+                  onDragEnd={endDrag}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setOverKey(`visible:${dept.id}`) }}
+                  onDrop={dropOnVisibleTile(dept.id)}
+                  isOver={overKey === `visible:${dept.id}`}
+                  isDragging={dragId === dept.id}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DeptTile({ dept, count, onDragStart, onDragEnd, onDragOver, onDrop, faded, isOver, isDragging }) {
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '7px 12px', borderRadius: 10,
+        background: isOver ? `${dept.color}22` : '#fff',
+        border: `1.5px solid ${isOver ? dept.color : '#E2E8F0'}`,
+        cursor: 'grab', userSelect: 'none',
+        opacity: isDragging ? 0.35 : (faded ? 0.7 : 1),
+        transition: 'background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease',
+        fontSize: 12.5, fontWeight: 700, color: '#1a1a1a', whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dept.color, flexShrink: 0 }} />
+      {dept.label} <span style={{ color: '#94A3B8', fontWeight: 600 }}>({count})</span>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// DEPARTMENT SECTION HEADER — visually separates the review queue by
+// department (colored pill + fading divider) so it's obvious at a glance
+// what kind of task is being looked at.
+// ────────────────────────────────────────────────────────────
+function DeptSectionHeader({ dept, count, isFirst }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: isFirst ? '0 0 20px' : '40px 0 20px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '9px 20px', borderRadius: 999,
+        background: dept.color, color: '#fff', fontWeight: 800, fontSize: 13,
+        letterSpacing: '0.04em', textTransform: 'uppercase',
+        boxShadow: `0 6px 16px ${dept.color}55`, flexShrink: 0,
+      }}>
+        {dept.label}
+        <span style={{ fontWeight: 700, opacity: 0.85 }}>· {count}</span>
+      </div>
+      <div style={{ flex: 1, height: 2, borderRadius: 2, background: `linear-gradient(90deg, ${dept.color}66, transparent)` }} />
     </div>
   )
 }
@@ -450,6 +722,10 @@ function WipCarousel({ wips, user, addToast }) {
   const slideRefs = useRef([])
   const [activeIdx, setActiveIdx] = useState(0)
   const [activeHeight, setActiveHeight] = useState(null)
+  // Carousel = one WIP at a time (with notes/audio/video); grid = every image
+  // across every WIP at once, small and clickable — for tasks with many
+  // images where swiping one WIP at a time gets tedious.
+  const [viewMode, setViewMode] = useState('carousel')
 
   const scrollTo = useCallback((idx) => {
     const el = scrollerRef.current
@@ -513,34 +789,112 @@ function WipCarousel({ wips, user, addToast }) {
   }, [activeIdx, wips.length])
 
   const single = wips.length === 1
+  const showViewToggle = flatImages.length > 1
 
   return (
     <div style={{ position: 'relative' }}>
-      <div
-        ref={scrollerRef}
-        style={{
-          display: 'flex', gap: 16, overflowX: 'auto', overflowY: 'hidden',
-          scrollSnapType: 'x mandatory',
-          scrollbarWidth: 'none', msOverflowStyle: 'none',
-          paddingBottom: single ? 0 : 4,
-          alignItems: 'flex-start',
-          height: activeHeight ? activeHeight + (single ? 0 : 4) : undefined,
-          transition: 'height 0.2s ease',
-        }}
-      >
-        {wips.map((w, i) => (
+      {showViewToggle && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10 }}>
+          <button
+            onClick={() => setViewMode('carousel')}
+            aria-label="Vista carosello"
+            title="Carosello (un WIP alla volta)"
+            style={viewToggleBtnStyle(viewMode === 'carousel')}
+          ><IconImage size={15} /></button>
+          <button
+            onClick={() => setViewMode('grid')}
+            aria-label="Vista tutte le immagini"
+            title="Tutte le immagini"
+            style={viewToggleBtnStyle(viewMode === 'grid')}
+          ><IconLayout size={15} /></button>
+        </div>
+      )}
+
+      {viewMode === 'grid' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8 }}>
+          {flatImages.map((entry, i) => (
+            <div
+              key={i}
+              onClick={() => setLightboxUrl(entry.src)}
+              style={{
+                cursor: 'zoom-in', borderRadius: 10, overflow: 'hidden',
+                border: '1px solid #E8ECF1', aspectRatio: '1 / 1', background: '#000',
+              }}
+            >
+              <img src={entry.src} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
           <div
-            key={w.id}
-            ref={el => { slideRefs.current[i] = el }}
+            ref={scrollerRef}
             style={{
-              flex: '0 0 100%', minWidth: 0,
-              scrollSnapAlign: 'start',
+              display: 'flex', gap: 16, overflowX: 'auto', overflowY: 'hidden',
+              scrollSnapType: 'x mandatory',
+              scrollbarWidth: 'none', msOverflowStyle: 'none',
+              paddingBottom: single ? 0 : 4,
+              alignItems: 'flex-start',
+              height: activeHeight ? activeHeight + (single ? 0 : 4) : undefined,
+              transition: 'height 0.2s ease',
             }}
           >
-            <WipBlock wip={w} user={user} addToast={addToast} onImageClick={setLightboxUrl} />
+            {wips.map((w, i) => (
+              <div
+                key={w.id}
+                ref={el => { slideRefs.current[i] = el }}
+                style={{
+                  flex: '0 0 100%', minWidth: 0,
+                  scrollSnapAlign: 'start',
+                }}
+              >
+                <WipBlock wip={w} user={user} addToast={addToast} onImageClick={setLightboxUrl} />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+
+          {!single && (
+            <>
+              {activeIdx > 0 && (
+                <button
+                  onClick={() => scrollTo(activeIdx - 1)}
+                  aria-label="WIP precedente"
+                  style={carouselArrowStyle('left')}
+                >‹</button>
+              )}
+              {activeIdx < wips.length - 1 && (
+                <button
+                  onClick={() => scrollTo(activeIdx + 1)}
+                  aria-label="WIP successivo"
+                  style={carouselArrowStyle('right')}
+                >›</button>
+              )}
+              <div style={{
+                display: 'flex', justifyContent: 'center', gap: 6,
+                marginTop: 10,
+              }}>
+                <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginRight: 8 }}>
+                  WIP {activeIdx + 1} / {wips.length}
+                </span>
+                {wips.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => scrollTo(i)}
+                    aria-label={`Vai al WIP ${i + 1}`}
+                    style={{
+                      width: 8, height: 8, borderRadius: '50%', padding: 0,
+                      background: i === activeIdx ? '#F28C28' : '#CBD5E1',
+                      border: 'none', cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
       <ImageLightbox
         src={lightboxUrl}
         images={flatSrcs}
@@ -549,52 +903,22 @@ function WipCarousel({ wips, user, addToast }) {
         addToast={addToast}
       />
 
-      {!single && (
-        <>
-          {activeIdx > 0 && (
-            <button
-              onClick={() => scrollTo(activeIdx - 1)}
-              aria-label="WIP precedente"
-              style={carouselArrowStyle('left')}
-            >‹</button>
-          )}
-          {activeIdx < wips.length - 1 && (
-            <button
-              onClick={() => scrollTo(activeIdx + 1)}
-              aria-label="WIP successivo"
-              style={carouselArrowStyle('right')}
-            >›</button>
-          )}
-          <div style={{
-            display: 'flex', justifyContent: 'center', gap: 6,
-            marginTop: 10,
-          }}>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginRight: 8 }}>
-              WIP {activeIdx + 1} / {wips.length}
-            </span>
-            {wips.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => scrollTo(i)}
-                aria-label={`Vai al WIP ${i + 1}`}
-                style={{
-                  width: 8, height: 8, borderRadius: '50%', padding: 0,
-                  background: i === activeIdx ? '#F28C28' : '#CBD5E1',
-                  border: 'none', cursor: 'pointer',
-                  transition: 'background 0.15s ease',
-                }}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
       {/* Hide the native scrollbar on Chromium-based browsers */}
       <style>{`
         div[data-scroller="wip-carousel"]::-webkit-scrollbar { display: none; }
       `}</style>
     </div>
   )
+}
+
+function viewToggleBtnStyle(active) {
+  return {
+    width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    border: `1px solid ${active ? '#F28C28' : '#E2E8F0'}`,
+    background: active ? '#F28C28' : '#fff',
+    color: active ? '#fff' : '#94A3B8',
+    cursor: 'pointer', transition: 'all 0.12s ease',
+  }
 }
 
 function carouselArrowStyle(side) {

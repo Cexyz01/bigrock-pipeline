@@ -1209,6 +1209,23 @@ export async function getForceReloadAt() {
   return data?.value || null
 }
 
+// ── Review page section layout (visibility + order, shared across all reviewers) ──
+
+export async function getReviewSectionOrder() {
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'review_section_order').maybeSingle()
+  try {
+    const parsed = data?.value ? JSON.parse(data.value) : null
+    return Array.isArray(parsed) ? parsed : null
+  } catch { return null }
+}
+
+export async function setReviewSectionOrder(deptIds) {
+  const { data, error } = await supabase.from('app_settings')
+    .upsert({ key: 'review_section_order', value: JSON.stringify(deptIds), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .select().single()
+  return { data, error }
+}
+
 // ── TCG Game State ──
 
 export async function getTcgGameActive() {
