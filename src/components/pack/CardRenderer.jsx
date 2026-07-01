@@ -237,7 +237,7 @@ export default function CardRenderer({ card, owned = true, copyInfo, totalCopies
               fontSize: 14, color: '#CBD5E1',
               lineHeight: 1.4, marginTop: 4,
               overflow: 'hidden',
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
               textShadow: isFullArt ? '0 1px 4px rgba(0,0,0,0.7)' : 'none',
             }}>
               {card.description}
