@@ -189,8 +189,9 @@ export const PACK_TYPES = [
 export const PACK_TOTAL = 9999
 export const PACKS_PER_POOL = 3333
 export const CARDS_PER_PACK = 4
-export const PACK_TIMER_MINUTES = 60
 export const PACK_MAX_ACCUMULATED = 3
+// Fixed daily reset schedule (Europe/Rome) — see pack_current_reset_slot / pack_next_reset_slot in Supabase
+export const PACK_RESET_TIMES_LABEL = '11:30 · 14:30 · 16:30'
 
 // Timeline defaults
 export const DEFAULT_FPS = 24

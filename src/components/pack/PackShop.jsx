@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { PACK_TYPES, PACK_TIMER_MINUTES, PACK_MAX_ACCUMULATED } from '../../lib/constants'
+import { PACK_TYPES, PACK_MAX_ACCUMULATED } from '../../lib/constants'
 import useIsMobile from '../../hooks/useIsMobile'
+
+const fmtRome = new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
 
 export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onResetPacks, canOpenPacks, requestConfirm }) {
   const isMobile = useIsMobile()
@@ -8,31 +10,31 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
   const [settling, setSettling] = useState(null)
   const [pressed, setPressed] = useState(null)
   const [countdown, setCountdown] = useState('')
-  const [availablePacks, setAvailablePacks] = useState(timer?.available_packs || 0)
+  const availablePacks = timer?.available_packs || 0
   const packRefs = useRef({})
 
+  // Anchor the on-screen countdown to the server clock (timer.server_now) at fetch time,
+  // then tick it forward using performance.now() — a monotonic clock the OS wall-clock
+  // can't rewind — so changing the device's date/time can't fake a faster reset.
   useEffect(() => {
-    if (!timer) { setAvailablePacks(0); setCountdown(''); return }
+    if (!timer?.next_reset_at || !timer?.server_now) { setCountdown(''); return }
+    const nextAt = new Date(timer.next_reset_at).getTime()
+    const serverAtFetch = new Date(timer.server_now).getTime()
+    const perfAtFetch = performance.now()
     const calc = () => {
-      const lastPack = new Date(timer.last_pack_at).getTime()
-      const elapsed = Date.now() - lastPack
-      const earned = Math.floor(elapsed / (PACK_TIMER_MINUTES * 60 * 1000))
-      const total = Math.min(PACK_MAX_ACCUMULATED, (timer.available_packs || 0) + earned)
-      setAvailablePacks(total)
-      if (total < PACK_MAX_ACCUMULATED) {
-        const nextAt = lastPack + ((earned + 1) * PACK_TIMER_MINUTES * 60 * 1000)
-        const diff = Math.max(0, nextAt - Date.now())
-        const m = Math.floor(diff / 60000)
-        const s = Math.floor((diff % 60000) / 1000)
-        setCountdown(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
-      } else {
-        setCountdown('MAX')
-      }
+      const serverNow = serverAtFetch + (performance.now() - perfAtFetch)
+      const diff = Math.max(0, nextAt - serverNow)
+      const h = Math.floor(diff / 3600000)
+      const m = Math.floor((diff % 3600000) / 60000)
+      const s = Math.floor((diff % 60000) / 1000)
+      setCountdown(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
     }
     calc()
     const iv = setInterval(calc, 1000)
     return () => clearInterval(iv)
   }, [timer])
+
+  const nextResetLabel = timer?.next_reset_at ? fmtRome.format(new Date(timer.next_reset_at)) : '--:--'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -191,10 +193,10 @@ export default function PackShop({ remaining, timer, onOpenPack, isAdmin, onRese
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginTop: 10,
         }}>
-          <div style={{ fontSize: 11, color: '#94A3B8' }}>
-            {countdown === 'MAX'
-              ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Max reached</span>
-              : <>Next pack in <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 14, color: '#F59E0B' }}>{countdown || '--:--'}</span></>
+          <div style={{ fontSize: 11, color: '#94A3B8', textAlign: 'center' }}>
+            {availablePacks > 0
+              ? <>Prossimo reset alle <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#E2E8F0' }}>{nextResetLabel}</span></>
+              : <>Prossimo reset tra <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 14, color: '#F59E0B' }}>{countdown || '--:--:--'}</span> (ore {nextResetLabel})</>
             }
           </div>
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  getPackCards, getUserCards, getUserTimer, upsertUserTimer,
+  getPackCards, getUserCards, getPackTimerStatus, upsertUserTimer,
   getPacksRemaining, claimAndOpenPack, getPackConfig, subscribeToTable, supabase,
 } from '../../lib/supabase'
 import { hasPermission, PACK_TYPES, PACK_RARITIES } from '../../lib/constants'
@@ -143,10 +143,10 @@ export default function PackPage({ user, addToast, requestConfirm, tcgGameActive
   }, [user.id])
 
   const loadAll = async () => {
-    const [c, uc, t, rem, cfg] = await Promise.all([
+    const [c, uc, { data: status }, rem, cfg] = await Promise.all([
       getPackCards(),
       getUserCards(user.id),
-      getUserTimer(user.id),
+      getPackTimerStatus(),
       getPacksRemaining(),
       getPackConfig(),
     ])
@@ -155,15 +155,7 @@ export default function PackPage({ user, addToast, requestConfirm, tcgGameActive
     setRemaining(rem)
     if (cfg?.copies_per_rarity) setCopiesPerRarity(cfg.copies_per_rarity)
 
-    if (!t) {
-      const { data: newTimer } = await upsertUserTimer(user.id, {
-        available_packs: 3,
-        last_pack_at: new Date().toISOString(),
-      })
-      setTimer(newTimer)
-    } else {
-      setTimer(t)
-    }
+    setTimer(status)
 
     setLoading(false)
 
@@ -279,7 +271,13 @@ export default function PackPage({ user, addToast, requestConfirm, tcgGameActive
     if (error) {
       setOpeningPackType(null)
       setFlyRect(null)
-      addToast(error.message || 'Error opening pack', 'error')
+      if (error.next_reset_at) {
+        const nextLabel = new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }).format(new Date(error.next_reset_at))
+        addToast(`Nessun pacchetto disponibile. Prossimo reset alle ${nextLabel}`, 'error')
+      } else {
+        addToast(error.message || 'Error opening pack', 'error')
+      }
+      loadAll()
       return
     }
     setOpeningPack({ ...data, pack_type: packType })

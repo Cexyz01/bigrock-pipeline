@@ -1117,6 +1117,10 @@ export async function getUserPacks(userId) {
 }
 
 // ── Pack User Timers ──
+// Reset schedule is fixed (11:30 / 14:30 / 16:30 Europe/Rome) and enforced entirely
+// server-side (Postgres now()) so a client's local clock cannot be used to cheat it.
+// See supabase/migrations/071_pack_fixed_reset_schedule.sql for pack_get_status /
+// pack_try_consume / pack_refund_consume.
 
 export async function getUserTimer(userId) {
   const { data } = await supabase.from('pack_user_timers').select('*').eq('user_id', userId).single()
@@ -1130,10 +1134,25 @@ export async function upsertUserTimer(userId, updates) {
   return { data, error }
 }
 
+export async function getPackTimerStatus() {
+  const { data, error } = await supabase.rpc('pack_get_status')
+  if (error) return { data: null, error }
+  const row = Array.isArray(data) ? data[0] : data
+  return { data: row, error: null }
+}
+
 // ── Pack Opening ──
 
 export async function claimAndOpenPack(userId, packType) {
-  // 1. Find an unassigned pack
+  // 1. Atomically refill-if-needed (server-side schedule) and consume one available slot
+  const { data: consumeData, error: consumeErr } = await supabase.rpc('pack_try_consume')
+  if (consumeErr) return { error: consumeErr }
+  const consume = Array.isArray(consumeData) ? consumeData[0] : consumeData
+  if (!consume?.ok) {
+    return { error: { message: 'No packs available', next_reset_at: consume?.next_reset_at } }
+  }
+
+  // 2. Find an unassigned pack
   const { data: pack, error: findErr } = await supabase
     .from('pack_generated_packs')
     .select('*')
@@ -1141,9 +1160,12 @@ export async function claimAndOpenPack(userId, packType) {
     .is('assigned_to', null)
     .limit(1)
     .single()
-  if (findErr || !pack) return { error: findErr || { message: 'No packs available' } }
+  if (findErr || !pack) {
+    await supabase.rpc('pack_refund_consume')
+    return { error: findErr || { message: 'No packs available' } }
+  }
 
-  // 2. Claim it (race-safe: check assigned_to is still null)
+  // 3. Claim it (race-safe: check assigned_to is still null)
   const { data: claimed, error: claimErr } = await supabase
     .from('pack_generated_packs')
     .update({ assigned_to: userId, opened: true, opened_at: new Date().toISOString() })
@@ -1151,9 +1173,12 @@ export async function claimAndOpenPack(userId, packType) {
     .is('assigned_to', null)
     .select()
     .single()
-  if (claimErr || !claimed) return { error: claimErr || { message: 'Pack already taken, try again' } }
+  if (claimErr || !claimed) {
+    await supabase.rpc('pack_refund_consume')
+    return { error: claimErr || { message: 'Pack already taken, try again' } }
+  }
 
-  // 3. Insert cards into user collection (ignore duplicates)
+  // 4. Insert cards into user collection (ignore duplicates)
   const cards = claimed.cards || []
   for (const entry of cards) {
     await supabase.from('pack_user_cards')
@@ -1161,28 +1186,6 @@ export async function claimAndOpenPack(userId, packType) {
         { user_id: userId, card_number: entry.card, copy_number: entry.copy, obtained_via: 'pack' },
         { onConflict: 'user_id,card_number,copy_number', ignoreDuplicates: true }
       )
-  }
-
-  // 4. Decrement available packs in timer
-  //    Only reset last_pack_at when user was at MAX (3/3)
-  //    Otherwise keep the timer running where it was
-  const timer = await getUserTimer(userId)
-  if (timer) {
-    const interval = 60 * 60 * 1000 // 60 min per pack
-    const elapsed = Date.now() - new Date(timer.last_pack_at).getTime()
-    const earned = Math.floor(elapsed / interval)
-    const currentTotal = Math.min(3, (timer.available_packs || 0) + earned)
-    const newTotal = Math.max(0, currentTotal - 1)
-
-    if (currentTotal >= 3) {
-      // Was at MAX — reset timer, countdown starts fresh from 60:00
-      await upsertUserTimer(userId, { available_packs: newTotal, last_pack_at: new Date().toISOString() })
-    } else {
-      // Timer was running — "consume" earned packs by advancing last_pack_at
-      // so the countdown keeps ticking from where it was
-      const newLastPackAt = new Date(new Date(timer.last_pack_at).getTime() + earned * interval).toISOString()
-      await upsertUserTimer(userId, { available_packs: newTotal, last_pack_at: newLastPackAt })
-    }
   }
 
   return { data: claimed, error: null }
@@ -1243,12 +1246,11 @@ export async function setTcgGameActive(active) {
 export async function grantPackReward(userId, count) {
   const active = await getTcgGameActive()
   if (!active) return { granted: false, count }
-  const timer = await getUserTimer(userId)
-  const currentPacks = timer?.available_packs || 0
-  await upsertUserTimer(userId, {
-    available_packs: currentPacks + count,
-    ...(timer ? {} : { last_pack_at: new Date().toISOString() }),
-  })
+  // Refill-if-needed first (server-side schedule) so the reward adds on top of the
+  // correct current value, then cap at 3 to respect the pack_user_timers CHECK constraint.
+  const { data: status } = await getPackTimerStatus()
+  const currentPacks = status?.available_packs || 0
+  await upsertUserTimer(userId, { available_packs: Math.min(3, currentPacks + count) })
   return { granted: true, count }
 }
 
