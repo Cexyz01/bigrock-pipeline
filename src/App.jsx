@@ -1310,7 +1310,7 @@ export default function App() {
             {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
             {view === 'timeline' && timelineAccess !== 'none' && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} accessMode={timelineAccess} currentProject={currentProject} onUpdateTimelineViewers={handleUpdateTimelineViewers} />}
             {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
-              <PackPage user={user} profiles={profiles} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
+              <PackPage user={user} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
             )}
             {view === 'gantt' && (
               <GanttPage tasks={tasks} shots={shots} assets={assets} currentProject={currentProject} user={user}
