@@ -1082,12 +1082,16 @@ export async function getPackStatsByType(packType) {
 }
 
 export async function getPacksRemaining() {
-  // Count unassigned packs per type
-  const types = ['red', 'green', 'blue']
-  const results = await Promise.all(
-    types.map(t => supabase.from('pack_generated_packs').select('*', { count: 'exact', head: true }).eq('pack_type', t).is('assigned_to', null))
-  )
-  return { red: results[0].count || 0, green: results[1].count || 0, blue: results[2].count || 0 }
+  // Count unassigned packs per type. Uses a SECURITY DEFINER RPC because a plain
+  // COUNT is RLS-filtered — students can't see unassigned rows, so they'd always
+  // read 0 and PackShop would never let them click a pack. See migration 074.
+  const out = { red: 0, green: 0, blue: 0 }
+  const { data, error } = await supabase.rpc('pack_remaining_counts')
+  if (error || !data) return out
+  for (const row of data) {
+    if (row.pack_type in out) out[row.pack_type] = Number(row.remaining) || 0
+  }
+  return out
 }
 
 export async function insertGeneratedPacks(packs) {
