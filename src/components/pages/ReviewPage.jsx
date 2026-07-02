@@ -121,9 +121,23 @@ export default function ReviewPage({
   }, [])
 
   const persistSectionOrder = useCallback((next) => {
-    setSectionOrderLocal(next) // optimistic — realtime echo will just confirm it
-    setReviewSectionOrder(next).catch(() => {})
-  }, [])
+    // Optimistic — the realtime echo just confirms it. But if the write is
+    // rejected (e.g. RLS) don't fail silently: revert to the last persisted
+    // order and tell the user, so a broken layout can't masquerade as saved.
+    setSectionOrderLocal(prev => {
+      const rollback = prev
+      setReviewSectionOrder(next).then(({ error }) => {
+        if (error) {
+          setSectionOrderLocal(rollback)
+          addToast?.('Impossibile salvare le sezioni in review', 'error')
+        }
+      }).catch(() => {
+        setSectionOrderLocal(rollback)
+        addToast?.('Impossibile salvare le sezioni in review', 'error')
+      })
+      return next
+    })
+  }, [addToast])
 
   const visibleDepts = useMemo(
     () => sectionOrder.map(id => DEPTS.find(d => d.id === id)).filter(Boolean),
