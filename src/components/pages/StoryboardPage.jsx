@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { SHOT_DEPTS, ASSET_DEPTS, SHOT_STATUSES, TASK_STATUSES, getShotStatus, getTaskStatus, ACCENT, isDeptEnabled, isAudioUrl } from '../../lib/constants'
+import { SHOT_DEPTS, ASSET_DEPTS, SHOT_STATUSES, TASK_STATUSES, getShotStatus, getTaskStatus, ACCENT, isDeptEnabled, isAudioUrl, isVideoUrl } from '../../lib/constants'
 import { supabase, getStoryboardImages, getStickers, createSticker, updateSticker, deleteSticker, uploadStickerImage } from '../../lib/supabase'
 import useIsMobile from '../../hooks/useIsMobile'
 import { IconX, IconSearch, IconLayout, IconTarget } from '../ui/Icons'
@@ -476,6 +476,26 @@ const ProgressiveImg = memo(function ProgressiveImg({ original, highRes, onClick
   )
 })
 
+// Inline video player for movieboard / animatic clips pinned to the storyboard.
+// Native controls so the user can just press play in the cell (no lightbox needed).
+// preload="metadata" keeps the board light — only the first frame + duration load
+// until the user hits play.
+const BoardVideo = memo(function BoardVideo({ url, style, radius = 6 }) {
+  return (
+    <video
+      src={url}
+      controls
+      playsInline
+      preload="metadata"
+      // Stop clicks from bubbling to the cell's image-lightbox handler so the
+      // native transport controls (play/scrub/fullscreen) work uninterrupted.
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{ width: '100%', height: 'auto', display: 'block', borderRadius: radius, background: '#000', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', ...style }}
+    />
+  )
+})
+
 const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH, disabled, measureRef, highRes }) {
   const count = images?.length || 0
 
@@ -487,6 +507,13 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
     if (isAudioUrl(images[0].image_url)) return (
       <div style={{ height: cellH, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box' }}>
         <AudioMiniPlayer url={images[0].image_url} />
+      </div>
+    )
+    if (isVideoUrl(images[0].image_url)) return (
+      <div style={{ padding: MASONRY_PAD, boxSizing: 'border-box' }}>
+        <div ref={measureRef} style={{ lineHeight: 0 }}>
+          <BoardVideo url={images[0].image_url} />
+        </div>
       </div>
     )
     // Single image fills the column width and keeps its natural aspect — no fixed
@@ -515,6 +542,8 @@ const BoardCell = memo(function BoardCell({ images, status, onClickImage, cellH,
           <div key={img.id} style={{ breakInside: 'avoid', WebkitColumnBreakInside: 'avoid', pageBreakInside: 'avoid', marginBottom: MASONRY_GAP, lineHeight: 0 }}>
             {isAudioUrl(img.image_url) ? (
               <AudioMiniPlayer url={img.image_url} />
+            ) : isVideoUrl(img.image_url) ? (
+              <BoardVideo url={img.image_url} radius={5} />
             ) : (
               <ProgressiveImg original={img.image_url} highRes={highRes} onClick={() => onClickImage(i)}
                 style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 5, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', userSelect: 'none', WebkitUserDrag: 'none' }} />
