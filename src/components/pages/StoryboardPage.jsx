@@ -2807,6 +2807,17 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
               <rect x="9" y="9" width="11" height="11" rx="1.5" fill="currentColor" opacity="0.25" />
             </svg>
           </button>
+          {isImage && sticker.image_url && (
+            <button onClick={() => downloadImage(sticker.image_url)} title="Scarica immagine"
+              style={actionChipStyle('#fff', '#475569')}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="M7 10l5 5 5-5" />
+                <path d="M12 15V3" />
+              </svg>
+            </button>
+          )}
           <button onClick={() => onDelete()} title="Elimina (Canc)"
             style={actionChipStyle('#EF4444', '#fff')}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -2913,6 +2924,32 @@ function StickerItem({ sticker, scale, onUpdate, onDelete, onBringForward, onSen
 const miniBtn = {
   border: '1px solid #E2E8F0', background: '#F8FAFC', borderRadius: 6,
   padding: '2px 6px', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer',
+}
+
+// Force-download an image sticker. R2 is a different origin, so the anchor
+// `download` attribute is ignored by the browser — we fetch the bytes and
+// hand the browser a same-origin blob URL instead. Falls back to opening the
+// image in a new tab if the fetch is blocked (e.g. offline / CORS).
+async function downloadImage(url) {
+  const nameFromUrl = () => {
+    try { return decodeURIComponent(new URL(url).pathname.split('/').pop()) || 'immagine' }
+    catch { return 'immagine' }
+  }
+  try {
+    const res = await fetch(url, { mode: 'cors' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const blob = await res.blob()
+    const objUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objUrl
+    a.download = nameFromUrl()
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1000)
+  } catch {
+    window.open(url, '_blank', 'noopener')
+  }
 }
 
 const actionChipStyle = (bg, fg) => ({
