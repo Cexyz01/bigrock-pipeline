@@ -423,6 +423,41 @@ export default function TaskDetailModal({
     )
   }
 
+  // Bulk delete — reuses the exact single-delete path (onDeleteWipUpdate purges
+  // R2 assets per WIP) but runs it over every currently selected WIP. Same
+  // selection Set used for "Submit for Review", so a prof can tick several
+  // mistaken uploads and remove them in one confirmed action.
+  const handleDeleteSelectedWips = () => {
+    const ids = Array.from(selectedReviewIds)
+    if (ids.length === 0) return
+    requestConfirm(
+      `Eliminare ${ids.length} WIP selezionati? I file caricati verranno cancellati definitivamente.`,
+      async () => {
+        setActionLoading('bulk-delete')
+        const deletedIds = []
+        for (const id of ids) {
+          const result = await onDeleteWipUpdate(id)
+          if (result?.ok) deletedIds.push(id)
+        }
+        if (deletedIds.length > 0) {
+          const removed = new Set(deletedIds)
+          setWipUpdates(prev => prev.filter(u => !removed.has(u.id)))
+          setWipComments(prev => {
+            const next = { ...prev }
+            for (const id of deletedIds) delete next[id]
+            return next
+          })
+          setSelectedReviewIds(prev => {
+            const next = new Set(prev)
+            for (const id of deletedIds) next.delete(id)
+            return next
+          })
+        }
+        setActionLoading(null)
+      },
+    )
+  }
+
   // Prefer the explicit `students` prop (project-filtered + project_role enriched)
   // over deriving from profiles, which would show ALL students globally.
   const students = studentsProp ?? (profiles ? profiles.filter(p => p.role_slug === 'studente') : [])
@@ -1011,16 +1046,29 @@ export default function TaskDetailModal({
               ? `${wipUpdates.length} WIP · seleziona quali inviare`
               : `${selectedReviewIds.size} di ${wipUpdates.length} WIP selezionati`}
           </span>
-          <Btn
-            variant="primary"
-            loading={actionLoading === 'commit'}
-            onClick={handleCommitReview}
-            disabled={selectedReviewIds.size === 0}
-            title={selectedReviewIds.size === 0 ? 'Seleziona almeno un WIP da inviare in review' : undefined}
-            style={{ padding: '10px 24px' }}
-          >
-            Submit for Review{selectedReviewIds.size > 0 ? ` (${selectedReviewIds.size})` : ''}
-          </Btn>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {canDeleteWip && selectedReviewIds.size > 0 && (
+              <Btn
+                variant="danger"
+                loading={actionLoading === 'bulk-delete'}
+                onClick={handleDeleteSelectedWips}
+                title="Elimina i WIP selezionati (rimuove anche i file da R2)"
+                style={{ padding: '10px 18px' }}
+              >
+                Elimina ({selectedReviewIds.size})
+              </Btn>
+            )}
+            <Btn
+              variant="primary"
+              loading={actionLoading === 'commit'}
+              onClick={handleCommitReview}
+              disabled={selectedReviewIds.size === 0}
+              title={selectedReviewIds.size === 0 ? 'Seleziona almeno un WIP da inviare in review' : undefined}
+              style={{ padding: '10px 24px' }}
+            >
+              Submit for Review{selectedReviewIds.size > 0 ? ` (${selectedReviewIds.size})` : ''}
+            </Btn>
+          </div>
         </div>
       )}
     </div>
