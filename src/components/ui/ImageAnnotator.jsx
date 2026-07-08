@@ -80,6 +80,13 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   const { strokes: saved, save } = useImageAnnotation(src)
   const [strokes, setStrokes] = useState(saved)
   const [tool, setTool] = useState(IS_TOUCH ? 'view' : 'pen')
+  // Hold spacebar → momentarily behave as the "view" (pan/zoom) tool even while
+  // pen/eraser is selected, so a trackpad user can drag the image around without
+  // drawing. Release space to snap back to the real tool. `effTool` is the tool
+  // every gesture/cursor branch actually consults; `tool` stays the persistent
+  // toolbar selection.
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const effTool = spaceHeld ? 'view' : tool
   const [color, setColor] = useState(COLORS[0])
   const [size, setSize] = useState(0.005) // fraction of image width
   const [drawing, setDrawing] = useState(false)
@@ -213,14 +220,14 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   // zoom in the stage), so we always read xformRef when sizing the cursor.
   const cursorDiameter = useCallback(() => {
     const { scale } = xformRef.current
-    return (tool === 'eraser' ? size * 2 : size) * rect.w * scale
-  }, [tool, size, rect.w])
+    return (effTool === 'eraser' ? size * 2 : size) * rect.w * scale
+  }, [effTool, size, rect.w])
   const updateCursorVisual = useCallback(() => {
     const el = cursorRef.current
     if (!el || !rect.w) return
     const d = cursorDiameter()
     el.style.width = el.style.height = `${d}px`
-    if (tool === 'eraser') {
+    if (effTool === 'eraser') {
       el.style.background = 'rgba(255,255,255,0.18)'
       el.style.borderStyle = 'dashed'
       el.style.borderColor = 'rgba(255,255,255,0.9)'
@@ -229,7 +236,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       el.style.borderStyle = 'solid'
       el.style.borderColor = 'rgba(255,255,255,0.7)'
     }
-  }, [tool, size, color, rect.w, cursorDiameter])
+  }, [effTool, size, color, rect.w, cursorDiameter])
   useEffect(updateCursorVisual, [updateCursorVisual])
   // Resting cursor for the drawing surface — what shows when the custom brush
   // ring is NOT up. Managed imperatively (not via React inline style) so the
@@ -238,9 +245,9 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   // the dark margin so the pointer is never lost there.
   const restingCursor = useCallback(() => {
     if (!rect.w) return 'default'
-    if (tool === 'view') return 'grab'
+    if (effTool === 'view') return 'grab'
     return 'default'
-  }, [rect.w, tool])
+  }, [rect.w, effTool])
   useEffect(() => {
     const el = wrapRef.current
     if (el) el.style.cursor = restingCursor()
@@ -370,8 +377,9 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     e.preventDefault()
     e.currentTarget.setPointerCapture?.(e.pointerId)
     // View tool: pan-only. On mobile this is the default so a stray tap on an
-    // image opens the lightbox without leaving scribbles.
-    if (tool === 'view') {
+    // image opens the lightbox without leaving scribbles. Holding space forces
+    // this branch (effTool === 'view') so a trackpad user can drag mid-annotation.
+    if (effTool === 'view') {
       const cur = xformRef.current
       panningRef.current = {
         startX: e.clientX, startY: e.clientY,
@@ -381,10 +389,10 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       return
     }
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
-    if (tool === 'pen') {
+    if (effTool === 'pen') {
       setDrawing(true)
       setStrokes(prev => [...prev, { color, size, points: [p] }])
-    } else if (tool === 'eraser') {
+    } else if (effTool === 'eraser') {
       setDrawing(true)
       eraseAt(p[0], p[1])
     }
@@ -486,7 +494,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     const inside = isInsideImage(e.clientX, e.clientY)
     // Brush-size ring is for the pen/eraser tools on a mouse — in view mode
     // the user sees a native grab cursor instead, and touch shows nothing.
-    if (wrap && inside && e.pointerType !== 'touch' && tool !== 'view') {
+    if (wrap && inside && e.pointerType !== 'touch' && effTool !== 'view') {
       moveCursor(e.clientX - wrap.left, e.clientY - wrap.top)
     } else {
       hideCursor()
@@ -494,9 +502,9 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
     if (!drawing) return
     if (!inside) return
     const p = screenToNorm(e.clientX, e.clientY); if (!p) return
-    if (tool === 'pen') {
+    if (effTool === 'pen') {
       pendingPenPointsRef.current.push(p)
-    } else if (tool === 'eraser') {
+    } else if (effTool === 'eraser') {
       pendingErasePointsRef.current.push([p[0], p[1], size])
     }
     requestFlush()
@@ -654,8 +662,23 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
   }, [numbering, numberSize, minAreaFrac, color, scheduleSave])
 
   useEffect(() => {
+    const isTyping = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
     const onKey = (e) => {
       if (e.key === 'Escape') handleClose()
+      // Hold space → temporary hand (pan) tool. Guard against key-repeat so we
+      // don't thrash state, and swallow the default (page scroll / button click).
+      else if (e.key === ' ' || e.code === 'Space') {
+        if (isTyping(e.target)) return
+        e.preventDefault()
+        if (!e.repeat) setSpaceHeld(true)
+      }
+      // Backspace → reset zoom to 1:1 (trackpad users can't reach the toolbar
+      // button easily). Ignored while typing so it stays a normal backspace there.
+      else if (e.key === 'Backspace') {
+        if (isTyping(e.target)) return
+        e.preventDefault()
+        resetZoom()
+      }
       else if (e.key === 'v' || e.key === 'V') setTool('view')
       else if (e.key === 'b' || e.key === 'B') setTool('pen')
       else if (e.key === 'e' || e.key === 'E') setTool('eraser')
@@ -663,8 +686,20 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       else if (e.key === 'ArrowLeft' && onPrev)  { e.preventDefault(); onPrev() }
       else if (e.key === 'ArrowRight' && onNext) { e.preventDefault(); onNext() }
     }
+    const onKeyUp = (e) => {
+      if (e.key === ' ' || e.code === 'Space') setSpaceHeld(false)
+    }
+    // Losing focus (alt-tab, devtools) mid-hold would strand us in pan mode —
+    // clear the flag so the pen comes back when the window returns.
+    const onBlur = () => setSpaceHeld(false)
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
   }, [onPrev, onNext])
 
   return createPortal(
@@ -680,7 +715,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         flexWrap: 'wrap',
       }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setTool('view')} title="Mano (V) — pan/zoom" style={toolBtnStyle(tool === 'view')}>✋ Mano</button>
+          <button onClick={() => setTool('view')} title="Mano (V, o tieni premuto Spazio) — pan/zoom" style={toolBtnStyle(tool === 'view')}>✋ Mano</button>
           <button onClick={() => setTool('pen')} title="Penna (B)" style={toolBtnStyle(tool === 'pen')}>✏️ Penna</button>
           <button onClick={() => setTool('eraser')} title="Gomma (E)" style={toolBtnStyle(tool === 'eraser')}>🩹 Gomma</button>
         </div>
@@ -748,7 +783,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         <button onClick={undo} style={toolBtnStyle(false)}>↶ Undo</button>
         <button onClick={clearAll} style={toolBtnStyle(false)}>🗑 Pulisci</button>
         <button onClick={() => downloadMedia(src, 'immagine')} title="Scarica immagine" style={toolBtnStyle(false)}>⬇ Scarica</button>
-        <button onClick={resetZoom} title="Reset zoom (1:1)" style={toolBtnStyle(false)}>⌖ 1:1</button>
+        <button onClick={resetZoom} title="Reset zoom 1:1 (Backspace)" style={toolBtnStyle(false)}>⌖ 1:1</button>
         {(onPrev || onNext) && (
           <>
             <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.15)' }} />
