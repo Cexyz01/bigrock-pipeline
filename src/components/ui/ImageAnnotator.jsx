@@ -284,6 +284,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
 
   // ── Pan + wheel zoom handlers ──
   const panningRef = useRef(null) // { startX, startY, originPanX, originPanY }
+  const zoomingRef = useRef(null) // { anchorX, anchorY, startY, startScale, startPanX, startPanY }
   const onWheel = useCallback((e) => {
     if (!rect.w || !wrapRef.current) return
     e.preventDefault()
@@ -345,6 +346,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         }
       }
       panningRef.current = null
+      zoomingRef.current = null
       const wrap = wrapRef.current.getBoundingClientRect()
       const pts = [...pointersRef.current.values()]
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1
@@ -360,11 +362,26 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       return
     }
 
-    // Right-mouse / middle-mouse → pan, regardless of where on the surface.
+    // Right / middle mouse: while the hand tool is active, right-drag zooms
+    // (up = in, down = out) so a trackpad user with no wheel can pan with a
+    // left-drag and zoom with a right-drag. Otherwise → pan, regardless of
+    // where on the surface (so you can still reposition while drawing).
     if (e.button === 2 || e.button === 1) {
       e.preventDefault()
       e.currentTarget.setPointerCapture?.(e.pointerId)
       const cur = xformRef.current
+      if (e.button === 2 && effTool === 'view') {
+        const wrap = wrapRef.current.getBoundingClientRect()
+        zoomingRef.current = {
+          anchorX: e.clientX - wrap.left,
+          anchorY: e.clientY - wrap.top,
+          startY: e.clientY,
+          startScale: cur.scale,
+          startPanX: cur.panX, startPanY: cur.panY,
+        }
+        hideCursor()
+        return
+      }
       panningRef.current = {
         startX: e.clientX, startY: e.clientY,
         originPanX: cur.panX, originPanY: cur.panY,
@@ -479,6 +496,21 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       applyXform()
       return
     }
+    // Right-drag zoom (hand tool): vertical drag scales around the point the
+    // drag started from. Up = zoom in, down = zoom out.
+    if (zoomingRef.current) {
+      const z = zoomingRef.current
+      const dy = z.startY - e.clientY
+      const nextScale = Math.max(0.2, Math.min(8, z.startScale * Math.exp(dy * 0.005)))
+      const k = nextScale / z.startScale
+      xformRef.current = {
+        scale: nextScale,
+        panX: z.anchorX - (z.anchorX - z.startPanX) * k,
+        panY: z.anchorY - (z.anchorY - z.startPanY) * k,
+      }
+      applyXform()
+      return
+    }
     // Panning takes priority — neither the cursor ring nor drawing fires.
     if (panningRef.current) {
       const p = panningRef.current
@@ -521,6 +553,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
       }
       return
     }
+    if (zoomingRef.current) { zoomingRef.current = null; return }
     if (panningRef.current) { panningRef.current = null; return }
     // Flush any queued points so the gesture ends with a consistent state.
     if (flushRafRef.current) {
@@ -715,7 +748,7 @@ export default function ImageAnnotator({ src, onClose, addToast, onPrev, onNext,
         flexWrap: 'wrap',
       }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setTool('view')} title="Mano (V, o tieni premuto Spazio) — pan/zoom" style={toolBtnStyle(tool === 'view')}>✋ Mano</button>
+          <button onClick={() => setTool('view')} title="Mano (V, o tieni premuto Spazio) — trascina per spostare, tasto destro per zoom" style={toolBtnStyle(tool === 'view')}>✋ Mano</button>
           <button onClick={() => setTool('pen')} title="Penna (B)" style={toolBtnStyle(tool === 'pen')}>✏️ Penna</button>
           <button onClick={() => setTool('eraser')} title="Gomma (E)" style={toolBtnStyle(tool === 'eraser')}>🩹 Gomma</button>
         </div>
