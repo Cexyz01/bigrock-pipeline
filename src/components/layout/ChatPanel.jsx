@@ -4,7 +4,7 @@ import { getChatMessages, sendChatMessage, supabase, subscribeToChatChannel, get
 import Av from '../ui/Av'
 import { IconX, IconSmile, IconSend, IconDownload } from '../ui/Icons'
 
-const MAX_FILE_BYTES = 100 * 1024 * 1024 // 100MB
+const MAX_FILE_BYTES = 150 * 1024 * 1024 // 150MB
 
 // WhatsApp-style quick reactions shown in the little popover.
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉']
@@ -288,7 +288,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
     const tooBig = files.filter(f => f.size > MAX_FILE_BYTES)
     const ok = files.filter(f => f.size <= MAX_FILE_BYTES)
     if (tooBig.length) {
-      setAttachError(`${tooBig.length === 1 ? 'Il file supera' : 'Alcuni file superano'} il limite di 100MB`)
+      setAttachError(`${tooBig.length === 1 ? 'Il file supera' : 'Alcuni file superano'} il limite di 150MB`)
     } else {
       setAttachError('')
     }
@@ -812,7 +812,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#F28C28' }}>Rilascia per allegare</div>
-              <div style={{ fontSize: 11, color: '#94A3B8' }}>File e immagini, max 100MB</div>
+              <div style={{ fontSize: 11, color: '#94A3B8' }}>File e immagini, max 150MB</div>
             </div>
           )}
 
@@ -1023,7 +1023,7 @@ export default function ChatPanel({ user, open, onToggle, profiles, projectMembe
                     background: showEmoji ? 'rgba(242,140,40,0.12)' : 'transparent',
                     border: 'none', fontSize: 20, cursor: 'pointer', padding: 4, borderRadius: 12,
                   }}><IconSmile size={20} color={showEmoji ? '#F28C28' : '#94A3B8'} /></button>
-                <button onClick={() => fileInputRef.current?.click()} disabled={sending} title="Allega file (max 100MB)"
+                <button onClick={() => fileInputRef.current?.click()} disabled={sending} title="Allega file (max 150MB)"
                   style={{
                     background: 'transparent', border: 'none', cursor: sending ? 'not-allowed' : 'pointer',
                     padding: 4, borderRadius: 12, display: 'flex', opacity: sending ? 0.4 : 1,

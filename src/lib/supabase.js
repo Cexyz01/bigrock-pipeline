@@ -645,9 +645,9 @@ export async function toggleDmReaction(messageId, emoji) {
   return supabase.rpc('toggle_dm_reaction', { p_message_id: messageId, p_emoji: emoji })
 }
 
-// Chat file attachments — any type, up to 100MB. Stored on R2 (kind="chat").
+// Chat file attachments — any type, up to 150MB. Stored on R2 (kind="chat").
 export async function uploadChatFile(file) {
-  if (file && file.size > 100 * 1024 * 1024) return { url: null, error: { message: 'File troppo grande (max 100MB)' } }
+  if (file && file.size > 150 * 1024 * 1024) return { url: null, error: { message: 'File troppo grande (max 150MB)' } }
   return r2Upload('chat', file, {})
 }
 
