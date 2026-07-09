@@ -1375,7 +1375,7 @@ export default function App() {
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} pauses={projectPauses} />}
-            {view === 'office' && hasPermission(user, 'access_admin_console') && <OfficePage tasks={tasks} profiles={profiles} projectMembers={projectMembers} user={user} currentProject={currentProject} onlineUsers={onlineUsers} />}
+            {view === 'office' && hasPermission(user, 'access_admin_console') && <OfficePage tasks={tasks} profiles={profiles} projectMembers={projectMembers} user={user} currentProject={currentProject} onlineUsers={onlineUsers} onNavigate={handleNavigate} />}
             {view === 'projects' && (hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || myPerms.can_manage_project || hasPermission(user, 'create_projects') || hasPermission(user, 'manage_project_members')) && <ProjectManagementPage user={user} profiles={profiles} projects={projects} currentProject={currentProject} myPerms={myPerms} onRefreshProjects={refreshProjects} onRefreshProfiles={async () => { const p = await getAllProfiles(); setProfiles(p) }} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'notifications' && renderMobileNotifications()}
           </div>
