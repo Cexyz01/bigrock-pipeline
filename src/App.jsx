@@ -55,6 +55,7 @@ import TimelinePage from './components/pages/TimelinePage'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
+import OfficePage from './components/pages/OfficePage'
 import PackPage from './components/pages/PackPage'
 import ReviewPage from './components/pages/ReviewPage'
 import GanttPage from './components/pages/GanttPage'
@@ -143,6 +144,7 @@ export default function App() {
   }, [user])
 
   const [adminFx, setAdminFx] = useState({ broadcastMsg: null, banInfo: null, shaking: 0, disco: 0, flipped: 0, gravity: 0 })
+  const [onlineUsers, setOnlineUsers] = useState([]) // live presence (admin-fx), deduped by user_id
   const adminChRef = useRef(null)
   const dmToastedRef = useRef(new Set())
   const chatOpenRef = useRef(false)
@@ -449,6 +451,17 @@ export default function App() {
           case 'turtles': setTurtleWalk(!!payload.enabled); break
           case 'alvise': setAlvise(!!payload.enabled); break
         }
+      })
+      .on('presence', { event: 'sync' }, () => {
+        const state = ch.presenceState()
+        const seen = new Set()
+        const arr = []
+        for (const metas of Object.values(state)) {
+          for (const m of metas) {
+            if (m?.user_id && !seen.has(m.user_id)) { seen.add(m.user_id); arr.push(m) }
+          }
+        }
+        setOnlineUsers(arr)
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -1362,6 +1375,7 @@ export default function App() {
             {view === 'crew' && <CrewPage profiles={profiles} user={user} currentProject={currentProject} />}
             {view === 'profile' && <ProfilePage user={user} onProfileUpdate={handleProfileUpdate} addToast={addToast} />}
             {view === 'activity' && hasPermission(user, 'access_activity') && <ActivityTrackerPage tasks={tasks} profiles={profiles} user={user} onNavigate={handleNavigate} currentProject={currentProject} pauses={projectPauses} />}
+            {view === 'office' && hasPermission(user, 'access_admin_console') && <OfficePage tasks={tasks} profiles={profiles} projectMembers={projectMembers} user={user} currentProject={currentProject} onlineUsers={onlineUsers} />}
             {view === 'projects' && (hasPermission(user, 'manage_project_settings') || hasPermission(user, 'manage_roles') || myPerms.can_manage_project || hasPermission(user, 'create_projects') || hasPermission(user, 'manage_project_members')) && <ProjectManagementPage user={user} profiles={profiles} projects={projects} currentProject={currentProject} myPerms={myPerms} onRefreshProjects={refreshProjects} onRefreshProfiles={async () => { const p = await getAllProfiles(); setProfiles(p) }} addToast={addToast} requestConfirm={requestConfirm} />}
             {view === 'notifications' && renderMobileNotifications()}
           </div>

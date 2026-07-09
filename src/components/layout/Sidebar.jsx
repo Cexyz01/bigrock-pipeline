@@ -3,7 +3,7 @@ import { isStaff, isAdmin, hasPermission, displayRole, DEPTS } from '../../lib/c
 import useIsMobile from '../../hooks/useIsMobile'
 
 // ── Notification category colors ──
-import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconGantt, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX, IconFolder, IconSettings, IconTimeline } from '../ui/Icons'
+import { IconHome, IconFilm, IconClipboard, IconLayout, IconBarChart, IconGantt, IconUsers, IconBell, IconCalendar, IconLogOut, IconEye, IconPalette, IconCheck, IconAlertTriangle, IconMessageCircle, IconMail, IconCards, IconX, IconFolder, IconSettings, IconTimeline, IconOffice } from '../ui/Icons'
 const NOTIF_CAT = {
   wip_update:    { label: 'WIP',       color: '#2563EB', bg: '#DBEAFE', icon: <IconPalette size={15} /> },
   task_assigned: { label: 'Assigned',  color: '#F28C28', bg: '#FFF4E6', icon: <IconClipboard size={15} /> },
@@ -56,6 +56,7 @@ export default function Sidebar({
   if (timelineAccess !== 'none') mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
   mainNav.push({ id: 'gantt', icon: <IconGantt size={20} />, label: 'Planning' })
   if (hasPermission(user, 'access_activity')) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
+  if (hasPermission(user, 'access_admin_console')) mainNav.push({ id: 'office', icon: <IconOffice size={20} />, label: 'Studio' })
   if (myPerms?.can_review) mainNav.push({ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount || 0 })
 
   const closePopups = () => { setShowCalendar(false); setShowNotifs(false) }
@@ -197,6 +198,9 @@ export default function Sidebar({
                 ] : []),
                 ...(hasPermission(user, 'access_activity') ? [
                   { id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity', show: true },
+                ] : []),
+                ...(hasPermission(user, 'access_admin_console') ? [
+                  { id: 'office', icon: <IconOffice size={20} />, label: 'Studio', show: true },
                 ] : []),
                 ...(myPerms?.can_review ? [{ id: 'review', icon: <IconEye size={20} />, label: 'Review', badge: reviewCount, show: true }] : []),
                 { id: 'calendar', icon: <IconCalendar size={20} />, label: 'Calendar', show: true, action: () => { setShowCalendar(true); setShowMore(false) } },
