@@ -33,6 +33,7 @@ export default function OfficePage({ tasks = [], profiles = [], projectMembers, 
   const engineRef = useRef(null)
   const [allWips, setAllWips] = useState([])
   const [selectedId, setSelectedId] = useState(null)
+  const [wipView, setWipView] = useState(null) // { wip, img } — inline WIP lightbox
   const [avatarOverrides, setAvatarOverrides] = useState({}) // id -> idx (persisted studio_avatar)
   const selectedIdRef = useRef(null)
 
@@ -183,8 +184,8 @@ export default function OfficePage({ tasks = [], profiles = [], projectMembers, 
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {selWips.map(w => (
-                      <div key={w.id} onClick={() => { if (w.task_id && onNavigate) onNavigate('tasks', w.task_id, { wipId: w.id }) }}
-                        style={{ background: '#1b2029', border: '1px solid #262d38', borderRadius: 10, padding: '9px 11px', cursor: w.task_id && onNavigate ? 'pointer' : 'default' }}>
+                      <div key={w.id} onClick={() => setWipView({ wip: w, img: 0 })}
+                        style={{ background: '#1b2029', border: '1px solid #262d38', borderRadius: 10, padding: '9px 11px', cursor: 'pointer' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                           <span style={{ fontSize: 12.5, fontWeight: 600, color: '#dbe2ea', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.task?.title || 'Task'}</span>
                           <span style={{ fontSize: 10.5, color: '#64748b', whiteSpace: 'nowrap' }}>{new Date(w.created_at).toLocaleDateString('it', { day: '2-digit', month: 'short' })}</span>
@@ -206,6 +207,37 @@ export default function OfficePage({ tasks = [], profiles = [], projectMembers, 
           )}
         </div>
       </Fade>
+
+      {/* ── inline WIP lightbox (simulation keeps running behind) ── */}
+      {wipView && (() => {
+        const w = wipView.wip, imgs = w.images || [], i = Math.min(wipView.img, Math.max(0, imgs.length - 1)), url = imgs[i]
+        return (
+          <div onClick={() => setWipView(null)} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(6,8,12,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#161a22', border: '1px solid #2a313d', borderRadius: 14, maxWidth: 'min(920px, 94vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid #262d38' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#eef2f6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.task?.title || 'WIP'}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>{selected?.name} · {new Date(w.created_at).toLocaleString('it', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+                {w.task_id && onNavigate && <button onClick={() => { const wp = w; setWipView(null); onNavigate('tasks', wp.task_id, { wipId: wp.id }) }} style={{ fontSize: 12, fontWeight: 600, color: '#F28C28', background: 'rgba(242,140,40,0.1)', border: '1px solid rgba(242,140,40,0.25)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}>Apri task ↗</button>}
+                <button onClick={() => setWipView(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}><IconX size={18} /></button>
+              </div>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1017', position: 'relative' }}>
+                {url ? <img src={url} alt="" style={{ maxWidth: '100%', maxHeight: '72vh', objectFit: 'contain', display: 'block' }} />
+                     : <div style={{ padding: 60, color: '#64748b', fontSize: 13 }}>Nessuna immagine</div>}
+                {imgs.length > 1 && (
+                  <>
+                    <button onClick={() => setWipView(v => ({ ...v, img: (i - 1 + imgs.length) % imgs.length }))} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 20, cursor: 'pointer' }}>‹</button>
+                    <button onClick={() => setWipView(v => ({ ...v, img: (i + 1) % imgs.length }))} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 20, cursor: 'pointer' }}>›</button>
+                    <div style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', fontSize: 11, color: '#cbd5e1', background: 'rgba(0,0,0,0.5)', padding: '2px 8px', borderRadius: 10 }}>{i + 1} / {imgs.length}</div>
+                  </>
+                )}
+              </div>
+              {w.note && <div style={{ padding: '10px 14px', fontSize: 13, color: '#c7d0da', borderTop: '1px solid #262d38', maxHeight: 120, overflowY: 'auto' }}>{w.note}</div>}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
