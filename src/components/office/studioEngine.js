@@ -179,42 +179,44 @@ export function createStudioEngine(canvas, base, students, opts = {}) {
   const dif = (px, py, img, w, h) => { if (!img || !img.complete) return; ctx.save(); ctx.translate((px + w) * SC, py * SC); ctx.scale(-1, 1); ctx.drawImage(img, 0, 0, w * SC, h * SC); ctx.restore(); };
   function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
   const pcFor = (on, which) => { if (!on) return imgs.pcoff; if (which === 'front') return imgs['pc' + (Math.floor(Date.now() / 230) % 3 + 1)]; if (which === 'back') return imgs.pcback; return imgs.pcside; };
-  function drawStation(s) { const owner = seatOwner[s.sc + ',' + s.sr]; const on = owner && owner.online; const cx = s.sc * TILE, cy = s.sr * TILE;
-    if (s.orient === 'up') { di(cx, cy - 16, imgs.chairB, 16, 32); di(cx - 16, cy - 32, imgs.desk, 48, 32); di(cx, cy - 42, pcFor(on, 'front'), 16, 32); if (s.deco) di(cx + 13, cy - 34, imgs.pot, 16, 16); }
-    else if (s.orient === 'down') { di(cx, cy - 18, imgs.chairB, 16, 32); di(cx - 16, cy + 2, imgs.desk, 48, 32); di(cx, cy - 2, pcFor(on, 'back'), 16, 32); if (s.deco) di(cx - 15, cy + 2, imgs.pot, 16, 16); }
-    else if (s.orient === 'left') { di(cx - 16, cy - 40, imgs.deskS, 16, 64); di(cx - 16, cy - 24, pcFor(on, 'side'), 16, 32); di(cx + 2, cy - 16, imgs.chairS, 16, 32); }
-    else if (s.orient === 'right') { dif(cx + 16, cy - 40, imgs.deskS, 16, 64); dif(cx + 16, cy - 24, pcFor(on, 'side'), 16, 32); dif(cx - 2, cy - 16, imgs.chairS, 16, 32); } }
+  function seatSprite(px, foot, ci, facing, frame) { const im = imgs['c' + ci]; if (!im) return; const col = 3 + (frame & 1); let rowY = 0, flip = false; if (facing === 'down') rowY = 0; else if (facing === 'up') rowY = 32; else { rowY = 64; flip = (facing === 'left'); }
+    const dx = (px - 8) * SC, dy = (foot - 32) * SC, dw = 16 * SC, dh = 32 * SC;
+    if (flip) { ctx.save(); ctx.translate(dx + dw, dy); ctx.scale(-1, 1); ctx.drawImage(im, col * 16, rowY, 16, 32, 0, 0, dw, dh); ctx.restore(); } else ctx.drawImage(im, col * 16, rowY, 16, 32, dx, dy, dw, dh); }
+  // Monitor sits against the wall, screen toward the centre; person is in front facing the wall.
+  function drawStation(s) { const o = seatOwner[s.sc + ',' + s.sr]; const on = o && o.online; const work = o && o.state === 'work'; const cx = s.sc * TILE, cy = s.sr * TILE, px = cx + TILE / 2, fr = o ? o.frame : 0;
+    if (s.orient === 'up') { di(cx - 16, cy - 32, imgs.desk, 48, 32); di(cx, cy - 42, pcFor(on, 'front'), 16, 32); if (s.deco) di(cx + 13, cy - 34, imgs.pot, 16, 16); di(cx, cy + 4, imgs.chairB, 16, 32); if (work) { seatSprite(px, cy + 22, o.ci, 'up', fr); drawLabel(px, cy + 22, o); } }
+    else if (s.orient === 'down') { di(cx, cy - 14, imgs.chairF, 16, 32); if (work) seatSprite(px, cy + 2, o.ci, 'down', fr); di(cx - 16, cy + 4, imgs.desk, 48, 32); di(cx, cy + 2, pcFor(on, 'back'), 16, 32); if (s.deco) di(cx - 15, cy + 8, imgs.pot, 16, 16); if (work) drawLabel(px, cy + 22, o); }
+    else if (s.orient === 'left') { di(cx - 16, cy - 40, imgs.deskS, 16, 64); di(cx - 16, cy - 22, pcFor(on, 'side'), 16, 32); di(cx + 2, cy - 14, imgs.chairS, 16, 32); if (work) { seatSprite(px + 2, cy + 16, o.ci, 'left', fr); drawLabel(px + 2, cy + 16, o); } }
+    else if (s.orient === 'right') { dif(cx + 16, cy - 40, imgs.deskS, 16, 64); dif(cx + 16, cy - 22, pcFor(on, 'side'), 16, 32); dif(cx - 2, cy - 14, imgs.chairS, 16, 32); if (work) { seatSprite(px - 2, cy + 16, o.ci, 'right', fr); drawLabel(px - 2, cy + 16, o); } } }
   function bubbleAt(px, foot, text, b, f, big) { const by = foot - 40; ctx.font = '800 ' + ((big ? 8.5 : 7) * SC) + 'px ui-sans-serif,system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const w = ctx.measureText(text).width + (big ? 11 : 8) * SC, h = (big ? 13 : 11) * SC, bx = px * SC, byy = by * SC;
     ctx.fillStyle = 'rgba(0,0,0,.35)'; rrect(bx - w / 2 + 1.5, byy - h + 1.5, w, h, 4.5 * SC); ctx.fill();
     ctx.fillStyle = b; rrect(bx - w / 2, byy - h, w, h, 4.5 * SC); ctx.fill();
     ctx.beginPath(); ctx.moveTo(bx - 4 * SC, byy - 2); ctx.lineTo(bx + 4 * SC, byy - 2); ctx.lineTo(bx, byy + 4 * SC); ctx.closePath(); ctx.fill();
     ctx.fillStyle = f; ctx.fillText(text, bx, byy - h / 2); }
-  function drawChar(ch) { if (ch.state === 'break' && ch.spot && ch.spot.hidden) return; const seated = ch.state === 'work';
-    const foot = seated ? (ch.orient === 'up' ? ch.pos.r * TILE + 22 : ch.pos.r * TILE + 18) : ch.pos.r * TILE + 16;
-    const px = ch.pos.c * TILE + TILE / 2, im = imgs['c' + ch.ci]; if (!im) return;
-    let col = 0, rowY = 0, flip = false;
-    if (seated) { col = 3 + (ch.frame & 1); const d = ch.orient; if (d === 'down') rowY = 0; else if (d === 'up') rowY = 32; else { rowY = 64; flip = (d === 'left'); } }
-    else if (ch.state === 'break') { col = 0; rowY = 0; }
-    else { const seq = [0, 1, 2, 1]; col = seq[ch.frame % 4]; const d = ch.dir; if (d === 'down') rowY = 0; else if (d === 'up') rowY = 32; else { rowY = 64; flip = (d === 'left'); } }
-    const dx = (px - 8) * SC, dy = (foot - 32) * SC, dw = 16 * SC, dh = 32 * SC;
-    if (flip) { ctx.save(); ctx.translate(dx + dw, dy); ctx.scale(-1, 1); ctx.drawImage(im, col * 16, rowY, 16, 32, 0, 0, dw, dh); ctx.restore(); }
-    else ctx.drawImage(im, col * 16, rowY, 16, 32, dx, dy, dw, dh);
-    ctx.font = '700 ' + (7 * SC) + 'px ui-sans-serif,system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  function drawLabel(px, foot, ch) { ctx.font = '700 ' + (7 * SC) + 'px ui-sans-serif,system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillText(ch.name, px * SC, (foot + 2) * SC); ctx.fillStyle = ch.online ? '#eef2f6' : '#64748b'; ctx.fillText(ch.name, px * SC, (foot + 2) * SC - 1);
     if (ch.bubble === 'WIP!') bubbleAt(px, foot, 'WIP!', '#2563EB', '#fff', true);
     else if (ch.state === 'break') bubbleAt(px, foot, '☕', '#f5b862', '#3a2f1a', true);
-    else if (seated && ch.react) bubbleAt(px, foot, ch.react, '#ffffff', '#111', false);
-    else if (seated && ch.st === 'green') bubbleAt(px, foot, '✓ approvato', '#10B981', '#04231a', true);
-    else if (seated && ch.st === 'blue') bubbleAt(px, foot, 'WIP', '#3B82F6', '#fff', true); }
+    else if (ch.state === 'work' && ch.react) bubbleAt(px, foot, ch.react, '#ffffff', '#111', false);
+    else if (ch.state === 'work' && ch.st === 'green') bubbleAt(px, foot, '✓ approvato', '#10B981', '#04231a', true);
+    else if (ch.state === 'work' && ch.st === 'blue') bubbleAt(px, foot, 'WIP', '#3B82F6', '#fff', true); }
+  function drawChar(ch) { if (ch.state === 'break' && ch.spot && ch.spot.hidden) return;
+    const foot = ch.pos.r * TILE + 16, px = ch.pos.c * TILE + TILE / 2, im = imgs['c' + ch.ci]; if (!im) return;
+    let col = 0, rowY = 0, flip = false;
+    if (ch.state === 'break') { col = 0; rowY = 0; } else { const seq = [0, 1, 2, 1]; col = seq[ch.frame % 4]; const d = ch.dir; if (d === 'down') rowY = 0; else if (d === 'up') rowY = 32; else { rowY = 64; flip = (d === 'left'); } }
+    const dx = (px - 8) * SC, dy = (foot - 32) * SC, dw = 16 * SC, dh = 32 * SC;
+    if (flip) { ctx.save(); ctx.translate(dx + dw, dy); ctx.scale(-1, 1); ctx.drawImage(im, col * 16, rowY, 16, 32, 0, 0, dw, dh); ctx.restore(); }
+    else ctx.drawImage(im, col * 16, rowY, 16, 32, dx, dy, dw, dh);
+    drawLabel(px, foot, ch); }
   function render() { ctx.clearRect(0, 0, canvas.width, canvas.height); if (bg) ctx.drawImage(bg, 0, 0);
     const items = [];
-    for (const id of ['cg', 'concept', 'sound']) for (const s of rooms[id].seats) items.push({ y: s.sr * TILE + (s.orient === 'up' ? 14 : 8), kind: 'desk', s });
+    for (const id of ['cg', 'concept', 'sound']) for (const s of rooms[id].seats) items.push({ y: s.sr * TILE + (s.orient === 'up' ? 22 : s.orient === 'down' ? 4 : 16), kind: 'desk', s });
     for (const d of decor) items.push({ y: d.cy, kind: 'decor', d });
     benches.forEach(b => items.push({ y: b.r * TILE + TILE, kind: 'bench', t: b }));
     trees.forEach(t => items.push({ y: t.r * TILE + TILE, kind: 'tree', t }));
     bagniStalls.forEach(s => { if (s.by) items.push({ y: s.door.r * TILE + 8, kind: 'stalldoor', t: s }); });
-    for (const ch of chars) { if (ch.state === 'off') continue; items.push({ y: (ch.state === 'work' ? ch.pos.r * TILE + 20 : ch.pos.r * TILE + TILE), kind: 'char', ch }); }
+    for (const ch of chars) { if (ch.state === 'off' || ch.state === 'work') continue; items.push({ y: ch.pos.r * TILE + TILE, kind: 'char', ch }); }
     items.sort((a, b) => a.y - b.y);
     for (const it of items) {
       if (it.kind === 'desk') drawStation(it.s);
