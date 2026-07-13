@@ -52,6 +52,7 @@ import ShotTrackerPage from './components/pages/ShotTrackerPage'
 import TasksPage from './components/pages/TasksPage'
 import StoryboardPage from './components/pages/StoryboardPage'
 import TimelinePage from './components/pages/TimelinePage'
+import Timeline2Page from './components/pages/Timeline2Page'
 import CrewPage from './components/pages/CrewPage'
 import ProfilePage from './components/pages/ProfilePage'
 import ActivityTrackerPage from './components/pages/ActivityTrackerPage'
@@ -1225,6 +1226,10 @@ export default function App() {
       ? 'view'
       : 'none'
 
+  // "Timeline 2" — a secret staff-only sandbox (docenti / producer / admin).
+  // A full DB copy of the timeline they can test on without touching the real one.
+  const canUseTimeline2 = isAdmin(user) || user.role_slug === 'producer' || user.role_slug === 'docente'
+
   // ── Notification rendering for mobile full-page view ──
   const renderMobileNotifications = () => {
     const NOTIF_CAT = {
@@ -1324,16 +1329,17 @@ export default function App() {
         requestConfirm={requestConfirm} unreadCount={unreadCount} tcgGameActive={tcgGameActive}
         reviewCount={tasks.filter(t => t.status === 'review').length}
         projects={projects} currentProject={currentProject} onSelectProject={handleSelectProject}
-        myPerms={myPerms} timelineAccess={timelineAccess}
+        myPerms={myPerms} timelineAccess={timelineAccess} canUseTimeline2={canUseTimeline2}
       />
 
       {/* Main content */}
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Full-bleed views: storyboard, timeline, pack — no padding, no maxWidth */}
-        {(view === 'storyboard' || view === 'timeline' || view === 'pack' || view === 'gantt' || view === 'review') ? (
+        {(view === 'storyboard' || view === 'timeline' || view === 'timeline2' || view === 'pack' || view === 'gantt' || view === 'review') ? (
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', ...(isMobile ? { paddingBottom: 49 } : {}) }}>
             {view === 'storyboard' && <StoryboardPage shots={shots} assets={assets} tasks={tasks} profiles={profiles} user={user} currentProject={currentProject} addToast={addToast} />}
             {view === 'timeline' && timelineAccess !== 'none' && <TimelinePage shots={shots} user={user} onUpdateShot={handleUpdateShot} onUploadShotAudio={handleUploadShotAudio} onUploadOutput={handleUploadOutput} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} accessMode={timelineAccess} currentProject={currentProject} onUpdateTimelineViewers={handleUpdateTimelineViewers} />}
+            {view === 'timeline2' && canUseTimeline2 && <Timeline2Page user={user} currentProject={currentProject} addToast={addToast} requestConfirm={requestConfirm} onGoToShotTasks={(shotId) => { setDeepLink({ type: 'shotFilter', id: shotId }); setView('tasks') }} />}
             {view === 'pack' && (hasPermission(user, 'manage_tcg') || tcgGameActive) && (
               <PackPage user={user} addToast={addToast} requestConfirm={requestConfirm} tcgGameActive={tcgGameActive} onGameStateChange={setTcgGameActive} />
             )}

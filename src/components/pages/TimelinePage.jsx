@@ -31,7 +31,10 @@ const videoThumb = () => null
 const playableVideoUrl = (url) => url || null
 
 // ── Main Component ──
-export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, requestConfirm, onGoToShotTasks, accessMode = 'edit', currentProject, onUpdateTimelineViewers }) {
+export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAudio, onUploadOutput, addToast, requestConfirm, onGoToShotTasks, accessMode = 'edit', currentProject, onUpdateTimelineViewers, sandbox = false }) {
+  // Sandbox (Timeline 2): a staff-only test copy. The "Permessi" tab controls
+  // which students may view the REAL timeline (writes to the live project), so
+  // it must never appear here — hide it and pin the header label to "Timeline 2".
   // View-only students (their per-project category was granted read access by
   // staff): they can watch the player and scrub the timeline but cannot edit
   // anything — no table, no Shot Properties panel, no export, no Permessi tab.
@@ -48,7 +51,9 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
   const playerZoom = 100
   const [tab, setTab] = useState('player')
   // Viewers are pinned to the player — they never have access to table/permissions.
-  const activeTab = isViewer ? 'player' : tab
+  // In the sandbox the Permessi tab doesn't exist, so fall back to the player if
+  // a stale 'permissions' tab was selected before switching modes.
+  const activeTab = isViewer ? 'player' : (sandbox && tab === 'permissions' ? 'player' : tab)
   const [tableDurations, setTableDurations] = useState({})
 
   // ── Timeline visibility config (Permessi tab) ──
@@ -992,7 +997,10 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid #1E293B', flexShrink: 0, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <IconTimeline size={18} color={ACCENT} />
-          <span style={{ fontSize: 16, fontWeight: 700 }}>Timeline</span>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{sandbox ? 'Timeline 2' : 'Timeline'}</span>
+          {sandbox && (
+            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', color: '#FBBF24', background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.4)', padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase' }}>Test</span>
+          )}
           <span style={{ fontSize: 12, color: '#94A3B8' }}>
             {timelineShots.length} shots
             {orderedShots.length > timelineShots.length && (
@@ -1019,7 +1027,7 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
           )}
           {!isViewer && (
           <div style={{ display: 'flex', background: '#1E293B', borderRadius: 6, padding: 2 }}>
-            {[{ id: 'player', label: 'Player' }, { id: 'table', label: 'Tabella' }, { id: 'permissions', label: 'Permessi' }].map(t => (
+            {[{ id: 'player', label: 'Player' }, { id: 'table', label: 'Tabella' }, ...(sandbox ? [] : [{ id: 'permissions', label: 'Permessi' }])].map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: '3px 12px', borderRadius: 5, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
                 background: tab === t.id ? ACCENT : 'transparent',

@@ -303,6 +303,46 @@ export async function deleteShot(id) {
   return supabase.from('shots').delete().eq('id', id)
 }
 
+// ── Timeline 2 (staff-only sandbox) ──
+//
+// A full, independent copy of the project's shots living in `timeline2_shots`.
+// Edits here NEVER touch the real `shots` table — it's a separate table, so
+// staff can freely test on it without impacting the live Timeline. See
+// migration 076_timeline2_sandbox.sql.
+
+export async function getTimeline2Shots(projectId) {
+  let query = supabase.from('timeline2_shots').select('*').order('sort_order').order('code')
+  if (projectId) query = query.eq('project_id', projectId)
+  const { data } = await query
+  return data || []
+}
+
+export async function updateTimeline2Shot(id, updates) {
+  const { data, error } = await supabase.from('timeline2_shots').update(updates).eq('id', id).select().single()
+  return { data, error }
+}
+
+// Reset the sandbox for a project: wipe it, then copy every live shot in.
+// Each copied row gets a fresh id (so it's fully decoupled) and keeps a
+// pointer back to the original via source_shot_id.
+export async function seedTimeline2FromLive(projectId) {
+  if (!projectId) return { count: 0, error: { message: 'Nessun progetto selezionato' } }
+  const live = await getShots(projectId)
+  // Wipe any existing sandbox rows for this project first.
+  const { error: delErr } = await supabase.from('timeline2_shots').delete().eq('project_id', projectId)
+  if (delErr) return { count: 0, error: delErr }
+  if (!live.length) return { count: 0 }
+  const now = new Date().toISOString()
+  const rows = live.map(s => ({
+    ...s,
+    id: (globalThis.crypto?.randomUUID?.() || `${s.id}-t2-${Math.random().toString(36).slice(2)}`),
+    source_shot_id: s.id,
+    sandbox_copied_at: now,
+  }))
+  const { error } = await supabase.from('timeline2_shots').insert(rows)
+  return { count: rows.length, error }
+}
+
 // ── Assets ──
 
 export async function getAssets(projectId) {

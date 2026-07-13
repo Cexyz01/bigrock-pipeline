@@ -35,7 +35,7 @@ export default function Sidebar({
   notifications, onMarkRead, onMarkAllRead, onNavigate,
   requestConfirm, unreadCount, tcgGameActive, reviewCount,
   projects, currentProject, onSelectProject,
-  myPerms, timelineAccess = 'none',
+  myPerms, timelineAccess = 'none', canUseTimeline2 = false,
 }) {
   const isMobile = useIsMobile()
   const [showCalendar, setShowCalendar] = useState(false)
@@ -54,6 +54,7 @@ export default function Sidebar({
     { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard' },
   ]
   if (timelineAccess !== 'none') mainNav.push({ id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline' })
+  if (canUseTimeline2) mainNav.push({ id: 'timeline2', icon: <IconTimeline size={20} />, label: 'Timeline 2' })
   mainNav.push({ id: 'gantt', icon: <IconGantt size={20} />, label: 'Planning' })
   if (hasPermission(user, 'access_activity')) mainNav.push({ id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity' })
   if (hasPermission(user, 'access_admin_console')) mainNav.push({ id: 'office', icon: <IconOffice size={20} />, label: 'Studio' })
@@ -195,6 +196,9 @@ export default function Sidebar({
                 { id: 'storyboard', icon: <IconLayout size={20} />, label: 'Storyboard', show: true },
                 ...(timelineAccess !== 'none' ? [
                   { id: 'timeline', icon: <IconTimeline size={20} />, label: 'Timeline', show: true },
+                ] : []),
+                ...(canUseTimeline2 ? [
+                  { id: 'timeline2', icon: <IconTimeline size={20} />, label: 'Timeline 2', show: true },
                 ] : []),
                 ...(hasPermission(user, 'access_activity') ? [
                   { id: 'activity', icon: <IconBarChart size={20} />, label: 'Activity', show: true },
