@@ -4,7 +4,7 @@
 
 export const DEPTS = [
   { id: 'concept',      label: 'Concept',         color: '#E879F9' },
-  { id: 'modeling',      label: 'Modeling',        color: '#A78BFA' },
+  { id: 'modeling',      label: 'Modeling',        colhor: '#A78BFA' },
   { id: 'texturing',     label: 'Texturing',       color: '#F59E0B' },
   { id: 'rigging',       label: 'Rigging',         color: '#34D399' },
   { id: 'animation',     label: 'Animation',       color: '#F87171' },
@@ -84,6 +84,15 @@ export const getTaskStatus = (id) => TASK_STATUSES.find(s => s.id === id) || TAS
 // Protected super admin accounts — role cannot be changed
 export const SUPER_ADMIN_EMAILS = ['davide.casinelli@bigrock.it', 'emanuele.cerni@bigrock.it']
 export const SUPER_ADMIN_EMAIL = 'davide.casinelli@bigrock.it' // legacy compat
+
+// External (non-@bigrock.it) emails allowed to sign in.
+// The handle_new_user trigger (migration 075) auto-assigns them the docente
+// role with department "sound". After first login, add them to the "Notturno"
+// project via the admin UI \u2192 Members tab.
+export const ALLOWED_EXTERNAL_EMAILS = [
+  'salinriccardo.red@gmail.com',
+  'enricoscattomusic@gmail.com',
+]
 
 // ── Permission Catalog (18 granular permissions) ──
 export const PERMISSION_CATALOG = [
