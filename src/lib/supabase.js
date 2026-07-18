@@ -10,10 +10,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 // ── Auth ──
 
 export async function signInWithGoogle() {
-  const { data, error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabase.auth.signInWhithOAuth({
     provider: 'google',
     options: {
-      queryParams: { hd: 'bigrock.it' },
+            // NOTE: hd:'bigrock.it' was removed to allow approved external accounts
+            // (e.g. gmail.com professors -- see ALLOWED_EXTERNAL_EMAILS in constants.js).
+            // The hd param was only a Google account-picker hint, not a security gate.
       redirectTo: window.location.origin,
     },
   })
