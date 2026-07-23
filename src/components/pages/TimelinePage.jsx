@@ -1057,21 +1057,18 @@ export default function TimelinePage({ shots, user, onUpdateShot, onUploadShotAu
             background: loop ? ACCENT + '30' : '#1E293B', border: `1px solid ${loop ? ACCENT : '#334155'}`,
             borderRadius: 5, padding: '3px 8px', fontSize: 10, color: loop ? ACCENT : '#94A3B8', cursor: 'pointer', fontWeight: 600,
           }}>Loop</button>
-          {!isViewer && (
-            <button onClick={() => setExportSD(s => !s)} disabled={exporting} title="Risoluzione export"
-              style={{
-                background: exportSD ? ACCENT + '30' : '#1E293B', border: `1px solid ${exportSD ? ACCENT : '#334155'}`,
-                borderRadius: 5, padding: '3px 8px', fontSize: 10, color: exportSD ? ACCENT : '#94A3B8',
-                cursor: exporting ? 'default' : 'pointer', fontWeight: 700, opacity: exporting ? 0.5 : 1,
-              }}>{exportSD ? 'SD' : 'HD'}</button>
-          )}
-          {!isViewer && (
-            <button onClick={handleExport} disabled={exporting} style={{
-              background: '#1E293B', border: '1px solid #334155', borderRadius: 5,
-              padding: '4px 10px', fontSize: 11, color: '#E2E8F0', cursor: 'pointer', fontWeight: 600,
-              opacity: exporting ? 0.5 : 1,
-            }}>{exporting ? 'Exporting...' : 'Export MP4'}</button>
-          )}
+          {/* Export is available to everyone who can see the Timeline (edit + view tiers) */}
+          <button onClick={() => setExportSD(s => !s)} disabled={exporting} title="Risoluzione export"
+            style={{
+              background: exportSD ? ACCENT + '30' : '#1E293B', border: `1px solid ${exportSD ? ACCENT : '#334155'}`,
+              borderRadius: 5, padding: '3px 8px', fontSize: 10, color: exportSD ? ACCENT : '#94A3B8',
+              cursor: exporting ? 'default' : 'pointer', fontWeight: 700, opacity: exporting ? 0.5 : 1,
+            }}>{exportSD ? 'SD' : 'HD'}</button>
+          <button onClick={handleExport} disabled={exporting} style={{
+            background: '#1E293B', border: '1px solid #334155', borderRadius: 5,
+            padding: '4px 10px', fontSize: 11, color: '#E2E8F0', cursor: 'pointer', fontWeight: 600,
+            opacity: exporting ? 0.5 : 1,
+          }}>{exporting ? 'Exporting...' : 'Export MP4'}</button>
         </div>
       </div>
 
